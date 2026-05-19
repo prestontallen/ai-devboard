@@ -788,6 +788,38 @@ func TestSetBlockPRInsertsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestFormatTicketBlockNoNotesWhenEmpty(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title: "Refactor auth",
+		ID:    "auth-1",
+		Repo:  "api",
+	})
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "**Notes**") {
+		t.Errorf("expected no **Notes** line when NotesRef is empty:\n%s", joined)
+	}
+}
+
+func TestFormatTicketBlockNotesWhenSet(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title:    "Refactor auth",
+		ID:       "auth-1",
+		PR:       "https://example.com/pr/1",
+		NotesRef: "notes/auth-1.md",
+		Started:  "2026-05-19",
+	})
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "  - **Notes**: notes/auth-1.md") {
+		t.Errorf("expected **Notes**: line:\n%s", joined)
+	}
+	iPR := strings.Index(joined, "**PR**")
+	iNotes := strings.Index(joined, "**Notes**")
+	iStarted := strings.Index(joined, "**Started**")
+	if !(iPR < iNotes && iNotes < iStarted) {
+		t.Errorf("expected PR < Notes < Started:\n%s", joined)
+	}
+}
+
 func TestWriteAtomic(t *testing.T) {
 	tmpdir := t.TempDir()
 	dst := filepath.Join(tmpdir, "x.md")

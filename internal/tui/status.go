@@ -12,7 +12,10 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
+	"time"
+
 	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/day2day/internal/note"
 	"github.com/prestontallen/day2day/internal/parse"
 	"github.com/prestontallen/day2day/internal/pr"
 	"github.com/prestontallen/day2day/internal/style"
@@ -53,11 +56,12 @@ func (b blockItem) Description() string {
 func (b blockItem) FilterValue() string { return b.block.ID + " " + b.block.Title }
 
 type keymap struct {
-	Next   key.Binding
-	Prev   key.Binding
-	Quit   key.Binding
-	Help   key.Binding
-	EditPR key.Binding
+	Next      key.Binding
+	Prev      key.Binding
+	Quit      key.Binding
+	Help      key.Binding
+	EditPR    key.Binding
+	EditNotes key.Binding
 }
 
 func newKeyMap() keymap {
@@ -82,28 +86,37 @@ func newKeyMap() keymap {
 			key.WithKeys("p"),
 			key.WithHelp("p", "edit PR"),
 		),
+		EditNotes: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "add note"),
+		),
 	}
 }
 
 func (k keymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Prev, k.EditPR, k.Quit, k.Help}
+	return []key.Binding{k.Next, k.Prev, k.EditPR, k.EditNotes, k.Quit, k.Help}
 }
 
 func (k keymap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Next, k.Prev, k.EditPR}, {k.Quit, k.Help}}
+	return [][]key.Binding{{k.Next, k.Prev, k.EditPR, k.EditNotes}, {k.Quit, k.Help}}
 }
 
-// viewMode tracks whether the model is in list view or PR edit view.
+// viewMode tracks whether the model is in list view, PR edit view, or note add view.
 type viewMode int
 
 const (
 	modeList viewMode = iota
 	modeEditPR
+	modeAddNote
 )
 
 // prWriter is the function the TUI uses to persist a new PR value. Tests can
 // swap it in to avoid touching the filesystem.
 type prWriter func(id, value string) (pr.Result, error)
+
+// noteAppender is the function the TUI uses to append a note entry. Tests can
+// swap it in to avoid touching the filesystem.
+type noteAppender func(id, body string) error
 
 // Status is the top-level Bubble Tea model.
 type Status struct {
@@ -122,7 +135,13 @@ type Status struct {
 	prValue   string // bound value backing the huh input
 	prStatus  string // last-write status line shown below the list
 
-	writePR prWriter
+	noteForm   *huh.Form
+	noteTarget string // block ID receiving the new note
+	noteValue  string // bound value backing the huh text input
+	noteStatus string // last-write status line shown below the list
+
+	writePR    prWriter
+	appendNote noteAppender
 }
 
 type sectionView struct {
@@ -136,6 +155,39 @@ func NewStatus(wd model.Workdir, doc *model.WorkDoc) *Status {
 	return newStatusWithWriter(wd, doc, func(id, value string) (pr.Result, error) {
 		return pr.SetPR(wd, id, value)
 	})
+}
+
+// startNoteAdd transitions into modeAddNote with a fresh Huh multi-line form.
+func (s *Status) startNoteAdd(b *model.Block) tea.Cmd {
+	s.mode = modeAddNote
+	s.noteTarget = b.ID
+	s.noteValue = ""
+	s.noteForm = huh.NewForm(
+		huh.NewGroup(
+			huh.NewText().
+				Title("New note for "+strings.ToUpper(b.ID)).
+				Description("Markdown body. Submit (Ctrl+D) appends; Esc cancels.").
+				Value(&s.noteValue),
+		),
+	)
+	return s.noteForm.Init()
+}
+
+// submitNote persists the note via appendNote and re-parses WORK.md.
+func (s *Status) submitNote() {
+	if strings.TrimSpace(s.noteValue) == "" {
+		s.noteStatus = "note discarded (empty body)"
+		return
+	}
+	if err := s.appendNote(s.noteTarget, s.noteValue); err != nil {
+		s.noteStatus = "error: " + err.Error()
+		return
+	}
+	s.noteStatus = fmt.Sprintf("note appended to %s", strings.ToUpper(s.noteTarget))
+	if doc, err := parse.File(s.wd.WorkMD()); err == nil {
+		s.doc = doc
+		s.reloadSections()
+	}
 }
 
 func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Status {
@@ -156,7 +208,7 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 		return sectionView{name: name, list: l}
 	}
 
-	return &Status{
+	s := &Status{
 		wd:  wd,
 		doc: doc,
 		sections: []sectionView{
@@ -168,6 +220,11 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 		help:    help.New(),
 		writePR: w,
 	}
+	s.appendNote = func(id, body string) error {
+		_, err := note.Append(wd, id, body, time.Now())
+		return err
+	}
+	return s
 }
 
 func (s *Status) Init() tea.Cmd { return nil }
@@ -262,6 +319,25 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, cmd
 		}
 
+		if s.mode == modeAddNote {
+			// Esc cancels; submit (form returns Completed) appends via appendNote.
+			if msg.String() == "esc" {
+				s.mode = modeList
+				s.noteForm = nil
+				return s, nil
+			}
+			form, cmd := s.noteForm.Update(msg)
+			if f, ok := form.(*huh.Form); ok {
+				s.noteForm = f
+			}
+			if s.noteForm.State == huh.StateCompleted {
+				s.submitNote()
+				s.mode = modeList
+				s.noteForm = nil
+			}
+			return s, cmd
+		}
+
 		// Don't intercept when the list is filtering — let the user type the query.
 		if s.sections[s.active].list.FilterState() == list.Filtering {
 			break
@@ -283,6 +359,11 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, s.startPREdit(b)
 			}
 			return s, nil
+		case key.Matches(msg, s.keys.EditNotes):
+			if b := s.selectedBlock(); b != nil && b.ID != "" {
+				return s, s.startNoteAdd(b)
+			}
+			return s, nil
 		}
 	}
 
@@ -290,6 +371,14 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		form, cmd := s.prForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			s.prForm = f
+		}
+		return s, cmd
+	}
+
+	if s.mode == modeAddNote && s.noteForm != nil {
+		form, cmd := s.noteForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			s.noteForm = f
 		}
 		return s, cmd
 	}
@@ -317,6 +406,9 @@ func (s *Status) detailPane() string {
 	if s.prStatus != "" {
 		lines = append(lines, style.Dim.Render(s.prStatus))
 	}
+	if s.noteStatus != "" {
+		lines = append(lines, style.Dim.Render(s.noteStatus))
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -327,6 +419,9 @@ func (s *Status) View() string {
 
 	if s.mode == modeEditPR && s.prForm != nil {
 		return s.prForm.View()
+	}
+	if s.mode == modeAddNote && s.noteForm != nil {
+		return s.noteForm.View()
 	}
 
 	// Tab header

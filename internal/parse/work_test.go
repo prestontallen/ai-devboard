@@ -213,6 +213,32 @@ func TestParsePRMissing(t *testing.T) {
 	}
 }
 
+func TestNonEpicNotesRefRoundTrip(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Repo**: api
+  - **PR**:
+  - **Notes**: notes/auth-1.md
+  - **Started**: 2026-05-15
+
+## Next
+
+## Someday
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if b.NotesRef != "notes/auth-1.md" {
+		t.Errorf("NotesRef = %q, want notes/auth-1.md", b.NotesRef)
+	}
+}
+
 func TestTopLevelXTransient(t *testing.T) {
 	src := `## Now
 - [x] **DONE** — should not linger

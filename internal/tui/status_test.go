@@ -159,6 +159,29 @@ func TestTUIDetailPaneShowsEmDashOnEmpty(t *testing.T) {
 	}
 }
 
+func TestTUIPressNEntersNoteMode(t *testing.T) {
+	s := buildStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if s.mode != modeList {
+		t.Fatalf("initial mode = %v", s.mode)
+	}
+	if b := s.selectedBlock(); b == nil {
+		t.Fatal("no item selected after window-size")
+	}
+
+	s.Update(keyMsg('n'))
+	if s.mode != modeAddNote {
+		t.Errorf("after n: mode = %v, want modeAddNote", s.mode)
+	}
+	if s.noteTarget != "auth-1" {
+		t.Errorf("noteTarget = %q, want auth-1", s.noteTarget)
+	}
+	if s.noteValue != "" {
+		t.Errorf("noteValue = %q, want empty (no pre-population for notes)", s.noteValue)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && indexOf(s, sub) >= 0
 }

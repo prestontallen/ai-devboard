@@ -52,6 +52,7 @@ var (
 	prLineRe      = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
 	tagsLineRe    = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
 	startedLineRe = regexp.MustCompile(`^  - \*\*Started\*\*:`)
+	notesLineRe   = regexp.MustCompile(`^  - \*\*Notes\*\*:(\s.*)?$`)
 )
 
 // SetBlockPR rewrites (or inserts) the `**PR**:` line for the block identified
@@ -563,6 +564,59 @@ func AppendToSection(doc *model.WorkDoc, section model.SectionName, blockLines [
 	return out, nil
 }
 
+// SetBlockNotesRef rewrites (or inserts) the `**Notes**:` line for the block
+// identified by blockID. Insertion point when the line is absent: after the
+// `**PR**:` line if present, otherwise before `**Started**:`, otherwise at the
+// end of the block's metadata range.
+func SetBlockNotesRef(doc *model.WorkDoc, blockID, value string) ([]string, error) {
+	b := doc.BlockByID(blockID)
+	if b == nil {
+		return nil, fmt.Errorf("%w: %q", ErrBlockNotFound, blockID)
+	}
+
+	out := make([]string, len(doc.Lines))
+	copy(out, doc.Lines)
+
+	newLine := "  - **Notes**: " + value
+
+	metaStart := b.StartLine
+	metaEnd := b.EndLine
+
+	// 1) Existing Notes line → rewrite in place.
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if notesLineRe.MatchString(out[i]) {
+			out[i] = newLine
+			return out, nil
+		}
+	}
+
+	// 2) Insert after PR line, else before Started, else at end of metadata.
+	insertAt := -1
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if prLineRe.MatchString(out[i]) {
+			insertAt = i + 1
+			break
+		}
+	}
+	if insertAt < 0 {
+		for i := metaStart; i < metaEnd && i < len(out); i++ {
+			if startedLineRe.MatchString(out[i]) {
+				insertAt = i
+				break
+			}
+		}
+	}
+	if insertAt < 0 {
+		insertAt = metaEnd
+	}
+
+	res := make([]string, 0, len(out)+1)
+	res = append(res, out[:insertAt]...)
+	res = append(res, newLine)
+	res = append(res, out[insertAt:]...)
+	return res, nil
+}
+
 // WriteAtomic writes lines to path with a trailing newline, via tempfile +
 // rename so a partial write cannot leave the target corrupted.
 func WriteAtomic(path string, lines []string) error {
@@ -657,10 +711,10 @@ func FormatTicketBlock(o BlockOptions) []string {
 	// PR is always rendered (even empty) so the field is visibly available
 	// for the user / TUI to fill in without re-editing the block manually.
 	lines = append(lines, "  - **PR**: "+o.PR)
+	add("Notes", o.NotesRef)
 	add("Started", o.Started)
 	addCSV("Files", o.Files)
 	add("Acceptance", o.Acceptance)
-	add("Notes", o.NotesRef)
 	add("Status", o.Status)
 
 	return lines

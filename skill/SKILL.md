@@ -58,7 +58,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Capture user friction | (spawned by agent; see Feedback capture) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
-| Open / append notes | manual: edit `notes/<id>.md` | manual-only |
+| Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
@@ -794,3 +794,25 @@ Signal vocabulary is closed — use exactly one of:
 `missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
 
 The user reviews captured feedback later via `worklog feedback`.
+
+## Note-taking
+
+Any ticket can carry a timestamped journal in `notes/<id>.md`. Use:
+
+    worklog note <id> "first note text"     # append
+    worklog note <id>                        # read existing notes
+    worklog note <id> --edit                 # Huh multi-line input
+    worklog note <id> --json                 # structured output
+
+The notes file is lazy-created on first use. For non-epic tickets, the
+`**Notes**: notes/<id>.md` line is auto-added to the WORK.md block.
+
+Entry format: each note is a `## YYYY-MM-DD HH:MM` heading followed by
+a free-form markdown body. New entries append at the bottom of the file.
+
+**Constraint**: do not include literal `## YYYY-MM-DD HH:MM` heading-like
+lines inside a note's body — they will be misparsed as new entries on read.
+If a note needs to quote one, indent it or use a different heading level
+(`### …`).
+
+In the TUI, press `n` on a selected ticket to open the same input.

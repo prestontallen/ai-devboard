@@ -65,6 +65,7 @@ scripts that handled validation, sync, and lint.`,
 		newReindexCmd(),
 		newSearchCmd(),
 		newFeedbackCmd(),
+		newNoteCmd(),
 		newSyncCmd(),
 		newLintSpecsCmd(),
 	)

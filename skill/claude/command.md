@@ -52,7 +52,7 @@ below; in every case it falls through to the same underlying behavior.
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
-| Open / append notes | manual: edit `notes/<id>.md` | manual-only |
+| Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
@@ -192,13 +192,30 @@ periodically to clear the "INDEX.md not updated" warnings emitted by
 
 ### note `<id>`
 
-**CLI not yet implemented.** Slash command and skill fall through to the
-manual procedure below.
+**CLI (available):** `worklog note <id> [text] [--edit] [--json]`
 
-1. If `notes/<id>.md` exists, open it and offer to append a dated section.
-2. If it doesn't exist, create it with the standard scaffold (Jira link, repo,
-   plan reference, child-ticket hierarchy, open questions) and link it from the
-   matching task block in `WORK.md` via `**Notes**: notes/<id>.md`.
+Appends a timestamped entry to `notes/<id>.md`, or reads existing notes.
+The file is lazy-created on first use. For non-epic tickets, `**Notes**:
+notes/<id>.md` is auto-added to the WORK.md block.
+
+Forms:
+
+- `worklog note <id>` — print all notes (Glamour-rendered on TTY, plain
+  markdown when piped).
+- `worklog note <id> "text"` — append a one-shot note.
+- `worklog note <id> --edit` — open a Huh multi-line input (TTY only).
+- `worklog note <id> --json` — structured JSON in either mode.
+
+JSON shape on append: `{"id":"...","file":"...","appended":{"timestamp":"...","body":"..."},
+"totalEntries":N,"createdFile":bool,"linkedInWorkMD":bool}`.
+JSON shape on read: `{"path":"...","exists":bool,"entries":[...],"count":N}`.
+
+In the TUI (`worklog tui`), pressing `n` on a selected item opens the
+same Huh multi-line input; submit appends, Esc cancels.
+
+Refusals (exit 64): combining positional text with `--edit`; empty body;
+`--edit` without a TTY.
+Exit 1: `<id>` not found in `WORK.md`.
 
 ### search `<term>`
 
