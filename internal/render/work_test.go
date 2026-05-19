@@ -126,6 +126,7 @@ func TestFormatTicketBlockMinimal(t *testing.T) {
 	want := []string{
 		"- [ ] **AUTH-1** — Refactor auth",
 		"  - **ID**: auth-1",
+		"  - **PR**: ",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -677,6 +678,113 @@ func TestAppendChildToNotesEmptyFile(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, "- [ ] lone-child: first ever") {
 		t.Errorf("expected child in empty file output: %q", s)
+	}
+}
+
+func TestFormatTicketBlockRendersEmptyPR(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title: "Refactor auth",
+		ID:    "auth-1",
+		Repo:  "api",
+		Tags:  []string{"refactor"},
+	})
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "\n  - **PR**: \n") && !strings.HasSuffix(joined, "  - **PR**: ") {
+		t.Errorf("expected literal `  - **PR**: ` (trailing space) line in:\n%q", joined)
+	}
+}
+
+func TestFormatTicketBlockFieldOrder(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title:   "t",
+		ID:      "x-1",
+		Repo:    "api",
+		Tags:    []string{"a"},
+		PR:      "url",
+		Started: "2026-05-19",
+	})
+	joined := strings.Join(got, "\n")
+	iID := strings.Index(joined, "**ID**")
+	iRepo := strings.Index(joined, "**Repo**")
+	iTags := strings.Index(joined, "**Tags**")
+	iPR := strings.Index(joined, "**PR**")
+	iStarted := strings.Index(joined, "**Started**")
+	if !(iID < iRepo && iRepo < iTags && iTags < iPR && iPR < iStarted) {
+		t.Errorf("field order wrong (want ID < Repo < Tags < PR < Started):\n%s", joined)
+	}
+}
+
+func TestSetBlockPRRoundTripPreservesValue(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Repo**: api
+  - **Tags**: refactor
+  - **PR**: https://example.com/pull/7
+  - **Started**: 2026-05-15
+`
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := SetBlockPR(doc, "auth-1", "https://example.com/pull/9")
+	if err != nil {
+		t.Fatalf("SetBlockPR: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	if !strings.Contains(joined, "  - **PR**: https://example.com/pull/9") {
+		t.Errorf("expected rewritten PR line:\n%s", joined)
+	}
+	if strings.Contains(joined, "pull/7") {
+		t.Errorf("old value should be replaced:\n%s", joined)
+	}
+}
+
+func TestSetBlockPREmptyValueKeepsLine(t *testing.T) {
+	src := `## Now
+- [ ] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Repo**: api
+  - **Tags**: refactor
+  - **PR**: https://example.com/pull/7
+  - **Started**: 2026-05-15
+`
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := SetBlockPR(doc, "auth-1", "")
+	if err != nil {
+		t.Fatalf("SetBlockPR: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	if !strings.Contains(joined, "  - **PR**: \n") {
+		t.Errorf("expected `  - **PR**: ` (trailing space) line preserved:\n%q", joined)
+	}
+}
+
+func TestSetBlockPRInsertsWhenMissing(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Repo**: api
+  - **Tags**: refactor
+  - **Started**: 2026-05-15
+`
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := SetBlockPR(doc, "auth-1", "https://example.com/pull/9")
+	if err != nil {
+		t.Fatalf("SetBlockPR: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	iTags := strings.Index(joined, "**Tags**")
+	iPR := strings.Index(joined, "**PR**")
+	iStarted := strings.Index(joined, "**Started**")
+	if !(iTags < iPR && iPR < iStarted) {
+		t.Errorf("expected PR between Tags and Started:\n%s", joined)
 	}
 }
 

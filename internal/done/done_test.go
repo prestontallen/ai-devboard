@@ -284,6 +284,55 @@ func TestRunRequiresSummary(t *testing.T) {
 	}
 }
 
+const prFixture = `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Repo**: api
+  - **Tags**: refactor
+  - **PR**: https://example.com/pull/77
+  - **Started**: 2026-05-15
+
+## Next
+
+## Someday
+`
+
+func TestRunArchiveInheritsBlockPR(t *testing.T) {
+	wd := fixtureWorkdir(t, map[string]string{"WORK.md": prFixture})
+	out, err := Run(wd, Inputs{
+		ID:      "auth-1",
+		Summary: "shipped.",
+	}, today)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, _ := os.ReadFile(out.ArchivePath)
+	s := string(data)
+	if !strings.Contains(s, "- **PR**: https://example.com/pull/77") {
+		t.Errorf("archive should inherit block PR:\n%s", s)
+	}
+}
+
+func TestRunArchivePRFlagOverridesBlock(t *testing.T) {
+	wd := fixtureWorkdir(t, map[string]string{"WORK.md": prFixture})
+	out, err := Run(wd, Inputs{
+		ID:      "auth-1",
+		Summary: "shipped.",
+		PR:      "https://example.com/pull/override",
+	}, today)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, _ := os.ReadFile(out.ArchivePath)
+	s := string(data)
+	if !strings.Contains(s, "- **PR**: https://example.com/pull/override") {
+		t.Errorf("archive should use --pr override:\n%s", s)
+	}
+	if strings.Contains(s, "pull/77") {
+		t.Errorf("override should beat block PR:\n%s", s)
+	}
+}
+
 func TestRunInvalidDate(t *testing.T) {
 	wd := fixtureWorkdir(t, map[string]string{"WORK.md": standaloneFixture})
 	_, err := Run(wd, Inputs{ID: "auth-1", Summary: "x", Completed: "yesterday"}, today)

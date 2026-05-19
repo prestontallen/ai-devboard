@@ -30,7 +30,7 @@ quit, ? for full help).`,
 				}
 				return err
 			}
-			return tui.Run(doc)
+			return tui.Run(wd, doc)
 		},
 	}
 }

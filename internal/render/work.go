@@ -48,6 +48,70 @@ func RemoveBlock(doc *model.WorkDoc, blockID string) ([]string, *model.Block, er
 
 var activeChildrenLineRe = regexp.MustCompile(`^(  - \*\*Active children\*\*:\s*)(.*)$`)
 
+var (
+	prLineRe      = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
+	tagsLineRe    = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
+	startedLineRe = regexp.MustCompile(`^  - \*\*Started\*\*:`)
+)
+
+// SetBlockPR rewrites (or inserts) the `**PR**:` line for the block identified
+// by blockID. The line is always rendered with a trailing space — even when
+// value is empty — to keep the field visibly available on disk.
+//
+// Insertion point when the line is absent: right after the `**Tags**:` line,
+// otherwise right before the `**Started**:` line, otherwise at the end of the
+// block's metadata range.
+func SetBlockPR(doc *model.WorkDoc, blockID, value string) ([]string, error) {
+	b := doc.BlockByID(blockID)
+	if b == nil {
+		return nil, fmt.Errorf("%w: %q", ErrBlockNotFound, blockID)
+	}
+
+	out := make([]string, len(doc.Lines))
+	copy(out, doc.Lines)
+
+	newLine := "  - **PR**: " + value
+
+	// 0-indexed metadata range: [StartLine, EndLine-1] inclusive. The bullet
+	// line itself is at StartLine-1 (1-indexed) → out[StartLine-1] in 0-indexed.
+	// Metadata begins at out[StartLine].
+	metaStart := b.StartLine // 0-indexed first metadata line
+	metaEnd := b.EndLine     // 0-indexed exclusive end
+
+	// 1) Existing PR line → rewrite in place.
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if prLineRe.MatchString(out[i]) {
+			out[i] = newLine
+			return out, nil
+		}
+	}
+
+	// 2) Insert after the last Tags line, else before Started, else at end.
+	insertAt := -1
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if tagsLineRe.MatchString(out[i]) {
+			insertAt = i + 1
+		}
+	}
+	if insertAt < 0 {
+		for i := metaStart; i < metaEnd && i < len(out); i++ {
+			if startedLineRe.MatchString(out[i]) {
+				insertAt = i
+				break
+			}
+		}
+	}
+	if insertAt < 0 {
+		insertAt = metaEnd
+	}
+
+	res := make([]string, 0, len(out)+1)
+	res = append(res, out[:insertAt]...)
+	res = append(res, newLine)
+	res = append(res, out[insertAt:]...)
+	return res, nil
+}
+
 // UpdateEpicActiveChildren finds the epic identified by epicID and appends
 // addChildID to its `**Active children**:` field. If the field reads
 // `<none>` it is replaced with the new id; otherwise the id is comma-
@@ -590,8 +654,10 @@ func FormatTicketBlock(o BlockOptions) []string {
 	add("Parent", o.Parent)
 	add("Repo", o.Repo)
 	addCSV("Tags", o.Tags)
+	// PR is always rendered (even empty) so the field is visibly available
+	// for the user / TUI to fill in without re-editing the block manually.
+	lines = append(lines, "  - **PR**: "+o.PR)
 	add("Started", o.Started)
-	add("PR", o.PR)
 	addCSV("Files", o.Files)
 	add("Acceptance", o.Acceptance)
 	add("Notes", o.NotesRef)

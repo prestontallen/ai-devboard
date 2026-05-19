@@ -48,6 +48,7 @@ below; in every case it falls through to the same underlying behavior.
 | Add a child of an epic | `worklog add --parent <epic-id> --id <child-id> --title "..."` | available |
 | Start a ticket | `worklog start <id>` (standalone or child-of-epic) | available |
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
+| Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Open / append notes | manual: edit `notes/<id>.md` | manual-only |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
@@ -131,6 +132,36 @@ Refusals (each exit 1 except summary-missing-no-TTY which is exit 64):
 - `<id>` is an epic — epic archival is not yet supported
 - `--summary` empty and stdin is not a TTY
 - `--completed` not a valid YYYY-MM-DD
+
+### pr `<id>`
+
+**CLI (available):** `worklog pr <id> [url] [--clear|--edit] [--json]`
+
+Reads or updates the `**PR**:` field on a live `WORK.md` ticket block.
+The field is always rendered on every ticket block (even when empty) so
+the slot stays visibly available for the TUI / human to fill in. Allowed
+on tickets in any section (`## Now`, `## Next`, `## Someday`). Any string
+is accepted — no URL validation.
+
+Forms:
+
+- `worklog pr <id>` — print current value (or `(empty)`); JSON shape
+  `{"id": "...", "pr": "...", "previous": "..."}`.
+- `worklog pr <id> <url>` — set the value.
+- `worklog pr <id> --clear` — empty the value (line stays rendered).
+- `worklog pr <id> --edit` — open an interactive Huh input pre-populated
+  with the current value (TTY only).
+
+In the TUI (`worklog tui`), pressing `p` on a selected item opens the
+same Huh prompt; submit writes via the same code path, Esc cancels.
+
+Refusals (exit 64): combining a positional URL with `--clear`,
+combining a positional URL with `--edit`, combining `--clear` with
+`--edit`, or `--edit` without a TTY.
+Exit 1: `<id>` not found in `WORK.md`.
+
+On archive (`worklog done`), the block's stored PR is carried into the
+archive entry's `**PR**:` line; `worklog done --pr <url>` overrides.
 
 ### add `<description>`
 

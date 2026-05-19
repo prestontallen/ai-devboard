@@ -54,6 +54,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Add a child of an epic | `worklog add --parent <epic-id> --id <child-id> --title "..."` | available |
 | Start a ticket | `worklog start <id>` (standalone or child-of-epic) | available |
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
+| Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Open / append notes | manual: edit `notes/<id>.md` | manual-only |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
@@ -647,8 +648,8 @@ INDEX.md text.
   - **Parent**: <epic-id>                 # only if this is a child of an epic
   - **Repo**: <repo-name>                 # optional, omit if cross-repo
   - **Tags**: tag1, tag2                  # comma-separated, lowercase
+  - **PR**: <url>                         # always rendered; value may be empty
   - **Started**: YYYY-MM-DD               # only when [~]
-  - **PR**: <url> or <none yet>           # optional
   - **Files**: `path/one.go`, `path/two.go`  # optional
   - **Acceptance**: one-line definition of done  # optional but recommended
   - **Notes**: notes/<id>.md              # if a notes file exists

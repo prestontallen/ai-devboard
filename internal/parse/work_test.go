@@ -154,6 +154,65 @@ func TestLineRanges(t *testing.T) {
 	}
 }
 
+func TestParsePRNonEmpty(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **PR**: https://github.com/example/pull/42
+  - **Started**: 2026-05-15
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if b.PR != "https://github.com/example/pull/42" {
+		t.Errorf("PR = %q", b.PR)
+	}
+}
+
+func TestParsePREmpty(t *testing.T) {
+	src := `## Now
+- [ ] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **PR**:
+  - **Started**: 2026-05-15
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if b.PR != "" {
+		t.Errorf("PR = %q, want empty", b.PR)
+	}
+}
+
+func TestParsePRMissing(t *testing.T) {
+	src := `## Now
+- [ ] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Started**: 2026-05-15
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if b.PR != "" {
+		t.Errorf("PR = %q, want empty (backward compat)", b.PR)
+	}
+}
+
 func TestTopLevelXTransient(t *testing.T) {
 	src := `## Now
 - [x] **DONE** — should not linger
