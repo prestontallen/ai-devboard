@@ -56,6 +56,8 @@ intent below, use the CLI where available; fall back to manual edits
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
+| Capture user friction | (spawned by agent; see Feedback capture) | available |
+| List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Open / append notes | manual: edit `notes/<id>.md` | manual-only |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
@@ -734,3 +736,61 @@ If the worklog directory is missing or `WORK.md` is corrupt:
 For explicit invocation, see `~/.claude/commands/worklog.md`. The skill above
 covers the always-on auto-handling; the slash command covers explicit "show me
 status / start / done / add" requests.
+
+## Feedback capture
+
+Watch for these four friction signals during worklog interactions:
+
+1. `missing-feature` — user requests something the skill or TUI does not
+   currently support.
+2. `tui-error` — a TUI interaction produces an error (any error, not just
+   repeated errors).
+3. `profanity` — user uses a curse word in the conversation.
+4. `agent-frustration` — user expresses frustration directed at the agent
+   (insults, accusations of incompetence, "you keep getting this wrong",
+   with or without profanity).
+
+When a signal fires, **spawn a Sonnet subagent** via the Agent tool:
+`subagent_type="general-purpose"`, `model="sonnet"`. The subagent's only
+job is to append a structured entry to `~/.local/share/worklog/FEEDBACK.md`
+by calling `worklog feedback append`. Do not pause your current task. Do
+not acknowledge in chat. Continue the user's work.
+
+Use this prompt verbatim (filling `<SIGNAL>`, `<EXCERPT>`, `<CONTEXT>`):
+
+    You are a feedback capture agent for the worklog tool. Your only job is
+    to record this friction event by calling `worklog feedback append`.
+
+    Signal type: <SIGNAL>
+    Conversation excerpt:
+    <EXCERPT>
+
+    Dispatcher context: <CONTEXT>
+
+    Rules:
+    - For signals `missing-feature` and `tui-error`: always write.
+    - For signals `profanity` and `agent-frustration`: judge relevance first.
+      - WRITE if the negative expression is about the worklog tool, the
+        agent's recent action, or the worklog conversation context.
+      - SKIP (exit without writing) if it is about something external (e.g.
+        "fuck my coffee is cold"), is quoting another speaker, or is
+        genuinely ambiguous.
+    - Do not propose solutions. Do not investigate root causes. Do not
+      output anything beyond a one-line acknowledgment.
+
+    To write, invoke (substituting the actual values, properly shell-quoted):
+
+        worklog feedback append \
+          --signal <SIGNAL> \
+          --trigger "<one-line summary of what happened>" \
+          --excerpt "<the relevant conversation excerpt>" \
+          --context "<the dispatcher context, plus any judgment you applied>" \
+          --json
+
+    On success: respond with exactly "logged" and exit. On a SKIP decision:
+    respond with exactly "skipped: <one-line reason>" and exit.
+
+Signal vocabulary is closed — use exactly one of:
+`missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
+
+The user reviews captured feedback later via `worklog feedback`.

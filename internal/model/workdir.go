@@ -77,6 +77,7 @@ func NewWorkdir(root string) (Workdir, error) {
 
 func (w Workdir) WorkMD() string     { return filepath.Join(w.Root, "WORK.md") }
 func (w Workdir) IndexMD() string    { return filepath.Join(w.Root, "INDEX.md") }
+func (w Workdir) FeedbackMD() string { return filepath.Join(w.Root, "FEEDBACK.md") }
 func (w Workdir) NotesDir() string   { return filepath.Join(w.Root, "notes") }
 func (w Workdir) ArchiveDir() string { return filepath.Join(w.Root, "archive") }
 

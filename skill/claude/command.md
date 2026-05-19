@@ -50,6 +50,8 @@ below; in every case it falls through to the same underlying behavior.
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
+| Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
+| List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Open / append notes | manual: edit `notes/<id>.md` | manual-only |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
@@ -210,6 +212,63 @@ plain markdown for pipes or `--plain`; structured JSON for agents via
 
 See `skill/SKILL.md` §5 for the full JSON shape, flag table, citation
 requirement, and stale-index advice.
+
+### feedback
+
+**CLI (available):** `worklog feedback [--signal S] [--since YYYY-MM-DD] [--json] [--plain]`
+
+Lists friction-signal entries captured by the worklog agent, stored in
+`FEEDBACK.md` in the worklog data directory.
+
+Forms:
+
+- `worklog feedback` — list all entries (Glamour-rendered on TTY, plain
+  markdown when piped).
+- `worklog feedback --signal missing-feature` — filter to one signal type.
+- `worklog feedback --since 2026-05-15` — entries on or after that date.
+- `worklog feedback --json` — structured output (see JSON shape below).
+- `worklog feedback --plain` — raw markdown regardless of TTY.
+
+JSON list shape:
+```json
+{
+  "entries": [
+    {
+      "timestamp": 1716148991,
+      "signal": "missing-feature",
+      "trigger": "User asked to set a due-date on a ticket.",
+      "excerpt": "User: can we add due dates to these tickets",
+      "context": "Triaging tickets in ## Next; wanted to surface deadlines."
+    }
+  ],
+  "count": 1
+}
+```
+
+**Append subcommand (for capture subagent):**
+`worklog feedback append --signal S --trigger T [--excerpt E] [--context C] [--json]`
+
+Appends a new entry to `FEEDBACK.md`, creating the file with a header if
+absent. Intended for use by the capture subagent (see `## Feedback capture`
+in `SKILL.md`) — not for direct user invocation.
+
+Required flags: `--signal` (one of `missing-feature`, `tui-error`,
+`profanity`, `agent-frustration`), `--trigger` (non-empty one-line summary).
+Optional: `--excerpt`, `--context`, `--json`.
+
+JSON append shape (on `--json`): the stamped `Entry` object:
+```json
+{
+  "timestamp": 1716148991,
+  "signal": "missing-feature",
+  "trigger": "User asked to set a due-date on a ticket.",
+  "excerpt": "User: can we add due dates to these tickets",
+  "context": "Triaging tickets in ## Next; wanted to surface deadlines."
+}
+```
+
+Valid signals: `missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
+Bad signal or empty trigger → exit 64.
 
 ## Hard rules (inherited from the skill)
 
