@@ -220,6 +220,151 @@ func TestTUIPressWCallsWaitMover(t *testing.T) {
 	}
 }
 
+const tuiSearchFixture = `## Now
+- [~] **AUTH-1** — Refactor auth middleware
+  - **ID**: auth-1
+  - **Repo**: api
+  - **Tags**: refactor
+  - **PR**: https://example.com/pull/1
+  - **Started**: 2026-05-15
+
+- [~] **AUTH-2** — Auth token rotation
+  - **ID**: auth-2
+  - **Repo**: api
+  - **Tags**: auth
+  - **PR**:
+  - **Started**: 2026-05-16
+
+## Next
+
+- [ ] **DASH-1** — Dashboard redesign
+  - **ID**: dash-1
+  - **Repo**: ui
+  - **Tags**: frontend
+
+## Someday
+`
+
+func buildSearchStatus(t *testing.T) *Status {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(tuiSearchFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := model.NewWorkdir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parse.File(wd.WorkMD())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newStatusWithWriter(wd, doc, func(id, value string) (pr.Result, error) {
+		return pr.Result{ID: id, PR: value}, nil
+	})
+	return s
+}
+
+func TestTUIPressSlashOpensSearch(t *testing.T) {
+	s := buildSearchStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	if s.mode != modeList {
+		t.Fatalf("initial mode = %v", s.mode)
+	}
+
+	s.Update(keyMsg('/'))
+	if s.mode != modeSearch {
+		t.Errorf("after /: mode = %v, want modeSearch", s.mode)
+	}
+	if s.searchOverlay == nil {
+		t.Error("expected searchOverlay to be non-nil after /")
+	}
+}
+
+func TestTUISearchFiltersBlocks(t *testing.T) {
+	s := buildSearchStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	s.Update(keyMsg('/'))
+	if s.mode != modeSearch {
+		t.Fatalf("expected modeSearch, got %v", s.mode)
+	}
+
+	// Type "auth" — should match auth-1 and auth-2 but not dash-1.
+	for _, r := range "auth" {
+		s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	if got := len(s.searchOverlay.results); got != 2 {
+		t.Errorf("results = %d, want 2 (auth-1 and auth-2)", got)
+	}
+}
+
+func TestTUISearchEscapeRestores(t *testing.T) {
+	s := buildSearchStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	s.Update(keyMsg('/'))
+	if s.mode != modeSearch {
+		t.Fatalf("expected modeSearch, got %v", s.mode)
+	}
+
+	s.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if s.mode != modeList {
+		t.Errorf("after Esc: mode = %v, want modeList", s.mode)
+	}
+	if s.searchOverlay != nil {
+		t.Error("expected searchOverlay cleared after Esc")
+	}
+}
+
+func TestTUISearchEnterJumps(t *testing.T) {
+	s := buildSearchStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	s.Update(keyMsg('/'))
+
+	// Type "auth-2" — only auth-2 should match.
+	for _, r := range "auth-2" {
+		s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	if len(s.searchOverlay.results) != 1 {
+		t.Fatalf("expected 1 result for 'auth-2', got %d", len(s.searchOverlay.results))
+	}
+	if s.searchOverlay.results[0].BlockRef == nil {
+		t.Fatal("expected BlockRef to be set")
+	}
+	if s.searchOverlay.results[0].BlockRef.ID != "auth-2" {
+		t.Errorf("result ID = %q, want auth-2", s.searchOverlay.results[0].BlockRef.ID)
+	}
+
+	s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if s.mode != modeList {
+		t.Errorf("after Enter: mode = %v, want modeList", s.mode)
+	}
+	if s.searchOverlay != nil {
+		t.Error("expected searchOverlay cleared after Enter")
+	}
+
+	// auth-2 is in Now section (index 0), 2nd item (index 1).
+	if s.active != 0 {
+		t.Errorf("active section = %d, want 0 (Now)", s.active)
+	}
+	if idx := s.sections[0].list.Index(); idx != 1 {
+		t.Errorf("list cursor = %d, want 1 (auth-2 is 2nd in Now)", idx)
+	}
+}
+
+func TestTUISearchEmptyQueryShowsNothing(t *testing.T) {
+	s := buildSearchStatus(t)
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	s.Update(keyMsg('/'))
+
+	// No input — results should be nil.
+	if s.searchOverlay.results != nil {
+		t.Errorf("expected nil results for empty query, got %v", s.searchOverlay.results)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && indexOf(s, sub) >= 0
 }

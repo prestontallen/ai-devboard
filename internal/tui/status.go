@@ -4,15 +4,15 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-
-	"time"
 
 	"github.com/prestontallen/day2day/internal/model"
 	"github.com/prestontallen/day2day/internal/note"
@@ -57,13 +57,14 @@ func (b blockItem) Description() string {
 func (b blockItem) FilterValue() string { return b.block.ID + " " + b.block.Title }
 
 type keymap struct {
-	Next      key.Binding
-	Prev      key.Binding
-	Quit      key.Binding
-	Help      key.Binding
-	EditPR    key.Binding
-	EditNotes key.Binding
-	MoveWait  key.Binding
+	Next             key.Binding
+	Prev             key.Binding
+	Quit             key.Binding
+	EditPR           key.Binding
+	EditNotes        key.Binding
+	MoveWait         key.Binding
+	OpenSearch       key.Binding
+	OpenSearchCorpus key.Binding
 }
 
 func newKeyMap() keymap {
@@ -80,10 +81,6 @@ func newKeyMap() keymap {
 			key.WithKeys("q", "ctrl+c", "esc"),
 			key.WithHelp("q", "quit"),
 		),
-		Help: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "toggle help"),
-		),
 		EditPR: key.NewBinding(
 			key.WithKeys("p"),
 			key.WithHelp("p", "edit PR"),
@@ -96,24 +93,36 @@ func newKeyMap() keymap {
 			key.WithKeys("w"),
 			key.WithHelp("w", "park to waiting"),
 		),
+		OpenSearch: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search"),
+		),
+		OpenSearchCorpus: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "search all"),
+		),
 	}
 }
 
 func (k keymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait, k.Quit, k.Help}
+	return []key.Binding{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait, k.OpenSearch, k.OpenSearchCorpus, k.Quit}
 }
 
 func (k keymap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait}, {k.Quit, k.Help}}
+	return [][]key.Binding{
+		{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait},
+		{k.OpenSearch, k.OpenSearchCorpus, k.Quit},
+	}
 }
 
-// viewMode tracks whether the model is in list view, PR edit view, or note add view.
+// viewMode tracks the active overlay / mode.
 type viewMode int
 
 const (
 	modeList viewMode = iota
 	modeEditPR
 	modeAddNote
+	modeSearch
 )
 
 // prWriter is the function the TUI uses to persist a new PR value. Tests can
@@ -151,6 +160,9 @@ type Status struct {
 	noteStatus string // last-write status line shown below the list
 
 	waitStatus string // last park-to-waiting status line
+
+	searchOverlay *searchOverlay
+	searchStatus  string // last search-jump or corpus-hit message
 
 	writePR    prWriter
 	appendNote noteAppender
@@ -247,6 +259,41 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 }
 
 func (s *Status) Init() tea.Cmd { return nil }
+
+// allLiveBlocks returns all blocks from all sections in display order.
+func (s *Status) allLiveBlocks() []model.Block {
+	var blocks []model.Block
+	for _, secName := range []model.SectionName{
+		model.SectionNow, model.SectionWaiting, model.SectionNext, model.SectionSomeday,
+	} {
+		if sec := s.doc.Section(secName); sec != nil {
+			blocks = append(blocks, sec.Blocks...)
+		}
+	}
+	return blocks
+}
+
+// jumpToResult navigates to the block identified by res. For corpus hits not
+// in the live view, it stores the snippet in searchStatus for the detail pane.
+func (s *Status) jumpToResult(res *searchResult) {
+	if res == nil {
+		return
+	}
+	if res.BlockRef == nil {
+		s.searchStatus = fmt.Sprintf("archive: %s in %s", res.Anchor, res.File)
+		return
+	}
+	for i, sec := range s.sections {
+		for j, item := range sec.list.Items() {
+			bi, ok := item.(blockItem)
+			if ok && bi.block.ID == res.BlockRef.ID {
+				s.active = i
+				s.sections[i].list.Select(j)
+				return
+			}
+		}
+	}
+}
 
 // selectedBlock returns a pointer to the currently-selected block, or nil if
 // no item is selected (empty section).
@@ -357,6 +404,22 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, cmd
 		}
 
+		if s.mode == modeSearch {
+			if msg.String() == "esc" {
+				s.searchOverlay = nil
+				s.mode = modeList
+				return s, nil
+			}
+			cmd, done := s.searchOverlay.update(msg, s.allLiveBlocks(), s.wd)
+			if done {
+				s.jumpToResult(s.searchOverlay.currentSelection())
+				s.searchOverlay = nil
+				s.mode = modeList
+				return s, nil
+			}
+			return s, cmd
+		}
+
 		// Don't intercept when the list is filtering — let the user type the query.
 		if s.sections[s.active].list.FilterState() == list.Filtering {
 			break
@@ -369,9 +432,6 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		case key.Matches(msg, s.keys.Prev):
 			s.active = (s.active - 1 + len(s.sections)) % len(s.sections)
-			return s, nil
-		case key.Matches(msg, s.keys.Help):
-			s.help.ShowAll = !s.help.ShowAll
 			return s, nil
 		case key.Matches(msg, s.keys.EditPR):
 			if b := s.selectedBlock(); b != nil && b.ID != "" {
@@ -396,6 +456,18 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return s, nil
+		case key.Matches(msg, s.keys.OpenSearch):
+			s.searchOverlay = newSearchOverlay(scopeInMemory)
+			s.searchOverlay.width = s.width
+			s.searchOverlay.height = s.height
+			s.mode = modeSearch
+			return s, textinput.Blink
+		case key.Matches(msg, s.keys.OpenSearchCorpus):
+			s.searchOverlay = newSearchOverlay(scopeCorpus)
+			s.searchOverlay.width = s.width
+			s.searchOverlay.height = s.height
+			s.mode = modeSearch
+			return s, textinput.Blink
 		}
 	}
 
@@ -444,6 +516,9 @@ func (s *Status) detailPane() string {
 	if s.waitStatus != "" {
 		lines = append(lines, style.Dim.Render(s.waitStatus))
 	}
+	if s.searchStatus != "" {
+		lines = append(lines, style.Dim.Render(s.searchStatus))
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -457,6 +532,10 @@ func (s *Status) View() string {
 	}
 	if s.mode == modeAddNote && s.noteForm != nil {
 		return s.noteForm.View()
+	}
+	if s.mode == modeSearch && s.searchOverlay != nil {
+		return lipgloss.Place(s.width, s.height, lipgloss.Center, lipgloss.Center,
+			s.searchOverlay.view())
 	}
 
 	// Tab header
