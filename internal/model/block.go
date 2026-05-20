@@ -41,6 +41,7 @@ const (
 	SectionNext    SectionName = "Next"
 	SectionSomeday SectionName = "Someday"
 	SectionBlocked SectionName = "Blocked"
+	SectionWaiting SectionName = "Waiting"
 )
 
 // Block is one top-level `- [ ] ...` item plus its indented metadata.
@@ -64,6 +65,7 @@ type Block struct {
 	Tags           []string  `json:"tags"`
 	Started        string    `json:"started"`
 	PR             string    `json:"pr"`
+	WaitingSince   string    `json:"waitingSince"`
 	Files          []string  `json:"files"`
 	Acceptance     string    `json:"acceptance"`
 	NotesRef       string    `json:"notesRef"`

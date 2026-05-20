@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -26,6 +27,8 @@ type jsonBlock struct {
 	Tags           []string `json:"tags"`
 	Started        string   `json:"started"`
 	PR             string   `json:"pr"`
+	WaitingSince   string   `json:"waitingSince,omitempty"`
+	WaitingDays    int      `json:"waitingDays,omitempty"`
 	Files          []string `json:"files"`
 	Acceptance     string   `json:"acceptance"`
 	NotesRef       string   `json:"notesRef"`
@@ -90,6 +93,7 @@ func emitStatusJSON(cmd *cobra.Command, dir string, doc *model.WorkDoc) error {
 		Dir: dir,
 		Sections: []jsonSection{
 			buildJSONSection(doc, model.SectionNow, validate.NowCap),
+			buildJSONSection(doc, model.SectionWaiting, 0),
 			buildJSONSection(doc, model.SectionNext, 0),
 			buildJSONSection(doc, model.SectionSomeday, 0),
 		},
@@ -125,12 +129,29 @@ func toJSONBlock(b model.Block) jsonBlock {
 		Tags:           defaultStringSlice(b.Tags),
 		Started:        b.Started,
 		PR:             b.PR,
+		WaitingSince:   b.WaitingSince,
+		WaitingDays:    waitingAge(b.WaitingSince, time.Now()),
 		Files:          defaultStringSlice(b.Files),
 		Acceptance:     b.Acceptance,
 		NotesRef:       b.NotesRef,
 		Status:         b.Status,
 		ActiveChildren: defaultStringSlice(b.ActiveChildren),
 	}
+}
+
+func waitingAge(since string, now time.Time) int {
+	if since == "" {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02", since)
+	if err != nil {
+		return 0
+	}
+	days := int(now.Truncate(24 * time.Hour).Sub(t.Truncate(24 * time.Hour)).Hours() / 24)
+	if days < 0 {
+		return 0
+	}
+	return days
 }
 
 // defaultStringSlice replaces a nil slice with an empty one so JSON renders
@@ -165,6 +186,29 @@ func emitStatusText(cmd *cobra.Command, doc *model.WorkDoc) error {
 		}
 	}
 	fmt.Fprintln(out)
+
+	// ## Waiting — with per-ticket age annotation
+	waiting := doc.Section(model.SectionWaiting)
+	if waiting != nil && len(waiting.Blocks) > 0 {
+		fmt.Fprintln(out, style.Heading.Render("## Waiting"))
+		today := time.Now()
+		maxAge := 0
+		for _, b := range waiting.Blocks {
+			age := waitingAge(b.WaitingSince, today)
+			if age > maxAge {
+				maxAge = age
+			}
+			line := "  " + renderBlockLine(b)
+			if age > 0 {
+				line += " " + style.Dim.Render(fmt.Sprintf("(%d days)", age))
+			}
+			fmt.Fprintln(out, line)
+		}
+		if maxAge > 0 {
+			fmt.Fprintln(out, "  "+style.Warn.Render(fmt.Sprintf("oldest waiting %d days", maxAge)))
+		}
+		fmt.Fprintln(out)
+	}
 
 	// ## Next — list epics with their Active children, then standalone tickets
 	fmt.Fprintln(out, style.Heading.Render("## Next"))

@@ -820,6 +820,139 @@ func TestFormatTicketBlockNotesWhenSet(t *testing.T) {
 	}
 }
 
+func TestFormatTicketBlockWaitingSince(t *testing.T) {
+	lines := FormatTicketBlock(BlockOptions{
+		Title:        "Refactor auth",
+		ID:           "auth-1",
+		Started:      "2026-05-10",
+		WaitingSince: "2026-05-18",
+		State:        model.StateActive,
+	})
+	joined := strings.Join(lines, "\n")
+	iStarted := strings.Index(joined, "**Started**")
+	iWaiting := strings.Index(joined, "**Waiting since**")
+	if iWaiting < 0 {
+		t.Fatalf("**Waiting since** not emitted:\n%s", joined)
+	}
+	if iStarted < 0 || iWaiting < iStarted {
+		t.Errorf("expected **Waiting since** after **Started**:\n%s", joined)
+	}
+	if !strings.Contains(joined, "**Waiting since**: 2026-05-18") {
+		t.Errorf("wrong value in output:\n%s", joined)
+	}
+}
+
+func TestFormatTicketBlockNoWaitingSinceWhenEmpty(t *testing.T) {
+	lines := FormatTicketBlock(BlockOptions{
+		Title:   "Refactor auth",
+		ID:      "auth-1",
+		Started: "2026-05-10",
+		State:   model.StateActive,
+	})
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "Waiting since") {
+		t.Errorf("**Waiting since** emitted for empty value:\n%s", joined)
+	}
+}
+
+func TestSetBlockWaitingSinceSetsValue(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **PR**:
+  - **Started**: 2026-05-10
+
+## Next
+
+## Someday
+`
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := SetBlockWaitingSince(doc, "auth-1", "2026-05-20")
+	if err != nil {
+		t.Fatalf("SetBlockWaitingSince: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	if !strings.Contains(joined, "**Waiting since**: 2026-05-20") {
+		t.Errorf("value not set:\n%s", joined)
+	}
+	iStarted := strings.Index(joined, "**Started**")
+	iWaiting := strings.Index(joined, "**Waiting since**")
+	if iWaiting < iStarted {
+		t.Errorf("**Waiting since** should appear after **Started**:\n%s", joined)
+	}
+}
+
+func TestSetBlockWaitingSinceClearsValue(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **PR**:
+  - **Started**: 2026-05-10
+  - **Waiting since**: 2026-05-18
+
+## Next
+
+## Someday
+`
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := SetBlockWaitingSince(doc, "auth-1", "")
+	if err != nil {
+		t.Fatalf("SetBlockWaitingSince: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	if strings.Contains(joined, "Waiting since") {
+		t.Errorf("**Waiting since** still present after clear:\n%s", joined)
+	}
+}
+
+func TestInsertSectionBefore(t *testing.T) {
+	src := "## Now\n\n## Next\n\n## Someday\n"
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	out, err := InsertSectionBefore(doc, model.SectionWaiting, model.SectionNext)
+	if err != nil {
+		t.Fatalf("InsertSectionBefore: %v", err)
+	}
+	joined := strings.Join(out, "\n")
+	waitIdx := strings.Index(joined, "## Waiting")
+	nextIdx := strings.Index(joined, "## Next")
+	somedayIdx := strings.Index(joined, "## Someday")
+	if waitIdx < 0 {
+		t.Fatal("## Waiting not inserted")
+	}
+	if waitIdx > nextIdx {
+		t.Errorf("## Waiting (%d) after ## Next (%d)", waitIdx, nextIdx)
+	}
+	if nextIdx > somedayIdx {
+		t.Errorf("## Next (%d) after ## Someday (%d)", nextIdx, somedayIdx)
+	}
+	// Now section must still be present and before Waiting.
+	nowIdx := strings.Index(joined, "## Now")
+	if nowIdx < 0 || nowIdx > waitIdx {
+		t.Errorf("## Now not before ## Waiting (nowIdx=%d, waitIdx=%d)", nowIdx, waitIdx)
+	}
+}
+
+func TestInsertSectionBeforeNotFound(t *testing.T) {
+	src := "## Now\n\n## Someday\n"
+	doc, err := parse.Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	_, err = InsertSectionBefore(doc, model.SectionWaiting, model.SectionNext)
+	if err == nil {
+		t.Error("expected error when beforeSection not found")
+	}
+}
+
 func TestWriteAtomic(t *testing.T) {
 	tmpdir := t.TempDir()
 	dst := filepath.Join(tmpdir, "x.md")

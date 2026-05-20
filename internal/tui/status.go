@@ -19,6 +19,7 @@ import (
 	"github.com/prestontallen/day2day/internal/parse"
 	"github.com/prestontallen/day2day/internal/pr"
 	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/day2day/internal/wait"
 )
 
 // blockItem implements list.Item.
@@ -62,6 +63,7 @@ type keymap struct {
 	Help      key.Binding
 	EditPR    key.Binding
 	EditNotes key.Binding
+	MoveWait  key.Binding
 }
 
 func newKeyMap() keymap {
@@ -90,15 +92,19 @@ func newKeyMap() keymap {
 			key.WithKeys("n"),
 			key.WithHelp("n", "add note"),
 		),
+		MoveWait: key.NewBinding(
+			key.WithKeys("w"),
+			key.WithHelp("w", "park to waiting"),
+		),
 	}
 }
 
 func (k keymap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Next, k.Prev, k.EditPR, k.EditNotes, k.Quit, k.Help}
+	return []key.Binding{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait, k.Quit, k.Help}
 }
 
 func (k keymap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{k.Next, k.Prev, k.EditPR, k.EditNotes}, {k.Quit, k.Help}}
+	return [][]key.Binding{{k.Next, k.Prev, k.EditPR, k.EditNotes, k.MoveWait}, {k.Quit, k.Help}}
 }
 
 // viewMode tracks whether the model is in list view, PR edit view, or note add view.
@@ -117,6 +123,10 @@ type prWriter func(id, value string) (pr.Result, error)
 // noteAppender is the function the TUI uses to append a note entry. Tests can
 // swap it in to avoid touching the filesystem.
 type noteAppender func(id, body string) error
+
+// waitMover is the function the TUI uses to park a Now ticket into Waiting.
+// Tests can swap it in to avoid touching the filesystem.
+type waitMover func(id string) error
 
 // Status is the top-level Bubble Tea model.
 type Status struct {
@@ -140,8 +150,11 @@ type Status struct {
 	noteValue  string // bound value backing the huh text input
 	noteStatus string // last-write status line shown below the list
 
+	waitStatus string // last park-to-waiting status line
+
 	writePR    prWriter
 	appendNote noteAppender
+	moveToWait waitMover
 }
 
 type sectionView struct {
@@ -213,6 +226,7 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 		doc: doc,
 		sections: []sectionView{
 			mkSection(model.SectionNow),
+			mkSection(model.SectionWaiting),
 			mkSection(model.SectionNext),
 			mkSection(model.SectionSomeday),
 		},
@@ -222,6 +236,11 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 	}
 	s.appendNote = func(id, body string) error {
 		_, err := note.Append(wd, id, body, time.Now())
+		return err
+	}
+	s.moveToWait = func(id string) error {
+		today := time.Now().Format("2006-01-02")
+		_, err := wait.Wait(wd, id, today)
 		return err
 	}
 	return s
@@ -364,6 +383,19 @@ func (s *Status) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, s.startNoteAdd(b)
 			}
 			return s, nil
+		case key.Matches(msg, s.keys.MoveWait):
+			if b := s.selectedBlock(); b != nil && b.ID != "" {
+				if err := s.moveToWait(b.ID); err != nil {
+					s.waitStatus = "error: " + err.Error()
+				} else {
+					s.waitStatus = fmt.Sprintf("%s parked to ## Waiting", strings.ToUpper(b.ID))
+					if doc, err := parse.File(s.wd.WorkMD()); err == nil {
+						s.doc = doc
+						s.reloadSections()
+					}
+				}
+			}
+			return s, nil
 		}
 	}
 
@@ -408,6 +440,9 @@ func (s *Status) detailPane() string {
 	}
 	if s.noteStatus != "" {
 		lines = append(lines, style.Dim.Render(s.noteStatus))
+	}
+	if s.waitStatus != "" {
+		lines = append(lines, style.Dim.Render(s.waitStatus))
 	}
 	return strings.Join(lines, "\n")
 }

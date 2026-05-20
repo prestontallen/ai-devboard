@@ -53,6 +53,7 @@ below; in every case it falls through to the same underlying behavior.
 | Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
+| Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
@@ -216,6 +217,26 @@ same Huh multi-line input; submit appends, Esc cancels.
 Refusals (exit 64): combining positional text with `--edit`; empty body;
 `--edit` without a TTY.
 Exit 1: `<id>` not found in `WORK.md`.
+
+### wait `<id>`
+
+**CLI (available):** `worklog wait <id> [--json]`
+
+Moves a ticket from `## Now` → `## Waiting`, stamping `**Waiting since**:`
+with today's date. Creates the `## Waiting` section before `## Next` if
+absent. The section is cap-exempt (Waiting tickets do not count against the
+5-ticket Now limit).
+
+To resume: `worklog start <id>` detects the Waiting section and calls the
+resume path (cap-checked, clears `**Waiting since**:`).
+To archive directly: `worklog done <id> --summary "..."` works from any section.
+
+In the TUI, press `w` on a selected ticket to invoke the same operation.
+
+Refusals (exit 1):
+- `<id>` not found in `WORK.md`
+- `<id>` is not in `## Now`
+- `<id>` is already in `## Waiting`
 
 ### search `<term>`
 

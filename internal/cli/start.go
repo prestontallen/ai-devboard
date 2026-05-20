@@ -8,8 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/day2day/internal/parse"
 	"github.com/prestontallen/day2day/internal/start"
 	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/day2day/internal/wait"
 )
 
 func newStartCmd() *cobra.Command {
@@ -52,6 +55,26 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
+	// Fast-path: if the ticket is in ## Waiting, resume it instead.
+	// TODO: unify parse in start.Run to avoid the double-parse in this path.
+	normID := strings.ToLower(strings.TrimSpace(id))
+	if doc, parseErr := parse.File(wd.WorkMD()); parseErr == nil {
+		if b := doc.BlockByID(normID); b != nil && b.Section == model.SectionWaiting {
+			today := time.Now().Format("2006-01-02")
+			out, err := wait.Resume(wd, normID, today)
+			if err != nil {
+				return mapResumeError(cmd, asJSON, err)
+			}
+			if asJSON {
+				return emitJSON(cmd.OutOrStdout(), out)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(),
+				style.Good.Render(fmt.Sprintf("resumed %s into ## Now",
+					strings.ToUpper(out.ID))))
+			return nil
+		}
+	}
+
 	inputs := start.Inputs{
 		ID:         strings.ToLower(strings.TrimSpace(id)),
 		Repo:       strings.TrimSpace(flagRepo),
@@ -70,6 +93,17 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	}
 	emitStartText(cmd, out)
 	return nil
+}
+
+func mapResumeError(cmd *cobra.Command, asJSON bool, err error) error {
+	switch {
+	case errors.Is(err, wait.ErrIDNotFound),
+		errors.Is(err, wait.ErrNotInWaiting),
+		errors.Is(err, wait.ErrCapExceeded):
+		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+	default:
+		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+	}
 }
 
 func mapStartError(cmd *cobra.Command, asJSON bool, err error) error {

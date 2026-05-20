@@ -182,6 +182,44 @@ func TestTUIPressNEntersNoteMode(t *testing.T) {
 	}
 }
 
+func TestTUIPressWCallsWaitMover(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(tuiFixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := model.NewWorkdir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parse.File(wd.WorkMD())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var movedIDs []string
+	s := newStatusWithWriter(wd, doc, func(id, value string) (pr.Result, error) {
+		return pr.Result{ID: id, PR: value}, nil
+	})
+	s.moveToWait = func(id string) error {
+		movedIDs = append(movedIDs, id)
+		return nil
+	}
+
+	s.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	if b := s.selectedBlock(); b == nil {
+		t.Fatal("no item selected")
+	}
+
+	s.Update(keyMsg('w'))
+
+	if len(movedIDs) != 1 {
+		t.Fatalf("moveToWait called %d times, want 1", len(movedIDs))
+	}
+	if movedIDs[0] != "auth-1" {
+		t.Errorf("moveToWait called with %q, want auth-1", movedIDs[0])
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && indexOf(s, sub) >= 0
 }

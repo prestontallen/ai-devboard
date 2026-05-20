@@ -59,6 +59,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Capture user friction | (spawned by agent; see Feedback capture) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
+| Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
@@ -816,3 +817,22 @@ If a note needs to quote one, indent it or use a different heading level
 (`### …`).
 
 In the TUI, press `n` on a selected ticket to open the same input.
+
+## Waiting section
+
+`## Waiting` lives between `## Now` and `## Next`. Tickets there are
+cap-exempt (do not count against the 5-ticket Now limit). Use it when a
+ticket is blocked on external review and you want to free up a Now slot.
+
+    worklog wait <id>                   # move Now → Waiting (stamps Waiting since)
+    worklog start <id>                  # resume Waiting → Now (cap-checked, clears stamp)
+    worklog done <id> --summary "..."   # archive directly from Waiting
+
+The section is lazy-created on first `worklog wait` call; existing WORK.md
+files without it are valid. `worklog status` shows each waiting ticket's age
+in days and surfaces the oldest-waiting count.
+
+**`**Waiting since**:`**: tracks the start of the current wait period.
+Cleared when resumed. Not a cumulative history.
+
+In the TUI, press `w` on a selected ticket to park it into ## Waiting.

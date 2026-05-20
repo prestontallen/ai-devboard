@@ -49,10 +49,11 @@ func RemoveBlock(doc *model.WorkDoc, blockID string) ([]string, *model.Block, er
 var activeChildrenLineRe = regexp.MustCompile(`^(  - \*\*Active children\*\*:\s*)(.*)$`)
 
 var (
-	prLineRe      = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
-	tagsLineRe    = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
-	startedLineRe = regexp.MustCompile(`^  - \*\*Started\*\*:`)
-	notesLineRe   = regexp.MustCompile(`^  - \*\*Notes\*\*:(\s.*)?$`)
+	prLineRe           = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
+	tagsLineRe         = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
+	startedLineRe      = regexp.MustCompile(`^  - \*\*Started\*\*:`)
+	notesLineRe        = regexp.MustCompile(`^  - \*\*Notes\*\*:(\s.*)?$`)
+	waitingSinceLineRe = regexp.MustCompile(`^  - \*\*Waiting since\*\*:(\s.*)?$`)
 )
 
 // SetBlockPR rewrites (or inserts) the `**PR**:` line for the block identified
@@ -617,6 +618,72 @@ func SetBlockNotesRef(doc *model.WorkDoc, blockID, value string) ([]string, erro
 	return res, nil
 }
 
+// SetBlockWaitingSince rewrites (or inserts/removes) the `**Waiting since**:`
+// line for the block identified by blockID. When value is empty the line is
+// removed entirely. Insertion point when absent: after `**Started**:`, else at
+// end of the block's metadata range.
+func SetBlockWaitingSince(doc *model.WorkDoc, blockID, value string) ([]string, error) {
+	b := doc.BlockByID(blockID)
+	if b == nil {
+		return nil, fmt.Errorf("%w: %q", ErrBlockNotFound, blockID)
+	}
+
+	out := make([]string, len(doc.Lines))
+	copy(out, doc.Lines)
+
+	metaStart := b.StartLine
+	metaEnd := b.EndLine
+
+	// 1) Existing line: rewrite (non-empty) or remove (empty).
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if waitingSinceLineRe.MatchString(out[i]) {
+			if value == "" {
+				res := make([]string, 0, len(out)-1)
+				res = append(res, out[:i]...)
+				res = append(res, out[i+1:]...)
+				return res, nil
+			}
+			out[i] = "  - **Waiting since**: " + value
+			return out, nil
+		}
+	}
+
+	if value == "" {
+		return out, nil
+	}
+
+	// 2) Insert after Started line, else at end of metadata range.
+	insertAt := metaEnd
+	for i := metaStart; i < metaEnd && i < len(out); i++ {
+		if startedLineRe.MatchString(out[i]) {
+			insertAt = i + 1
+			break
+		}
+	}
+
+	res := make([]string, 0, len(out)+1)
+	res = append(res, out[:insertAt]...)
+	res = append(res, "  - **Waiting since**: "+value)
+	res = append(res, out[insertAt:]...)
+	return res, nil
+}
+
+// InsertSectionBefore inserts `## newSection` (and a blank line after it)
+// immediately before beforeSection's heading. Returns an error if beforeSection
+// is not found.
+func InsertSectionBefore(doc *model.WorkDoc, newSection, beforeSection model.SectionName) ([]string, error) {
+	sec := doc.Section(beforeSection)
+	if sec == nil {
+		return nil, fmt.Errorf("render: section %q not found in %s", beforeSection, doc.Path)
+	}
+	insertIdx := sec.HeadLine - 1
+	out := make([]string, 0, len(doc.Lines)+2)
+	out = append(out, doc.Lines[:insertIdx]...)
+	out = append(out, "## "+string(newSection), "")
+	out = append(out, doc.Lines[insertIdx:]...)
+	return out, nil
+}
+
 // WriteAtomic writes lines to path with a trailing newline, via tempfile +
 // rename so a partial write cannot leave the target corrupted.
 func WriteAtomic(path string, lines []string) error {
@@ -668,9 +735,10 @@ type BlockOptions struct {
 	PR         string // optional
 	Files      []string
 	Acceptance string
-	NotesRef   string
-	Status     string
-	State      model.State // defaults to StatePending
+	NotesRef     string
+	Status       string
+	WaitingSince string // YYYY-MM-DD, only set for ## Waiting tickets
+	State        model.State // defaults to StatePending
 }
 
 // FormatTicketBlock renders a single bullet block plus its indented metadata
@@ -713,6 +781,7 @@ func FormatTicketBlock(o BlockOptions) []string {
 	lines = append(lines, "  - **PR**: "+o.PR)
 	add("Notes", o.NotesRef)
 	add("Started", o.Started)
+	add("Waiting since", o.WaitingSince)
 	addCSV("Files", o.Files)
 	add("Acceptance", o.Acceptance)
 	add("Status", o.Status)

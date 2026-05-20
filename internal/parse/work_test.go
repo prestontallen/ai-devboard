@@ -253,3 +253,29 @@ func TestTopLevelXTransient(t *testing.T) {
 		t.Errorf("State = %q, want %q", now.Blocks[0].State, model.StateDone)
 	}
 }
+
+func TestWaitingSinceParses(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **PR**: https://example.com/pull/1
+  - **Started**: 2026-05-10
+  - **Waiting since**: 2026-05-18
+
+## Next
+
+## Someday
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	now := doc.Section(model.SectionNow)
+	if now == nil || len(now.Blocks) == 0 {
+		t.Fatal("no blocks in ## Now")
+	}
+	b := now.Blocks[0]
+	if b.WaitingSince != "2026-05-18" {
+		t.Errorf("WaitingSince = %q, want 2026-05-18", b.WaitingSince)
+	}
+}

@@ -66,6 +66,7 @@ scripts that handled validation, sync, and lint.`,
 		newSearchCmd(),
 		newFeedbackCmd(),
 		newNoteCmd(),
+		newWaitCmd(),
 		newSyncCmd(),
 		newLintSpecsCmd(),
 	)
