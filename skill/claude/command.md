@@ -49,7 +49,7 @@ below; in every case it falls through to the same underlying behavior.
 | Start a ticket | `worklog start <id>` (standalone or child-of-epic) | available |
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
-| Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
+| Search prior work | `worklog search [term]` (`--all-of`, `--any-of`, `--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
@@ -243,15 +243,23 @@ Refusals (exit 1):
 - `<id>` is not in `## Now`
 - `<id>` is already in `## Waiting`
 
-### search `<term>`
+### search `[term]`
 
-**CLI (available, new in Phase 2B-5):** `worklog search <term> [--limit N]
-[--deep] [--json] [--plain]`
+**CLI (available):** `worklog search [term] [--all-of "a,b"] [--any-of "a,b"]
+[--limit N] [--deep] [--json] [--plain]`
 
 INDEX-first scan with full-text fallback across `WORK.md`,
 `archive/*.md`, and `notes/*.md`. Glamour-rendered output for TTYs;
 plain markdown for pipes or `--plain`; structured JSON for agents via
 `--json`.
+
+- `worklog search "auth"` — single-term (positional).
+- `worklog search --all-of "auth,refactor"` — AND: all terms must appear.
+- `worklog search --any-of "auth,security"` — OR: at least one term.
+
+Positional, `--all-of`, and `--any-of` are mutually exclusive → exit 64
+if combined. JSON output uses `"query": {"terms":[...], "mode":"..."}`;
+the old `"term"` field is gone (breaking change).
 
 See `skill/SKILL.md` §5 for the full JSON shape, flag table, citation
 requirement, and stale-index advice.

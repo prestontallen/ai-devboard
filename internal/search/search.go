@@ -16,9 +16,49 @@ import (
 	"github.com/prestontallen/day2day/internal/parse"
 )
 
+// QueryMode identifies how multi-term matching is applied.
+type QueryMode string
+
+const (
+	ModeSingle QueryMode = "single"
+	ModeAllOf  QueryMode = "all-of"
+	ModeAnyOf  QueryMode = "any-of"
+)
+
+// Query describes what to search for. Terms must be non-empty, already
+// lowercased and whitespace-trimmed.
+type Query struct {
+	Terms []string  `json:"terms"`
+	Mode  QueryMode `json:"mode"`
+}
+
+// Matches reports whether haystack satisfies the query.
+func (q Query) Matches(haystack string) bool {
+	h := strings.ToLower(haystack)
+	switch q.Mode {
+	case ModeSingle:
+		return strings.Contains(h, q.Terms[0])
+	case ModeAllOf:
+		for _, t := range q.Terms {
+			if !strings.Contains(h, t) {
+				return false
+			}
+		}
+		return true
+	case ModeAnyOf:
+		for _, t := range q.Terms {
+			if strings.Contains(h, t) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 // Inputs captures the user-supplied options for a search call.
 type Inputs struct {
-	Term  string
+	Query Query
 	Limit int  // 0 = no limit
 	Deep  bool // skip the INDEX-first pass
 }
@@ -36,29 +76,28 @@ type Hit struct {
 
 // Output is the structured result returned to the CLI / JSON consumer.
 type Output struct {
-	Term               string `json:"term"`
-	Hits               []Hit  `json:"hits"`
-	IndexUsed          bool   `json:"indexUsed"`
-	FellBackToFullText bool   `json:"fellBackToFullText"`
-	Truncated          bool   `json:"truncated"`
+	Query              Query `json:"query"`
+	Hits               []Hit `json:"hits"`
+	IndexUsed          bool  `json:"indexUsed"`
+	FellBackToFullText bool  `json:"fellBackToFullText"`
+	Truncated          bool  `json:"truncated"`
 }
 
-// ErrEmptyTerm is returned for blank-term queries.
+// ErrEmptyTerm is returned for queries with no terms.
 var ErrEmptyTerm = errors.New("search term required")
 
-// Run performs the search. Empty term → ErrEmptyTerm. Anything else returns
+// Run performs the search. Empty query → ErrEmptyTerm. Anything else returns
 // an Output (which may have zero hits).
 func Run(wd model.Workdir, in Inputs) (Output, error) {
-	term := strings.TrimSpace(in.Term)
-	if term == "" {
+	if len(in.Query.Terms) == 0 {
 		return Output{}, ErrEmptyTerm
 	}
-	out := Output{Term: term, Hits: []Hit{}}
+	out := Output{Query: in.Query, Hits: []Hit{}}
 	var hits []Hit
 
 	if !in.Deep {
 		out.IndexUsed = true
-		idxHits, err := scanIndex(wd, term)
+		idxHits, err := scanIndex(wd, in.Query)
 		if err != nil {
 			return out, err
 		}
@@ -84,7 +123,7 @@ func Run(wd model.Workdir, in Inputs) (Output, error) {
 		if !in.Deep {
 			out.FellBackToFullText = true
 		}
-		fm, err := scanFullText(wd, term)
+		fm, err := scanFullText(wd, in.Query)
 		if err != nil {
 			return out, err
 		}
@@ -129,8 +168,7 @@ type fileMatch struct {
 	Anchor string
 }
 
-func scanFullText(wd model.Workdir, term string) ([]fileMatch, error) {
-	needle := strings.ToLower(term)
+func scanFullText(wd model.Workdir, q Query) ([]fileMatch, error) {
 	var matches []fileMatch
 	seen := map[string]bool{}
 
@@ -153,11 +191,10 @@ func scanFullText(wd model.Workdir, term string) ([]fileMatch, error) {
 				if end > len(doc.Lines) {
 					end = len(doc.Lines)
 				}
-				for i := b.StartLine - 1; i < end; i++ {
-					if strings.Contains(strings.ToLower(doc.Lines[i]), needle) {
-						add(fileMatch{File: "WORK.md", Anchor: b.ID})
-						break
-					}
+				// For multi-term queries, concatenate all block lines and check once.
+				blockText := strings.Join(doc.Lines[b.StartLine-1:end], "\n")
+				if q.Matches(blockText) {
+					add(fileMatch{File: "WORK.md", Anchor: b.ID})
 				}
 			}
 		}
@@ -172,7 +209,7 @@ func scanFullText(wd model.Workdir, term string) ([]fileMatch, error) {
 			}
 			rel := "archive/" + e.Name()
 			abs := filepath.Join(wd.ArchiveDir(), e.Name())
-			for _, m := range scanArchiveFile(abs, needle, rel) {
+			for _, m := range scanArchiveFile(abs, q, rel) {
 				add(m)
 			}
 		}
@@ -187,7 +224,7 @@ func scanFullText(wd model.Workdir, term string) ([]fileMatch, error) {
 			}
 			rel := "notes/" + e.Name()
 			abs := filepath.Join(wd.NotesDir(), e.Name())
-			for _, m := range scanNotesFile(abs, needle, rel) {
+			for _, m := range scanNotesFile(abs, q, rel) {
 				add(m)
 			}
 		}
@@ -199,8 +236,8 @@ func scanFullText(wd model.Workdir, term string) ([]fileMatch, error) {
 var entryHeadingRe = regexp.MustCompile(`^### ([a-zA-Z0-9_-]+) — `)
 
 // scanArchiveFile tracks the current `### <id>` heading and emits a
-// fileMatch the first time the needle is seen inside that entry.
-func scanArchiveFile(absPath, needle, relPath string) []fileMatch {
+// fileMatch the first time the query matches inside that entry.
+func scanArchiveFile(absPath string, q Query, relPath string) []fileMatch {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil
@@ -209,29 +246,37 @@ func scanArchiveFile(absPath, needle, relPath string) []fileMatch {
 	var matches []fileMatch
 	seen := map[string]bool{}
 	currentAnchor := ""
-	for _, line := range lines {
-		if m := entryHeadingRe.FindStringSubmatch(line); m != nil {
-			currentAnchor = strings.ToLower(m[1])
+	var entryLines []string
+
+	flush := func() {
+		if currentAnchor == "" || seen[currentAnchor] {
+			return
 		}
-		if currentAnchor == "" {
-			continue
-		}
-		if strings.Contains(strings.ToLower(line), needle) {
-			if !seen[currentAnchor] {
-				seen[currentAnchor] = true
-				matches = append(matches, fileMatch{File: relPath, Anchor: currentAnchor})
-			}
+		if q.Matches(strings.Join(entryLines, "\n")) {
+			seen[currentAnchor] = true
+			matches = append(matches, fileMatch{File: relPath, Anchor: currentAnchor})
 		}
 	}
+
+	for _, line := range lines {
+		if m := entryHeadingRe.FindStringSubmatch(line); m != nil {
+			flush()
+			currentAnchor = strings.ToLower(m[1])
+			entryLines = []string{line}
+		} else {
+			entryLines = append(entryLines, line)
+		}
+	}
+	flush()
 	return matches
 }
 
 var notesChildRe = regexp.MustCompile(`^- \[[ ~x]\]\s+([a-zA-Z0-9_-]+)`)
 
-// scanNotesFile emits a per-child match for every checkbox line containing
-// the needle. If no checkbox line matches but the file content does, it
-// emits a single file-level match with the sentinel anchor `$file`.
-func scanNotesFile(absPath, needle, relPath string) []fileMatch {
+// scanNotesFile emits a per-child match for every checkbox line matching the
+// query. If no checkbox line matches but the file content does, it emits a
+// single file-level match with the sentinel anchor `$file`.
+func scanNotesFile(absPath string, q Query, relPath string) []fileMatch {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil
@@ -245,7 +290,7 @@ func scanNotesFile(absPath, needle, relPath string) []fileMatch {
 		if m == nil {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(line), needle) {
+		if !q.Matches(line) {
 			continue
 		}
 		anchor := strings.ToLower(m[1])
@@ -254,7 +299,7 @@ func scanNotesFile(absPath, needle, relPath string) []fileMatch {
 			matches = append(matches, fileMatch{File: relPath, Anchor: anchor})
 		}
 	}
-	if len(matches) == 0 && strings.Contains(strings.ToLower(body), needle) {
+	if len(matches) == 0 && q.Matches(body) {
 		matches = append(matches, fileMatch{File: relPath, Anchor: "$file"})
 	}
 	return matches

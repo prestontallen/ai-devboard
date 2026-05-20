@@ -22,10 +22,10 @@ var (
 )
 
 // scanIndex reads INDEX.md and returns deduplicated indexHits whose
-// originating lines contain the (case-insensitive) needle. Algorithm:
+// originating lines satisfy the query. Algorithm:
 //
 //  1. First pass: build an ID → file map from "By ticket" section lines.
-//  2. Second pass: walk every line. For each line that matches the needle,
+//  2. Second pass: walk every line. For each line that matches the query,
 //     collect candidate IDs:
 //     - "By ticket" lines contribute their ID directly.
 //     - "By tag" / "By repo" lines contribute every ID listed after the
@@ -34,7 +34,7 @@ var (
 //     indexHit. Skip candidates whose ID isn't in the map (defensive).
 //
 // Missing INDEX.md is not an error — returns nil, nil.
-func scanIndex(wd model.Workdir, needle string) ([]indexHit, error) {
+func scanIndex(wd model.Workdir, q Query) ([]indexHit, error) {
 	data, err := os.ReadFile(wd.IndexMD())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -60,7 +60,6 @@ func scanIndex(wd model.Workdir, needle string) ([]indexHit, error) {
 	}
 
 	// Pass 2: collect candidate IDs from matching lines
-	needleLower := strings.ToLower(needle)
 	var hits []indexHit
 	seen := map[string]bool{}
 	section = ""
@@ -69,7 +68,7 @@ func scanIndex(wd model.Workdir, needle string) ([]indexHit, error) {
 			section = strings.TrimSpace(strings.TrimPrefix(line, "## "))
 			continue
 		}
-		if !strings.Contains(strings.ToLower(line), needleLower) {
+		if !q.Matches(line) {
 			continue
 		}
 

@@ -523,24 +523,29 @@ The skill's hard rule "better a duplicate than a lost record" holds.
 
 #### CLI ✓
 
-    worklog search "auth" --json
+    worklog search "auth" --json               # single term
+    worklog search --all-of "auth,refactor"    # AND — all terms must appear
+    worklog search --any-of "auth,security"    # OR — at least one must appear
 
-Finds every place "auth" appears in the worklog. Algorithm:
+Finds every place the query matches in the worklog. Algorithm:
 
 1. **INDEX-first**: scans `INDEX.md` for matching lines in the "By
    ticket", "By tag", and "By repo" sections and follows the pointers
    to extract content from the referenced files.
 2. **Full-text fallback**: if INDEX returns zero hits, scans
-   `WORK.md`, every `archive/*.md`, and every `notes/*.md` directly
-   for the term.
+   `WORK.md`, every `archive/*.md`, and every `notes/*.md` directly.
 
-Case-insensitive substring match. Single term only this slice (no
-boolean / regex / fuzzy yet).
+Case-insensitive substring match. The positional form, `--all-of`, and
+`--any-of` are mutually exclusive (combining any two → exit 64). Terms
+in `--all-of`/`--any-of` are comma-split, whitespace-trimmed, and
+lowercased. An effectively-empty list after trim → exit 64.
 
 #### Flags
 
 | Flag | Purpose |
 |---|---|
+| `--all-of "a,b,c"` | AND search: each hit must contain ALL terms. |
+| `--any-of "a,b,c"` | OR search: each hit must contain AT LEAST ONE term. |
 | `--limit N` | Cap on hits (default 50). When the cap fires, JSON includes `"truncated": true`. |
 | `--deep` | Skip the INDEX-first pass and run full-text directly. Useful when INDEX may be stale. |
 | `--json` | Emit structured Output instead of styled text. |
@@ -557,7 +562,7 @@ boolean / regex / fuzzy yet).
 #### JSON shape
 
     {
-      "term": "auth",
+      "query": {"terms": ["auth"], "mode": "single"},
       "hits": [
         {
           "id": "auth-1",
@@ -573,8 +578,12 @@ boolean / regex / fuzzy yet).
       "truncated": false
     }
 
+`query.mode` is one of `single` | `all-of` | `any-of`.
 `kind` is one of `live`, `epic`, `archived`, `child`, or `notesFile`.
 `source` is `index` or `fulltext`.
+
+**Breaking change**: the old `"term": "auth"` field is replaced by the
+`"query"` object. Agents consuming the previous output must be updated.
 
 #### Citation requirement
 
@@ -588,9 +597,14 @@ INDEX-first search may miss valid hits. The full-text fallback catches
 what INDEX missed. To eliminate the stale-index risk entirely, run
 `worklog reindex` before search (or use `--deep` on a one-off query).
 
+Multi-term `--all-of` queries are more likely to fall back to full-text
+(INDEX lines rarely contain all terms at once), so the stale-index risk
+is lower for those queries.
+
 #### Error shape
 
-Empty term returns exit 64 with `{"error": "search term required"}`.
+Empty or no query → exit 64 with `{"error": "search term required"}`.
+Conflicting flags (positional + `--all-of`, etc.) → exit 64.
 Anything else (no hits, all sources empty) returns exit 0 with an
 empty `hits[]` array — searching for nonexistent terms is normal.
 
