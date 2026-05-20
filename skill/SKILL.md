@@ -705,6 +705,14 @@ heading. Most recent day at the top of the file.
 ## Hard rules
 
 <!-- rules:start -->
+- **Mutate worklog data only through `worklog` subcommands — never via
+  Read/Edit/Write/StrReplace on worklog files directly.** If a user asks for
+  an operation the CLI doesn't support (remove a section, rewrite past content,
+  delete an entry), surface the limit explicitly rather than silently falling
+  back to a direct file edit. Either suggest a CLI-compatible workflow ("append
+  a note marking those items as stale") or ask permission before touching the
+  file directly. The CLI being append-only is a deliberate limit, not a gap to
+  work around.
 - **Never auto-delete an archive entry, notes file, or anything in the worklog.**
   Move-then-delete is allowed (during archival from `WORK.md`); standalone
   deletion is not.
