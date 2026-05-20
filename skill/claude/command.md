@@ -52,7 +52,7 @@ below; in every case it falls through to the same underlying behavior.
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
-| Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
+| Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
@@ -193,7 +193,7 @@ periodically to clear the "INDEX.md not updated" warnings emitted by
 
 ### note `<id>`
 
-**CLI (available):** `worklog note <id> [text] [--edit] [--json]`
+**CLI (available):** `worklog note <id> [text] [--edit] [--editor] [--json]`
 
 Appends a timestamped entry to `notes/<id>.md`, or reads existing notes.
 The file is lazy-created on first use. For non-epic tickets, `**Notes**:
@@ -205,17 +205,22 @@ Forms:
   markdown when piped).
 - `worklog note <id> "text"` — append a one-shot note.
 - `worklog note <id> --edit` — open a Huh multi-line input (TTY only).
+- `worklog note <id> --editor` — open `notes/<id>.md` directly in `$EDITOR`
+  (falls back to `vi`). Unlike `--edit`, edits the whole file freely —
+  useful for longer notes or revising past entries. TTY only.
 - `worklog note <id> --json` — structured JSON in either mode.
 
 JSON shape on append: `{"id":"...","file":"...","appended":{"timestamp":"...","body":"..."},
 "totalEntries":N,"createdFile":bool,"linkedInWorkMD":bool}`.
 JSON shape on read: `{"path":"...","exists":bool,"entries":[...],"count":N}`.
+JSON shape on `--editor`: `{"id":"...","file":"...","createdFile":bool,"linkedInWorkMD":bool,"editorExitCode":0}`.
 
 In the TUI (`worklog tui`), pressing `n` on a selected item opens the
 same Huh multi-line input; submit appends, Esc cancels.
 
-Refusals (exit 64): combining positional text with `--edit`; empty body;
-`--edit` without a TTY.
+Refusals (exit 64): `--edit`, `--editor`, and positional text are mutually
+exclusive (any two combined → exit 64); empty body; `--edit`/`--editor`
+without a TTY.
 Exit 1: `<id>` not found in `WORK.md`.
 
 ### wait `<id>`

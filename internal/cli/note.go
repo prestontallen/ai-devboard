@@ -3,20 +3,24 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/day2day/internal/model"
 	"github.com/prestontallen/day2day/internal/note"
 	"github.com/prestontallen/day2day/internal/style"
 )
 
 func newNoteCmd() *cobra.Command {
 	var (
-		flagEdit bool
-		flagJSON bool
+		flagEdit   bool
+		flagEditor bool
+		flagJSON   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "note <id> [text]",
@@ -39,17 +43,18 @@ Output modes:
 			if hasText {
 				text = args[1]
 			}
-			return runNote(cmd, id, text, hasText, flagEdit, flagJSON)
+			return runNote(cmd, id, text, hasText, flagEdit, flagEditor, flagJSON)
 		},
 	}
 	cmd.Flags().BoolVar(&flagEdit, "edit", false, "open a Huh multi-line input to type a new note")
+	cmd.Flags().BoolVar(&flagEditor, "editor", false, "open notes/<id>.md in $EDITOR (falls back to vi)")
 	cmd.Flags().BoolVar(&flagJSON, "json", false, "emit structured JSON output")
 	return cmd
 }
 
-func runNote(cmd *cobra.Command, id, text string, hasText, edit, asJSON bool) error {
-	if text != "" && edit {
-		return jsonOrTextError(cmd, asJSON, 64, "note: cannot combine positional text with --edit")
+func runNote(cmd *cobra.Command, id, text string, hasText, edit, editor, asJSON bool) error {
+	if (text != "" && (edit || editor)) || (edit && editor) {
+		return jsonOrTextError(cmd, asJSON, 64, "note: --edit, --editor, and positional text are mutually exclusive")
 	}
 
 	wd, err := resolveWorkdir()
@@ -58,6 +63,10 @@ func runNote(cmd *cobra.Command, id, text string, hasText, edit, asJSON bool) er
 	}
 
 	id = strings.ToLower(strings.TrimSpace(id))
+
+	if editor {
+		return runNoteEditor(cmd, wd, id, asJSON)
+	}
 
 	// Write mode: positional text was supplied or --edit flag is set.
 	if hasText || edit {
@@ -122,6 +131,49 @@ func runNote(cmd *cobra.Command, id, text string, hasText, edit, asJSON bool) er
 		}
 	}
 	fmt.Fprint(cmd.OutOrStdout(), md)
+	return nil
+}
+
+func runNoteEditor(cmd *cobra.Command, wd model.Workdir, id string, asJSON bool) error {
+	if !stdinIsTTY() || !stdoutIsTTY() {
+		return jsonOrTextError(cmd, asJSON, 64, "note --editor requires a TTY")
+	}
+
+	path, created, linked, err := note.EnsureFile(wd, id)
+	if err != nil {
+		if errors.Is(err, note.ErrUnknownID) {
+			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+		}
+		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+	}
+
+	editorBin := os.Getenv("EDITOR")
+	if editorBin == "" {
+		editorBin = "vi"
+	}
+
+	proc := exec.Command(editorBin, path)
+	proc.Stdin = os.Stdin
+	proc.Stdout = os.Stdout
+	proc.Stderr = os.Stderr
+	if err := proc.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return jsonOrTextError(cmd, asJSON, 1, "editor exited with code %d", exitErr.ExitCode())
+		}
+		return jsonOrTextError(cmd, asJSON, 1, "launch editor: %v", err)
+	}
+
+	if asJSON {
+		return emitJSON(cmd.OutOrStdout(), map[string]any{
+			"id":             id,
+			"file":           path,
+			"createdFile":    created,
+			"linkedInWorkMD": linked,
+			"editorExitCode": 0,
+		})
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "edited: %s\n", path)
 	return nil
 }
 

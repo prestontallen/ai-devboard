@@ -227,6 +227,58 @@ func TestReadParsesEntries(t *testing.T) {
 	}
 }
 
+func TestEnsureFileCreatesAndLinks(t *testing.T) {
+	wd := newWD(t)
+	path, created, linked, err := EnsureFile(wd, "auth-1")
+	if err != nil {
+		t.Fatalf("EnsureFile: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true")
+	}
+	if !linked {
+		t.Error("expected linked=true")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("notes file missing: %v", err)
+	}
+	if !strings.HasPrefix(string(data), "# Notes — auth-1\n") {
+		t.Errorf("unexpected notes file content:\n%q", string(data))
+	}
+	workData, _ := os.ReadFile(wd.WorkMD())
+	if !strings.Contains(string(workData), "  - **Notes**: notes/auth-1.md") {
+		t.Errorf("WORK.md missing Notes link:\n%s", string(workData))
+	}
+}
+
+func TestEnsureFileIdempotent(t *testing.T) {
+	wd := newWD(t)
+	_, _, _, err := EnsureFile(wd, "auth-1")
+	if err != nil {
+		t.Fatalf("first EnsureFile: %v", err)
+	}
+	_, created, linked, err := EnsureFile(wd, "auth-1")
+	if err != nil {
+		t.Fatalf("second EnsureFile: %v", err)
+	}
+	if created {
+		t.Error("expected created=false on second call")
+	}
+	if linked {
+		t.Error("expected linked=false on second call")
+	}
+}
+
+func TestEnsureFileUnknownID(t *testing.T) {
+	wd := newWD(t)
+	_, _, _, err := EnsureFile(wd, "nope")
+	if !errors.Is(err, ErrUnknownID) {
+		t.Errorf("expected ErrUnknownID, got %v", err)
+	}
+}
+
 func TestReadPreservesPreamble(t *testing.T) {
 	wd := newWD(t)
 	content := "# Notes — auth-1\n\n## 2026-05-19 14:23\nSome note.\n"

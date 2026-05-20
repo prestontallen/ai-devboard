@@ -135,6 +135,60 @@ func TestNoteReadEmptyJSON(t *testing.T) {
 	}
 }
 
+func TestNoteEditorConflictsWithText(t *testing.T) {
+	dir := noteFixtureDir(t)
+	_, err := invokeNote(t, dir, "auth-1", "x", "--editor")
+	if err == nil {
+		t.Fatal("expected error from positional text + --editor")
+	}
+	ec, ok := err.(exitCoder)
+	if !ok {
+		t.Fatalf("expected exitCoder, got %T: %v", err, err)
+	}
+	if ec.ExitCode() != 64 {
+		t.Errorf("exit = %d, want 64", ec.ExitCode())
+	}
+}
+
+func TestNoteEditorConflictsWithEdit(t *testing.T) {
+	dir := noteFixtureDir(t)
+	_, err := invokeNote(t, dir, "auth-1", "--edit", "--editor")
+	if err == nil {
+		t.Fatal("expected error from --edit + --editor")
+	}
+	ec, ok := err.(exitCoder)
+	if !ok {
+		t.Fatalf("expected exitCoder, got %T: %v", err, err)
+	}
+	if ec.ExitCode() != 64 {
+		t.Errorf("exit = %d, want 64", ec.ExitCode())
+	}
+}
+
+func TestNoteEditorEnsuresFile(t *testing.T) {
+	dir := noteFixtureDir(t)
+	prev := os.Getenv("EDITOR")
+	if err := os.Setenv("EDITOR", "/bin/true"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Setenv("EDITOR", prev) })
+
+	// --editor requires a TTY, so it will exit 64 in tests (no TTY).
+	// We verify the conflict / no-TTY path; the ensure-then-launch path
+	// is exercised via the EnsureFile unit tests.
+	_, err := invokeNote(t, dir, "auth-1", "--editor")
+	if err == nil {
+		t.Fatal("expected error: --editor without TTY should fail")
+	}
+	ec, ok := err.(exitCoder)
+	if !ok {
+		t.Fatalf("expected exitCoder, got %T: %v", err, err)
+	}
+	if ec.ExitCode() != 64 {
+		t.Errorf("exit = %d, want 64", ec.ExitCode())
+	}
+}
+
 func TestNoteReadAfterAppendJSON(t *testing.T) {
 	dir := noteFixtureDir(t)
 	if _, err := invokeNote(t, dir, "auth-1", "my note text"); err != nil {

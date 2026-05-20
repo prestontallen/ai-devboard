@@ -58,7 +58,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Capture user friction | (spawned by agent; see Feedback capture) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
-| Add / read notes | `worklog note <id> [text]` (`--edit`, `--json`; positional text appends, no text reads) | available |
+| Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
 | Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
@@ -811,10 +811,15 @@ Any ticket can carry a timestamped journal in `notes/<id>.md`. Use:
     worklog note <id> "first note text"     # append
     worklog note <id>                        # read existing notes
     worklog note <id> --edit                 # Huh multi-line input
+    worklog note <id> --editor               # open notes file in $EDITOR
     worklog note <id> --json                 # structured output
 
 The notes file is lazy-created on first use. For non-epic tickets, the
 `**Notes**: notes/<id>.md` line is auto-added to the WORK.md block.
+
+Use `--editor` for free-form editing (including revising past entries)
+rather than appending a new timestamped section. Falls back to `vi`
+if `$EDITOR` is unset.
 
 Entry format: each note is a `## YYYY-MM-DD HH:MM` heading followed by
 a free-form markdown body. New entries append at the bottom of the file.
