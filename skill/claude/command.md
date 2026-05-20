@@ -50,6 +50,7 @@ below; in every case it falls through to the same underlying behavior.
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search [term]` (`--all-of`, `--any-of`, `--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
+| Status-report view | `worklog summarize` (`--json`, `--plain`, `--limit N`; grouped by epic, in-progress scope) | available |
 | Capture user friction | (spawned by agent; see Feedback capture in SKILL.md) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
@@ -263,6 +264,38 @@ the old `"term"` field is gone (breaking change).
 
 See `skill/SKILL.md` §5 for the full JSON shape, flag table, citation
 requirement, and stale-index advice.
+
+### summarize
+
+**CLI (available):** `worklog summarize [--json] [--plain] [--limit N]`
+
+Status-report view of in-progress tickets grouped by epic. Each group
+lists children with status badge, started date, last-update date, and a
+short progress note. Standalone tickets (no parent epic) appear in a
+final "Standalone" group. `## Someday` and archived tickets are excluded.
+
+- **Status badges**: `[~]` → On Track, `[ ]` → Not Started, `[x]` → DONE,
+  `## Waiting` section → Waiting.
+- **Last update**: most recent note-file timestamp, falling back to Started.
+- **Progress note**: `**Status**:` field if set, else first line of the
+  latest note entry (truncated to 80 chars).
+- **`--limit N`**: cap rows per group; aggregate counts still reflect the
+  full set.
+
+JSON shape:
+```json
+{
+  "groups": [{
+    "kind": "epic",
+    "id": "refactor-auth",
+    "title": "Auth refactor",
+    "rows": [{"id","title","status","started","lastUpdate","note","repo","pr","tags"}],
+    "aggregate": {"total","done","active","notStarted","waiting","percentDone","status"}
+  }]
+}
+```
+
+Exit 1 if WORK.md is unreadable.
 
 ### feedback
 

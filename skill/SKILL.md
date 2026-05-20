@@ -56,6 +56,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
+| Status-report view | `worklog summarize` (`--json`, `--plain`, `--limit N`; grouped by epic, in-progress scope) | available |
 | Capture user friction | (spawned by agent; see Feedback capture) | available |
 | List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
@@ -844,6 +845,29 @@ If a note needs to quote one, indent it or use a different heading level
 (`### …`).
 
 In the TUI, press `n` on a selected ticket to open the same input.
+
+## Summary view
+
+`worklog summarize` produces a status-report view of in-progress tickets,
+grouped by epic. Each epic block shows its children with:
+
+- **Status** — On Track (`[~]`) / Not Started (`[ ]`) / DONE (`[x]`) / Waiting
+- **Started** — from the ticket's `**Started**:` field
+- **Updated** — most recent note timestamp, else Started
+- **Note** — `**Status**:` field if set, else first non-empty line of
+  the latest note (truncated to 80 chars)
+
+Standalone tickets (no parent epic) appear in a final "Standalone" group.
+`## Someday` content and archived tickets are excluded.
+
+    worklog summarize           # text (Glamour on TTY, plain in pipe)
+    worklog summarize --json    # structured output
+    worklog summarize --plain   # raw markdown, no styling
+    worklog summarize --limit 5 # cap rows per group (0 = unlimited)
+
+JSON output: `{ "groups": [{ "kind", "id", "title", "rows": [...],
+"aggregate": { "total", "done", "active", "notStarted", "waiting",
+"percentDone", "status" } }] }`.
 
 ## Waiting section
 
