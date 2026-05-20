@@ -57,6 +57,7 @@ scripts that handled validation, sync, and lint.`,
 	cmd.AddCommand(
 		newValidateCmd(),
 		newStatusCmd(),
+		newStandupCmd(),
 		newTUICmd(),
 		newAddCmd(),
 		newStartCmd(),

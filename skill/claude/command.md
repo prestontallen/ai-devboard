@@ -42,6 +42,7 @@ below; in every case it falls through to the same underlying behavior.
 | Intent | CLI command | Status |
 |---|---|---|
 | Read current state | `worklog status` (`--json` for machines) | available |
+| Daily standup | `worklog standup` (`--since`, `--until`, `--days`, `--simple`, `--json`) | available |
 | Validate invariants | `worklog validate` (`--json` for machines) | available |
 | Add standalone ticket | `worklog add --title X --id Y --section [Next\|Someday] --json` | available |
 | Add an epic | `worklog add --type epic --id <id> --title "..."` (creates `notes/<id>.md` scaffold) | available |
@@ -296,6 +297,47 @@ JSON shape:
 ```
 
 Exit 1 if WORK.md is unreadable.
+
+### standup
+
+**CLI (available):** `worklog standup [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--days N] [--simple] [--json]`
+
+Daily standup report built from existing worklog data. Pure read-side; never
+mutates files.
+
+Three sections:
+
+- **Yesterday** — archived entries with `Completed:` in the window (default:
+  calendar yesterday, i.e. today − 1 day).
+- **Today** — tickets in `[~]` state under `## Now`.
+- **Blockers** — tickets under `## Waiting`, annotated with waiting-since age.
+
+Flags:
+
+- `--since YYYY-MM-DD` — lower bound (inclusive) on Completed date.
+- `--until YYYY-MM-DD` — upper bound (inclusive); default today.
+- `--days N` — shortcut: last N days (conflicts with `--since`; N ≤ 0 → exit 64).
+- `--simple` — flat bulleted list with `done:` / `active:` / `waiting:` prefixes;
+  ignored when `--json` is set.
+- `--json` — structured output.
+
+Flag conflicts (exit 64): `--days` + `--since`, `--days 0`, invalid date string.
+
+JSON shape:
+```json
+{
+  "today": "2026-05-20",
+  "since": "2026-05-19",
+  "until": "2026-05-20",
+  "completed": [{"id","title","repo","pr","parent","started","completed","summary"}],
+  "active":    [{"id","title","type","repo","pr","parent","started"}],
+  "waiting":   [{"id","title","repo","pr","parent","waitingSince","waitingDays"}]
+}
+```
+
+`waitingDays` is −1 when `waitingSince` cannot be parsed as `YYYY-MM-DD`.
+
+Exit codes: 0 success, 64 usage error, 1 read failure.
 
 ### feedback
 

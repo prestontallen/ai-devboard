@@ -48,6 +48,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Intent | CLI command | Status |
 |---|---|---|
 | Read current state | `worklog status` (`--json` for machines) | available |
+| Daily standup | `worklog standup` (`--since`, `--until`, `--days`, `--simple`, `--json`) | available |
 | Validate invariants | `worklog validate` (`--json` for machines) | available |
 | Add standalone ticket | `worklog add --title X --id Y --section [Next\|Someday] --json` | available |
 | Add an epic | `worklog add --type epic --id <id> --title "..."` (creates `notes/<id>.md` scaffold) | available |
@@ -868,6 +869,30 @@ Standalone tickets (no parent epic) appear in a final "Standalone" group.
 JSON output: `{ "groups": [{ "kind", "id", "title", "rows": [...],
 "aggregate": { "total", "done", "active", "notStarted", "waiting",
 "percentDone", "status" } }] }`.
+
+## Standup
+
+`worklog standup` produces a read-only daily-standup report:
+
+    worklog standup                  # yesterday + today + blockers
+    worklog standup --simple         # compact flat bullet list
+    worklog standup --days 3         # widen the window
+    worklog standup --since 2026-05-15 --until 2026-05-17
+    worklog standup --json
+
+The report has three sections:
+
+- **Yesterday** — archived tickets with `Completed:` in the window
+  (default: previous calendar day).
+- **Today** — tickets in `[~]` state under `## Now`.
+- **Blockers** — tickets under `## Waiting`, annotated with age.
+
+`--simple` collapses all sections into a single bulleted list with
+`done:` / `active:` / `waiting:` prefixes — useful for pasting into
+chat. `--json` always emits the full structured report (sections
+preserved); `--simple` is ignored under `--json`.
+
+This command is pure read-side. It never mutates files.
 
 ## Waiting section
 
