@@ -13,10 +13,17 @@ import (
 
 // global state populated by root persistent flags.
 var (
-	flagDir  string
-	logger   *log.Logger
-	rootCmd  *cobra.Command
+	flagDir    string
+	logger     *log.Logger
+	rootCmd    *cobra.Command
+	versionStr string // set by main via SetVersion
 )
+
+// SetVersion wires the build-time version string (injected via ldflags) into
+// the root command before Execute is called.
+func SetVersion(version, commit, date string) {
+	versionStr = version + " (" + commit + ", " + date + ")"
+}
 
 // resolveWorkdir reads the --dir flag, falling back to $WORKLOG_DIR, then to
 // model.NewWorkdir's default.
@@ -31,9 +38,10 @@ func resolveWorkdir() (model.Workdir, error) {
 // newRoot constructs the root cobra command and attaches all subcommands.
 func newRoot() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "worklog",
-		Args:  cobra.NoArgs,
-		Short: "Personal worklog: cross-session task journal with cap, archive, and index",
+		Use:     "worklog",
+		Args:    cobra.NoArgs,
+		Version: versionStr,
+		Short:   "Personal worklog: cross-session task journal with cap, archive, and index",
 		Long: `worklog is the canonical tool for Preston's personal worklog system.
 
 It reads and (eventually) writes a small markdown corpus at
