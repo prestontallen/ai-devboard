@@ -156,6 +156,8 @@ func applyMeta(b *model.Block, field, value string) {
 		b.Started = value
 	case "pr":
 		b.PR = value
+	case "source":
+		b.Source = value
 	case "waiting since":
 		b.WaitingSince = value
 	case "files":

@@ -49,6 +49,7 @@ intent below, use the CLI where available; fall back to manual edits
 |---|---|---|
 | Read current state | `worklog status` (`--json` for machines) | available |
 | Daily standup | `worklog standup` (`--since`, `--until`, `--days`, `--simple`, `--json`) | available |
+| Import tickets | `worklog import` (`--file`, `--section`, `--dry-run`, `--json`) | available |
 | Validate invariants | `worklog validate` (`--json` for machines) | available |
 | Add standalone ticket | `worklog add --title X --id Y --section [Next\|Someday] --json` | available |
 | Add an epic | `worklog add --type epic --id <id> --title "..."` (creates `notes/<id>.md` scaffold) | available |
@@ -819,6 +820,74 @@ Signal vocabulary is closed — use exactly one of:
 `missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
 
 The user reviews captured feedback later via `worklog feedback`.
+
+## Importing tickets
+
+`worklog import` accepts ticket JSON via stdin or file and writes each
+as a block in WORK.md. The CLI is generic — all tracker-specific
+mapping happens here in the skill, then is piped to the binary.
+
+### JSON shape
+
+    {
+      "id": "auth-1234",
+      "title": "Refactor auth middleware",
+      "type": "ticket",
+      "parent": "epic-auth",
+      "repo": "api",
+      "tags": ["auth", "refactor"],
+      "pr": "#42",
+      "section": "next",
+      "source": "https://company.atlassian.net/browse/AUTH-1234"
+    }
+
+Either a single object or a JSON array is accepted. Required fields:
+`id`, `title`. Defaults: `type=ticket`, `section=next`.
+
+`parent` is optional. If set, the epic must already exist in WORK.md —
+imports never auto-create parents. Standalone tickets simply omit
+`parent`.
+
+### Agent workflow
+
+When the user references a tracker ticket (URL, key, pasted body, or
+screenshot), extract the relevant fields, format as the JSON above,
+and pipe to `worklog import`:
+
+    echo '{"id":"auth-1234","title":"Refactor auth","section":"next","source":"https://..."}' \
+      | worklog import --json
+
+For batches:
+
+    cat <<'JSON' | worklog import --json
+    [
+      {"id":"foo-1","title":"One","parent":"epic-x"},
+      {"id":"foo-2","title":"Two"}
+    ]
+    JSON
+
+### Tracker mapping hints
+
+| Tracker         | `id`                          | `title`   | `parent`                       | `pr` / `source`                       |
+|-----------------|-------------------------------|-----------|--------------------------------|---------------------------------------|
+| Jira            | `key` lowercased (auth-1234)  | `summary` | parent issue `key`, lowercased | linked PR URL / Jira issue URL        |
+| Linear          | `identifier` (lin-567)        | `title`   | parent issue `identifier`      | linked PR URL / Linear issue URL      |
+| GitHub Issues   | repo-prefixed (e.g. api-42)   | `title`   | (no native parent)             | linked PR URL / Issue URL             |
+| Asana           | task short-name or GID slug   | `name`    | parent task short-name         | linked PR URL / Asana task URL        |
+
+Always omit upstream status fields — section is the user's choice, not
+the tracker's. If unsure where a ticket goes, default to `next` and
+ask the user to confirm.
+
+### When the parent epic is missing
+
+If the user-referenced ticket has a parent that isn't yet in worklog,
+ask whether to:
+
+1. Skip the parent link (import standalone), or
+2. Pause so the user can `worklog add --type epic` first.
+
+Do not silently strip the parent.
 
 ## Note-taking
 

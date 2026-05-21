@@ -967,3 +967,32 @@ func TestWriteAtomic(t *testing.T) {
 		t.Errorf("got %q", string(got))
 	}
 }
+
+func TestFormatTicketBlockSource(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title:  "Import from Jira",
+		ID:     "jira-1",
+		Source: "https://company.atlassian.net/browse/JIRA-1",
+	})
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "**Source**: https://company.atlassian.net/browse/JIRA-1") {
+		t.Errorf("missing Source line in:\n%s", joined)
+	}
+	// Source appears between PR and Notes.
+	prIdx := strings.Index(joined, "**PR**:")
+	srcIdx := strings.Index(joined, "**Source**:")
+	if prIdx < 0 || srcIdx < 0 || srcIdx <= prIdx {
+		t.Errorf("Source should appear after PR; PR at %d, Source at %d\n%s", prIdx, srcIdx, joined)
+	}
+}
+
+func TestFormatTicketBlockSourceEmpty(t *testing.T) {
+	got := FormatTicketBlock(BlockOptions{
+		Title: "No source",
+		ID:    "no-src",
+	})
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "**Source**") {
+		t.Errorf("unexpected Source line when Source is empty:\n%s", joined)
+	}
+}

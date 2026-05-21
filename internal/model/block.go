@@ -65,6 +65,7 @@ type Block struct {
 	Tags           []string  `json:"tags"`
 	Started        string    `json:"started"`
 	PR             string    `json:"pr"`
+	Source         string    `json:"source"`
 	WaitingSince   string    `json:"waitingSince"`
 	Files          []string  `json:"files"`
 	Acceptance     string    `json:"acceptance"`

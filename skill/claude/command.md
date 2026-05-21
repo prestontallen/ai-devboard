@@ -43,6 +43,7 @@ below; in every case it falls through to the same underlying behavior.
 |---|---|---|
 | Read current state | `worklog status` (`--json` for machines) | available |
 | Daily standup | `worklog standup` (`--since`, `--until`, `--days`, `--simple`, `--json`) | available |
+| Import tickets | `worklog import` (`--file`, `--section`, `--dry-run`, `--json`) | available |
 | Validate invariants | `worklog validate` (`--json` for machines) | available |
 | Add standalone ticket | `worklog add --title X --id Y --section [Next\|Someday] --json` | available |
 | Add an epic | `worklog add --type epic --id <id> --title "..."` (creates `notes/<id>.md` scaffold) | available |
@@ -338,6 +339,57 @@ JSON shape:
 `waitingDays` is −1 when `waitingSince` cannot be parsed as `YYYY-MM-DD`.
 
 Exit codes: 0 success, 64 usage error, 1 read failure.
+
+### import
+
+**CLI (available):** `worklog import [--file PATH] [--section now|next|someday] [--dry-run] [--json]`
+
+Reads ticket JSON from stdin (default) or `--file` and writes each as a
+block in WORK.md. The CLI is tracker-agnostic — all mapping from Jira,
+Linear, GitHub Issues, etc. lives in the skill, not the binary.
+
+JSON shape per ticket (single object or array):
+
+```json
+{
+  "id": "auth-1234",
+  "title": "Refactor auth middleware",
+  "type": "ticket",
+  "parent": "epic-auth",
+  "repo": "api",
+  "tags": ["auth", "refactor"],
+  "pr": "#42",
+  "section": "next",
+  "source": "https://company.atlassian.net/browse/AUTH-1234"
+}
+```
+
+Required: `id`, `title`. Defaults: `type=ticket`, `section=next`.
+
+Flags:
+
+- `--file PATH` — read JSON from file instead of stdin.
+- `--section now|next|someday` — override the `section` field for all tickets.
+- `--dry-run` — validate and report without writing WORK.md.
+- `--json` — emit structured `Result` output.
+
+Per-ticket rules:
+- `parent` must resolve to an existing epic in WORK.md if set; missing → fail that ticket.
+- If `id` already exists anywhere in WORK.md → fail that ticket.
+- `section=now` sets `[~]` state and stamps `Started` with today's date.
+- `Waiting` section not supported in v1.
+
+Per-ticket atomicity: if ticket #3 fails, tickets #1 and #2 remain written.
+
+JSON result shape:
+```json
+{
+  "imported": [{"id": "auth-1234", "section": "next"}],
+  "failed":   [{"index": 1, "id": "bad-id", "reason": "..."}]
+}
+```
+
+Exit codes: 0 all success, 64 usage / JSON parse error, 1 any ticket failed or system error.
 
 ### feedback
 

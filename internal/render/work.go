@@ -733,6 +733,7 @@ type BlockOptions struct {
 	Tags       []string
 	Started    string // optional, YYYY-MM-DD
 	PR         string // optional
+	Source     string // optional upstream URL
 	Files      []string
 	Acceptance string
 	NotesRef     string
@@ -779,6 +780,7 @@ func FormatTicketBlock(o BlockOptions) []string {
 	// PR is always rendered (even empty) so the field is visibly available
 	// for the user / TUI to fill in without re-editing the block manually.
 	lines = append(lines, "  - **PR**: "+o.PR)
+	add("Source", o.Source)
 	add("Notes", o.NotesRef)
 	add("Started", o.Started)
 	add("Waiting since", o.WaitingSince)

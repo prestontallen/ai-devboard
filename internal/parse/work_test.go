@@ -279,3 +279,25 @@ func TestWaitingSinceParses(t *testing.T) {
 		t.Errorf("WaitingSince = %q, want 2026-05-18", b.WaitingSince)
 	}
 }
+
+func TestParseSource(t *testing.T) {
+	src := `## Now
+- [~] **JIRA-1** — Import from Jira
+  - **ID**: jira-1
+  - **Source**: https://company.atlassian.net/browse/JIRA-1
+## Next
+## Someday
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	now := doc.Section(model.SectionNow)
+	if now == nil || len(now.Blocks) == 0 {
+		t.Fatal("expected block in ## Now")
+	}
+	b := now.Blocks[0]
+	if b.Source != "https://company.atlassian.net/browse/JIRA-1" {
+		t.Errorf("Source = %q, want https://company.atlassian.net/browse/JIRA-1", b.Source)
+	}
+}
