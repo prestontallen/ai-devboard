@@ -104,6 +104,9 @@
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--go); flex: none; }
   .dot.old { background: var(--hold); }
   .card .foot .sp { margin-left: auto; }
+  .donewrap { margin-top: 1.4rem; }
+  .donewrap .grid { margin-top: .5rem; }
+  .donewrap .card { opacity: .72; }
   .errcard { border-color: var(--halt); }
   .errcard .badge-err { color: var(--halt); border: 1px solid var(--halt); border-radius: 5px;
                         font: .66rem var(--mono); padding: .12rem .45rem; align-self: flex-start; }
@@ -328,18 +331,44 @@ const fold = (key, label, inner, extra) =>
 function statsHTML() {
   const ts = flat().filter(x => !x.t.error);
   const inFlight = ts.filter(x => (x.t.task.phase || "") !== "done").length;
-  const need = ts.reduce((a, x) => a + needsCount(x.t), 0);
+  const need = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + needsCount(x.t), 0);
   const stale = ts.filter(x => (x.t.task.phase || "") !== "done" && isStale(x.t.mtime)).length;
   return `<div class="stat"><b>${inFlight}</b><span>in flight</span></div>` +
     (need ? `<div class="stat attn"><b>${need}</b><span>need you</span></div>` : "") +
     (stale ? `<div class="stat"><b>${stale}</b><span>stale</span></div>` : "");
 }
 
+const isDone = t => !t.error && (t.task.phase || "") === "done";
+
+function cardHTML({ repo, t }) {
+  if (t.error) {
+    return `<div class="card errcard"><div class="head"><span class="t">${esc(t.file)}</span></div>` +
+           `<span class="badge-err">parse error</span><div class="msg">${esc(t.error)}</div></div>`;
+  }
+  const k = t.task, n = needsCount(t);
+  const meta = [
+    k.tier !== undefined ? `tier ${esc(k.tier)}` : "",
+    k.complexity ? `cx ${esc(k.complexity)}` : "",
+    k.worklog ? `☰ ${esc(k.worklog)}` : "",
+  ].filter(Boolean).join(" · ");
+  const stale = isStale(t.mtime) && !isDone(t);
+  return `<a class="card${n ? " attn" : ""}${stale ? " stale" : ""}" href="#${esc(repo)}/${esc(t.id)}">` +
+    `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
+    (n ? `<span class="flag">needs you · ${n}</span>` : "") +
+    `<span class="chip">${esc(repo)}</span></div>` +
+    trackHTML(k.phase) + metersHTML(k) +
+    `<div class="foot">` +
+    (t.mtime ? `<span class="dot${stale ? " old" : ""}"></span>${ago(t.mtime)}${stale ? " — stale" : ""}` : "") +
+    `<span class="sp"></span>${meta} ${resumeBtn(k, "⧉")}</div></a>`;
+}
+
 function viewBoard() {
   const all = flat();
   if (!all.length) return `<div class="empty">No tasks yet. Drop a <code>&lt;repo&gt;/&lt;task&gt;.yaml</code> into the data directory.</div>`;
+  const live = all.filter(x => !isDone(x.t));
+  const done = all.filter(x => isDone(x.t));
   const attn = [];
-  all.forEach(({ repo, t }) => (t.task?.needs_you || []).forEach(n => attn.push({ repo, t, n })));
+  live.forEach(({ repo, t }) => (t.task?.needs_you || []).forEach(n => attn.push({ repo, t, n })));
   let html = "";
   if (attn.length) {
     html += `<section class="band"><h2>Needs you · ${attn.length}</h2>` + attn.map(({ repo, t, n }) => {
@@ -352,31 +381,18 @@ function viewBoard() {
   } else {
     html += `<div class="calm">nothing needs you</div>`;
   }
-  const order = all.slice().sort((a, b) =>
+  const order = live.slice().sort((a, b) =>
     (needsCount(b.t) ? 1 : 0) - (needsCount(a.t) ? 1 : 0) ||
     phaseIdx(b.t.task?.phase) - phaseIdx(a.t.task?.phase) ||
     (b.t.mtime || 0) - (a.t.mtime || 0));
-  html += `<div class="grid">` + order.map(({ repo, t }) => {
-    if (t.error) {
-      return `<div class="card errcard"><div class="head"><span class="t">${esc(t.file)}</span></div>` +
-             `<span class="badge-err">parse error</span><div class="msg">${esc(t.error)}</div></div>`;
-    }
-    const k = t.task, n = needsCount(t);
-    const meta = [
-      k.tier !== undefined ? `tier ${esc(k.tier)}` : "",
-      k.complexity ? `cx ${esc(k.complexity)}` : "",
-      k.worklog ? `☰ ${esc(k.worklog)}` : "",
-    ].filter(Boolean).join(" · ");
-    const stale = isStale(t.mtime);
-    return `<a class="card${n ? " attn" : ""}${stale ? " stale" : ""}" href="#${esc(repo)}/${esc(t.id)}">` +
-      `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
-      (n ? `<span class="flag">needs you · ${n}</span>` : "") +
-      `<span class="chip">${esc(repo)}</span></div>` +
-      trackHTML(k.phase) + metersHTML(k) +
-      `<div class="foot">` +
-      (t.mtime ? `<span class="dot${stale ? " old" : ""}"></span>${ago(t.mtime)}${stale ? " — stale" : ""}` : "") +
-      `<span class="sp"></span>${meta} ${resumeBtn(k, "⧉")}</div></a>`;
-  }).join("") + `</div>`;
+  html += order.length
+    ? `<div class="grid">` + order.map(cardHTML).join("") + `</div>`
+    : `<div class="empty">nothing in flight</div>`;
+  if (done.length) {
+    const recent = done.slice().sort((a, b) => (b.t.mtime || 0) - (a.t.mtime || 0));
+    html += `<section class="donewrap">` + fold("board|done", `Done · ${done.length}`,
+      `<div class="grid">` + recent.map(cardHTML).join("") + `</div>`) + `</section>`;
+  }
   return html;
 }
 
