@@ -55,6 +55,25 @@
   .calm { font: .78rem var(--mono); color: var(--faint); margin-bottom: 1.1rem; }
   .calm::before { content: "✓ "; color: var(--go); }
 
+  /* waiting-on: the external-answer queue. Deliberately calmer than the
+     amber needs-you band — signal blue, never --hold. */
+  .band.wait { background: linear-gradient(90deg, color-mix(in srgb, var(--signal) 7%, var(--panel)), var(--panel));
+               border-color: color-mix(in srgb, var(--signal) 35%, var(--border)); }
+  .band.wait h2 { color: var(--signal); }
+  .kind.wait { color: var(--signal); background: color-mix(in srgb, var(--signal) 14%, transparent);
+               text-transform: none; }
+  .stat.wait { border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
+  .stat.wait b { color: var(--signal); }
+  .age { font: 600 .68rem var(--mono); color: var(--dim); border: 1px solid var(--border);
+         border-radius: 5px; padding: .14rem .45rem; white-space: nowrap; }
+  .age.hot { color: var(--halt); border-color: color-mix(in srgb, var(--halt) 55%, transparent); }
+  .asklink { font: .7rem var(--mono); }
+  .chip.waitchip { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 40%, var(--border)); }
+  .sec.waitsec { border-color: color-mix(in srgb, var(--signal) 30%, var(--border)); }
+  .sec.waitsec h3 { color: var(--signal); }
+  .sec.waitsec .need { display: flex; align-items: center; gap: .8rem; padding: .45rem 0; }
+  .sec.waitsec .go { margin-left: auto; flex: none; }
+
   button.act { background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
                border-radius: 999px; padding: .2rem .7rem; font: 500 .72rem var(--mono); cursor: pointer; }
   button.act:hover { border-color: var(--signal); color: var(--signal); }
@@ -107,6 +126,9 @@
   .donewrap { margin-top: 1.4rem; }
   .donewrap .grid { margin-top: .5rem; }
   .donewrap .card { opacity: .72; }
+  .donewrap.arch .card { opacity: .55; }
+  .archchip { color: var(--faint); border-style: dashed; }
+  button.act.bad { border-color: var(--halt); color: var(--halt); }
   .errcard { border-color: var(--halt); }
   .errcard .badge-err { color: var(--halt); border: 1px solid var(--halt); border-radius: 5px;
                         font: .66rem var(--mono); padding: .12rem .45rem; align-self: flex-start; }
@@ -203,7 +225,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 const PHASES = ["intake","clarify","contract","plan","implementing","verify","present","ship","done"];
 const phaseIdx = p => PHASES.indexOf(String(p ?? ""));
-const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","links","session","worklog","complexity"]);
+const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity"]);
 
 /* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
 const KW = /\b(def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|yield|async|await|const|let|var|function|new|typeof|export|default|fn|pub|impl|struct|enum|match|use|mod|go|func|type|interface|package|nil|null|None|true|false|True|False|self|this)\b/g;
@@ -259,6 +281,20 @@ const isStale = t => t && (Date.now() / 1000 - t) > 2 * 3600;
 const MARKS = { done: "✓", pass: "✓", in_progress: "▶", blocked: "✕", fail: "✕", pending: "○" };
 const mark = st => MARKS[st] || "○";
 const needsCount = t => (t.task && Array.isArray(t.task.needs_you)) ? t.task.needs_you.length : 0;
+const waitCount = t => (t.task && Array.isArray(t.task.waiting_on)) ? t.task.waiting_on.length : 0;
+/* waiting_on `asked` is an ISO date string (NOT epoch seconds — ago() would
+   yield NaN on it). Age in whole days, or null when missing/unparseable. */
+const ageDays = d => {
+  const ms = Date.parse(String(d ?? ""));
+  return Number.isNaN(ms) ? null : Math.max(0, Math.floor((Date.now() - ms) / 86400000));
+};
+const AGE_HOT_DAYS = 7;
+const ageChip = asked => {
+  const d = ageDays(asked);
+  if (d === null) return `<span class="age" title="no asked date">?</span>`;
+  const label = d === 0 ? "today" : `${d}d`;
+  return `<span class="age${d >= AGE_HOT_DAYS ? " hot" : ""}" title="asked ${esc(asked)}">${label}</span>`;
+};
 /* only http(s), mailto, or scheme-less URLs get a live href */
 const safeHref = u => /^(https?:|mailto:)/i.test(String(u ?? "")) || /^[^:]*$/.test(String(u ?? "")) ? String(u) : "#";
 const itemText = x => typeof x === "object" && x !== null ? x : { text: String(x) };  // scalar tolerance
@@ -290,6 +326,27 @@ function fallbackCopy(text, done) {   // non-secure contexts (e.g. served over L
 const resumeBtn = (k, label) => k.session
   ? `<button class="act" data-s="${esc(k.session)}" onclick="copySession(event, this)" title="copy: claude --resume ${esc(k.session)}">${label}</button>`
   : "";
+
+/* archive / un-archive: POST the move, let SSE + refresh redraw; failures
+   surface on the button itself */
+const isArchived = t => !!t.archived;
+window.moveTask = function (ev, btn) {
+  ev.preventDefault(); ev.stopPropagation();
+  fetch(btn.dataset.act, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo: btn.dataset.repo, id: btn.dataset.id }),
+  }).then(async res => {
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    refresh();
+  }).catch(err => {
+    const prev = btn.textContent;
+    btn.textContent = "failed ✕"; btn.title = String(err.message || err); btn.classList.add("bad");
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove("bad"); }, 2500);
+  });
+};
+const moveBtn = (repo, t) => isArchived(t)
+  ? `<button class="act" data-act="/api/unarchive" data-repo="${esc(repo)}" data-id="${esc(t.id)}" onclick="moveTask(event, this)">⤴ un-archive</button>`
+  : `<button class="act" data-act="/api/archive" data-repo="${esc(repo)}" data-id="${esc(t.id)}" onclick="moveTask(event, this)">⌫ archive</button>`;
 
 /* ---------- shared pieces ---------- */
 function trackHTML(phase) {
@@ -329,12 +386,14 @@ const fold = (key, label, inner, extra) =>
 
 /* ---------- board ---------- */
 function statsHTML() {
-  const ts = flat().filter(x => !x.t.error);
+  const ts = flat().filter(x => !x.t.error && !isArchived(x.t));
   const inFlight = ts.filter(x => (x.t.task.phase || "") !== "done").length;
   const need = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + needsCount(x.t), 0);
+  const waiting = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + waitCount(x.t), 0);
   const stale = ts.filter(x => (x.t.task.phase || "") !== "done" && isStale(x.t.mtime)).length;
   return `<div class="stat"><b>${inFlight}</b><span>in flight</span></div>` +
     (need ? `<div class="stat attn"><b>${need}</b><span>need you</span></div>` : "") +
+    (waiting ? `<div class="stat wait"><b>${waiting}</b><span>waiting on</span></div>` : "") +
     (stale ? `<div class="stat"><b>${stale}</b><span>stale</span></div>` : "");
 }
 
@@ -345,7 +404,7 @@ function cardHTML({ repo, t }) {
     return `<div class="card errcard"><div class="head"><span class="t">${esc(t.file)}</span></div>` +
            `<span class="badge-err">parse error</span><div class="msg">${esc(t.error)}</div></div>`;
   }
-  const k = t.task, n = needsCount(t);
+  const k = t.task, n = needsCount(t), wn = waitCount(t);
   const meta = [
     k.tier !== undefined ? `tier ${esc(k.tier)}` : "",
     k.complexity ? `cx ${esc(k.complexity)}` : "",
@@ -355,18 +414,21 @@ function cardHTML({ repo, t }) {
   return `<a class="card${n ? " attn" : ""}${stale ? " stale" : ""}" href="#${esc(repo)}/${esc(t.id)}">` +
     `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
     (n ? `<span class="flag">needs you · ${n}</span>` : "") +
+    (wn ? `<span class="chip waitchip">⧖ ${wn}</span>` : "") +
     `<span class="chip">${esc(repo)}</span></div>` +
     trackHTML(k.phase) + metersHTML(k) +
     `<div class="foot">` +
     (t.mtime ? `<span class="dot${stale ? " old" : ""}"></span>${ago(t.mtime)}${stale ? " — stale" : ""}` : "") +
-    `<span class="sp"></span>${meta} ${resumeBtn(k, "⧉")}</div></a>`;
+    `<span class="sp"></span>${meta} ${resumeBtn(k, "⧉")}` +
+    ((isDone(t) || isArchived(t)) ? " " + moveBtn(repo, t) : "") + `</div></a>`;
 }
 
 function viewBoard() {
   const all = flat();
   if (!all.length) return `<div class="empty">No tasks yet. Drop a <code>&lt;repo&gt;/&lt;task&gt;.yaml</code> into the data directory.</div>`;
-  const live = all.filter(x => !isDone(x.t));
-  const done = all.filter(x => isDone(x.t));
+  const live = all.filter(x => !isDone(x.t) && !isArchived(x.t));
+  const done = all.filter(x => isDone(x.t) && !isArchived(x.t));
+  const archived = all.filter(x => isArchived(x.t));
   const attn = [];
   live.forEach(({ repo, t }) => (t.task?.needs_you || []).forEach(n => attn.push({ repo, t, n })));
   let html = "";
@@ -378,8 +440,21 @@ function viewBoard() {
         `<small>${esc(n.text || "")}</small></div>` +
         `<span class="go">${resumeBtn(t.task, "⧉ resume")}</span></div>`;
     }).join("") + `</section>`;
-  } else {
-    html += `<div class="calm">nothing needs you</div>`;
+  }
+  const waits = [];
+  live.forEach(({ repo, t }) => (t.task?.waiting_on || []).forEach(w => waits.push({ repo, t, w })));
+  if (!attn.length) {
+    // three-state calm line: stays honest when external questions are open
+    html += `<div class="calm">nothing needs you${waits.length ? ` · ${waits.length} waiting on others` : ""}</div>`;
+  }
+  if (waits.length) {
+    waits.sort((a, b) => (ageDays(b.w.asked) ?? -1) - (ageDays(a.w.asked) ?? -1));
+    html += `<section class="band wait"><h2>Waiting on others · ${waits.length}</h2>` + waits.map(({ repo, t, w }) => {
+      return `<div class="need"><span class="kind wait">${esc(w.who || "?")}</span>` +
+        `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
+        `<small>${esc(w.text || "")}</small></div>` +
+        `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>`;
+    }).join("") + `</section>`;
   }
   const order = live.slice().sort((a, b) =>
     (needsCount(b.t) ? 1 : 0) - (needsCount(a.t) ? 1 : 0) ||
@@ -391,6 +466,11 @@ function viewBoard() {
   if (done.length) {
     const recent = done.slice().sort((a, b) => (b.t.mtime || 0) - (a.t.mtime || 0));
     html += `<section class="donewrap">` + fold("board|done", `Done · ${done.length}`,
+      `<div class="grid">` + recent.map(cardHTML).join("") + `</div>`) + `</section>`;
+  }
+  if (archived.length) {
+    const recent = archived.slice().sort((a, b) => (b.t.mtime || 0) - (a.t.mtime || 0));
+    html += `<section class="donewrap arch">` + fold("board|archived", `Archived · ${archived.length}`,
       `<div class="grid">` + recent.map(cardHTML).join("") + `</div>`) + `</section>`;
   }
   return html;
@@ -412,7 +492,8 @@ function viewDetail(hash) {
     (k.tier !== undefined ? `<span class="chip">tier ${esc(k.tier)}${k.complexity ? " · cx " + esc(k.complexity) : ""}</span>` : (k.complexity ? `<span class="chip">cx ${esc(k.complexity)}</span>` : "")) +
     (k.worklog ? `<span class="chip">☰ ${esc(k.worklog)}</span>` : "") +
     (t.mtime ? `<span class="chip">${ago(t.mtime)}</span>` : "") +
-    resumeBtn(k, "⧉ claude --resume") +
+    (isArchived(t) ? `<span class="chip archchip">archived</span>` : "") +
+    resumeBtn(k, "⧉ claude --resume") + " " + moveBtn(repo, t) +
     `</div>` + stepperHTML(k.phase) + `</div>`;
 
   /* left column: narrative */
@@ -425,6 +506,15 @@ function viewDetail(hash) {
           `<div class="what"><b>${esc(n.text || "")}</b></div></div>` +
           (n.detail ? fold(fk("needs" + i), "detail", `<pre>${hl(String(n.detail))}</pre>`) : "");
       }).join("") + `</div>`;
+  }
+  if (Array.isArray(k.waiting_on) && k.waiting_on.length) {
+    left += `<div class="sec waitsec"><h3>Waiting on <span class="count">${k.waiting_on.length}</span></h3>` +
+      k.waiting_on.map((w, i) =>
+        `<div class="need"><span class="kind wait">${esc(w.who || "?")}</span>` +
+        `<div class="what"><b>${esc(w.text || "")}</b></div>` +
+        `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>` +
+        (w.detail ? fold(fk("wait" + i), "detail", `<pre>${hl(String(w.detail))}</pre>`) : "")
+      ).join("") + `</div>`;
   }
   if (Array.isArray(k.decisions) && k.decisions.length) {
     left += `<div class="sec"><h3>Decisions <span class="count">${k.decisions.length}</span></h3><div class="tl">` +

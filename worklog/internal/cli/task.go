@@ -52,6 +52,7 @@ format and field-ownership rules.`,
 		newTaskScorecardCmd(&flagID, &flagJSON),
 		newTaskDecisionCmd(&flagID, &flagJSON),
 		newTaskNeedsYouCmd(&flagID, &flagJSON),
+		newTaskWaitingOnCmd(&flagID, &flagJSON),
 		newTaskCodeCmd(&flagID, &flagJSON),
 		newTaskUntrackCmd(&flagID, &flagJSON),
 	)

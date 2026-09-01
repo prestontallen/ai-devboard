@@ -45,6 +45,14 @@ code:
           # raises EmbeddingUnavailable after final attempt
           return client.embed(texts)
 
+waiting_on:
+  - text: Is the shared ollama instance getting the memory bump this quarter?
+    who: infra-team
+    asked: 2026-08-24
+    link: https://slack.example/archives/C123/p456
+    detail: |
+      Batch embedding needs ~8GB headroom; current instance OOMs at 6GB.
+
 needs_you:
   - type: question
     text: Is 30s max total wait acceptable for batch jobs?

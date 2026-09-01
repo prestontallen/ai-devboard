@@ -37,6 +37,7 @@ type Task struct {
 	Decision   []Decision     `yaml:"decisions,omitempty"`
 	Code       []CodeRef      `yaml:"code,omitempty"`
 	NeedsYou   []NeedsItem    `yaml:"needs_you,omitempty"`
+	WaitingOn  []WaitingItem  `yaml:"waiting_on,omitempty"`
 	Links      []Link         `yaml:"links,omitempty"`
 	Extra      map[string]any `yaml:",inline"`
 }
@@ -75,6 +76,31 @@ type NeedsItem struct {
 type Link struct {
 	Label string `yaml:"label,omitempty"`
 	URL   string `yaml:"url"`
+}
+
+// WaitingItem is a question blocked on an EXTERNAL party — another team or
+// person, expected to sit for days. Distinct from NeedsItem (blocked on the
+// task's own human, resolvable in minutes).
+type WaitingItem struct {
+	Text   string `yaml:"text"`
+	Who    string `yaml:"who"`             // who owes the answer; required
+	Asked  string `yaml:"asked,omitempty"` // YYYY-MM-DD; age renders from this
+	Link   string `yaml:"link,omitempty"`  // where it was asked
+	Detail string `yaml:"detail,omitempty"`
+}
+
+// CloseWaitingOn converts every remaining waiting_on entry into an
+// "unanswered at close" decision and clears the list, so closing a task
+// never silently drops an outstanding question. Shared by the ticketed
+// done path (OnDone) and the ticketless CLI path (waiting-on resolve all).
+func CloseWaitingOn(t *Task, when string) {
+	for _, w := range t.WaitingOn {
+		t.Decision = append(t.Decision, Decision{
+			What: "unanswered at close: " + w.Text + " (" + w.Who + ")",
+			When: when,
+		})
+	}
+	t.WaitingOn = nil
 }
 
 // DataDir returns the devboard data directory: $DEVBOARD_DATA, defaulting
@@ -291,6 +317,7 @@ func OnDone(id string) error {
 	return Mutate(path, func(t *Task) error {
 		t.Phase = "done"
 		t.NeedsYou = nil
+		CloseWaitingOn(t, today())
 		return nil
 	})
 }

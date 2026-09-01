@@ -182,3 +182,33 @@ func TestFindAcrossRepos(t *testing.T) {
 		t.Fatalf("Find(absent) = %q, %v", p, err)
 	}
 }
+
+func TestOnDoneClosesWaitingOn(t *testing.T) {
+	dir := withDataDir(t)
+	p := seed(t, dir, "repo-a", "tkt-9", `schema: 1
+title: T
+phase: verify
+waiting_on:
+  - text: open question
+    who: infra
+    asked: 2026-08-25
+`)
+	if err := OnDone("tkt-9"); err != nil {
+		t.Fatal(err)
+	}
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	if len(task.WaitingOn) != 0 {
+		t.Fatalf("waiting_on not cleared: %+v", task.WaitingOn)
+	}
+	found := false
+	for _, d := range task.Decision {
+		if strings.Contains(d.What, "unanswered at close: open question (infra)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("close-out decision missing: %+v", task.Decision)
+	}
+}

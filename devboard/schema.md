@@ -6,6 +6,11 @@ content. Producers should write atomically (temp file + rename). Unknown
 top-level fields are rendered generically in an "Other" section — additive
 extensions don't break the renderer.
 
+Archived tasks live in `<data-root>/<repo>/_archive/` — the devboard UI
+moves files there (and back) via its archive/un-archive buttons; the file
+content is untouched and no schema field is involved. Producers should
+write only to the repo dir, never into `_archive/`.
+
 ## Ownership (one author per field)
 
 Worklog is the system of record; a devboard task file is disposable live
@@ -21,7 +26,7 @@ supported.
 | `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
 | `tier`, `complexity`, `branch`, `session` | agent | identity/telemetry |
-| `plan`, `scorecard`, `decisions`, `code`, `needs_you` | agent | in-flight detail; deliberately NOT stored in worklog |
+| `plan`, `scorecard`, `decisions`, `code`, `needs_you`, `waiting_on` | agent | in-flight detail; deliberately NOT stored in worklog |
 | notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
 
 ```yaml
@@ -65,6 +70,21 @@ code:                     # code the human should be aware of
     snippet: |
       @retry(attempts=3, backoff=exponential(0.5))
       def embed_batch(texts): ...
+
+waiting_on:               # external-answer queue: blocked on OTHER people/teams
+  - text: Can platform raise the rate limit for the batch endpoint?
+    who: platform-team    # required; who owes the answer
+    asked: 2026-09-01     # YYYY-MM-DD; the UI renders age from this
+    link: https://slack.example/thread   # where it was asked (optional)
+    detail: |
+      context the answerer needs
+                          # distinct from needs_you (blocked on the task's
+                          # own human). Age is independent of any worklog
+                          # `Waiting since` stamp. Resolve via
+                          # `worklog task waiting-on resolve` — answers are
+                          # recorded as decisions and appended to worklog
+                          # notes (the ONE sanctioned devboard->worklog
+                          # write; mirroring is otherwise one-way).
 
 needs_you:                # attention queue — questions & pending checkpoints
   - type: checkpoint      # question|checkpoint

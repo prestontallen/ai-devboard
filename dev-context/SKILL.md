@@ -180,10 +180,19 @@ Mandatory sync points:
    add "<text>" --type question|checkpoint --detail "<substance>"`.
    **Resolve it the moment it's resolved** — `worklog task needs-you
    resolve <n|all>` — a stale entry poisons the attention queue.
+   The moment a question goes to an EXTERNAL party (another team or
+   person): `worklog task waiting-on add "<question>" --who <party>
+   [--link <where>] [--detail "<context>"]`. When the answer arrives:
+   `worklog task waiting-on resolve <n> --answer "<answer>"` — the answer
+   is recorded as a decision and appended to the worklog ticket's notes.
+   Whole ticket blocked on someone else → `worklog wait <id>` instead;
+   one thread blocked while work continues → `waiting-on`.
 6. **Verify:** `worklog task scorecard pass|fail <n>` as each check runs.
 7. **Done:** `worklog done <id>` handles ticketed work (phase done, queue
-   cleared). Ticketless: `worklog task phase done` then `worklog task
-   needs-you resolve all`. Deleting the file is the human's call.
+   cleared). Ticketless: `worklog task waiting-on resolve all` (converts
+   open external questions to "unanswered at close" decisions), then
+   `worklog task phase done` and `worklog task needs-you resolve all`.
+   Deleting the file is the human's call.
 
 **Epic children:** when working a milestone that's a child ticket of an
 epic, do NOT keep a per-child task file — the epic's task file is the
