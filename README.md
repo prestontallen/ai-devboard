@@ -1,4 +1,4 @@
-# claude-skills
+# ai-devboard
 
 Skills for structured software development with Claude Code.
 
@@ -8,8 +8,8 @@ Skills for structured software development with Claude Code.
 | [contract](contract/SKILL.md) | Skill: generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 3; also usable standalone for scoping. |
 | [fan-out](fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. First instance: the contract-phase risk scout. |
 | *tone hook* | Not a repo component: dev-context's ship phase drafts all outbound text (commits, PR text, replies, messages) using whatever personal `*tone*` skill is installed on the machine, falling back to a lead-with-the-point default. Personal tone skills are gitignored here; install.sh checks for one and reports. |
-| [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics, archives, notes, search). Imported from `day2day` with history; deploys its skill files via `worklog/scripts/sync.sh`. |
-| [devboard](devboard/README.md) | Live telemetry: dockerized dashboard rendering per-task state (plan, scorecard, decisions, needs-you) from `~/.local/share/devboard/`. |
+| [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics — archivable via `done` once all children complete — archives, notes, search, standup). Also devboard's privileged writer: `start`/`done`/`pr` mirror automatically, and the `worklog task` family edits in-flight dashboard state. Imported from `day2day` with history; skill files deploy via `worklog/scripts/sync.sh`. |
+| [devboard](devboard/README.md) | Live telemetry: dockerized dashboard rendering per-task state (plan, scorecard, decisions, code-to-know, needs-you) plus live worklog notes from two read-only mounts. |
 
 Ownership model: worklog is the durable system of record, devboard is
 disposable live telemetry; every shared field has exactly one author, and
@@ -24,6 +24,12 @@ writer, never a required one).
 - **Tiers** (0 trivial / 1 small / 2 feature / 3 major) are the shared
   scaling mechanism: they decide contract depth and how many checkpoints
   the human sees. Defined in dev-context, consumed by contract.
+- **Complexity** (low / medium / high) is the second axis, rated at intake:
+  uncertainty and blast radius, not size. It throttles fan-out depth —
+  at medium+, the contract phase runs the **risk scout** (lensed read-only
+  subagents sweeping the draft scope), and findings are folded into the
+  contract before the human ever sees it; blocker-severity findings gate
+  approval.
 - **Acceptance criteria vs definition of done**: criteria are per-task and
   observable ("when X, then Y", each with a verification command); the DoD
   is the standing project bar, reused unchanged.
@@ -42,12 +48,19 @@ writer, never a required one).
 [devboard/](devboard/README.md) is the human's live dashboard: a Docker
 container renders task files from `~/.local/share/devboard/<repo>/` —
 plan, contract scorecard, decisions, code-to-know, a "needs you" attention
-queue, and a copy-`claude --resume` button per task. Hot-reloads on file
-change. The skills treat keeping these files current as part of the
-workflow ("Devboard sync" in dev-context): file created at intake, phase
-tracked, scorecard mirrored at contract-agreed and updated at verify, and
-`needs_you` entries added the moment anything waits on the human — and
-removed when resolved. Sync activates only when the data dir exists.
+queue, tier/complexity/worklog badges, a copy-`claude --resume` button per
+task, and (for tasks with a `worklog:` join key) the ticket's worklog
+notes rendered live from a second read-only mount. Hot-reloads on any file
+or note change.
+
+All updates flow through the worklog CLI, never hand-edited YAML
+("Devboard sync" in dev-context): `worklog start/done/pr` mirror lifecycle
+state automatically, and `worklog task` (`complexity`, `phase`, `plan`,
+`scorecard`, `decision`, `needs-you`, `code`, `untrack`) edits the
+in-flight detail — `untrack` stops dashboard tracking by deleting only the
+task file. Every command is a silent no-op when the data dir doesn't
+exist, so devboard stays opt-in by directory presence. Schema and
+field-ownership rules: [devboard/schema.md](devboard/schema.md).
 
 ## Install
 
@@ -66,8 +79,9 @@ container); warns when no personal `*tone*` skill is installed.
 Two layers, both required:
 
 1. **Discoverability** — skills must live under `~/.claude/skills/` to be
-   invocable. `install.sh` symlinks dev-context and contract (repo edits
-   apply immediately) and deploys the worklog skill via its `sync.sh`.
+   invocable. `install.sh` symlinks dev-context, contract, and fan-out
+   (repo edits apply immediately) and deploys the worklog skill via its
+   `sync.sh`.
 
 2. **Guaranteed pickup** — skill invocation is normally probabilistic (the
    model matches task against description). To make it deterministic, a
@@ -98,6 +112,12 @@ Two layers, both required:
 ## Open questions
 
 - Should `.contracts/` live in target repos, or centrally (worklog notes)?
-- Should tier classification get mechanical heuristics (files touched,
-  risk), or stay judgment-based?
+- Should tier/complexity classification get mechanical heuristics (files
+  touched, risk), or stay judgment-based?
 - When to promote the CLAUDE.md directive from repo-local to global.
+- Old `day2day` GitHub repo: archive, or keep as a subtree-push mirror?
+  Relatedly, the Go module is still named `…/day2day` — rename to match
+  this repo?
+- Onboarding (`csk-onboarding`, Someday): propose-and-curate import of
+  existing work; risk-scout findings already captured in its worklog
+  notes.

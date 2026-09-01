@@ -151,7 +151,7 @@ that command too.
 ## Devboard sync
 
 Devboard is the human's dashboard — a browser view rendered from task files
-(see `devboard/schema.md` in the claude-skills repo). Keeping the task file
+(see `devboard/schema.md` in the ai-devboard repo). Keeping the task file
 current is part of the workflow, not optional polish: a stale dashboard
 misleads the human, which is worse than no dashboard.
 

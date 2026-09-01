@@ -142,7 +142,7 @@ and suppress on subsequent ones in the same session.
 
 The worklog binary is the privileged writer of devboard task files — the
 YAML rendered by the devboard dashboard (`devboard/schema.md` in the
-claude-skills repo). Everything is a silent no-op when the devboard data
+ai-devboard repo). Everything is a silent no-op when the devboard data
 dir (`$DEVBOARD_DATA`, default `~/.local/share/devboard/`) doesn't exist.
 
 Lifecycle commands mirror automatically — no extra step:

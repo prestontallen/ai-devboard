@@ -1,7 +1,7 @@
 # Worklog
 
 > **Note:** this project moved into the
-> [claude-skills](../README.md) repo as `worklog/` (imported from
+> [ai-devboard](../README.md) repo as `worklog/` (imported from
 > `github.com/prestontallen/day2day` with history, 2026-09-01). It is the
 > system of record behind the repo's dev workflow: the `worklog` binary is
 > also the privileged writer for [devboard](../devboard/README.md) task
@@ -138,15 +138,16 @@ behavior is defined in markdown that the agent reads.
 | Where the data tree lives | The `~/.local/share/worklog/` path is referenced in **all six** support files. Use ripgrep to find them all. | `~/.local/share/worklog` |
 | Add a new persistent section (e.g. `## Blocked`) | WORK.md seed + [skill](skill/SKILL.md) "Required behavior" | section list |
 
-After editing the skill files, **mirror the change** to the Claude Code copy:
+After editing the skill files in the repo, redeploy:
 
 ```bash
-cp ~/.cursor/skills/worklog/SKILL.md ~/.claude/skills/worklog/SKILL.md
-diff ~/.cursor/skills/worklog/SKILL.md ~/.claude/skills/worklog/SKILL.md
+./scripts/sync.sh          # or: worklog sync
+./scripts/sync.sh --check  # verify all deployed copies match the repo
 ```
 
-The two are intentionally byte-identical. There's no symlink because Claude
-Code's skill loader doesn't follow them reliably.
+The Cursor and Claude Code copies are intentionally byte-identical; the
+repo's `skill/` dir is the single source of truth and sync.sh (also run
+by the top-level `install.sh`) deploys it everywhere.
 
 ---
 
