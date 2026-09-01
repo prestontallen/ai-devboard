@@ -170,5 +170,6 @@ YAML dropped by hand must keep working.
 
 | Date | Change | Why | Approved |
 |------|--------|-----|----------|
+| 2026-09-01 | `worklog task untrack` added to the task family: stops dashboard tracking by deleting only the task YAML (+lock); worklog data untouched. install.sh treats a dirty worklog tree as a distinct version so edits actually reinstall | Requested during M6; the stray-epic-child cleanup needed a real command | yes |
 | 2026-09-01 | M7 Risk scout milestone added: difficulty rating + subagent blocker/side-effect sweep at contract time; criteria deferred to M7's mini-contract | Requested during M4→M5 transition; design intentionally deferred | yes |
 | 2026-09-01 | Tone hook added: dev-context ship phase drafts outbound text via any installed `*tone*` skill, with a lead-with-the-point fallback; personal tone skills stay out of the repo (gitignored); install.sh (M6) checks for one and warns when absent | Tone is personal/per-context (the human's concise-tone skill carries work-specific footers); process defines the hook, the person supplies the voice | yes |

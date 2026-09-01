@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -51,6 +52,7 @@ format and field-ownership rules.`,
 		newTaskDecisionCmd(&flagID, &flagJSON),
 		newTaskNeedsYouCmd(&flagID, &flagJSON),
 		newTaskCodeCmd(&flagID, &flagJSON),
+		newTaskUntrackCmd(&flagID, &flagJSON),
 	)
 	return cmd
 }
@@ -343,6 +345,36 @@ func newTaskCodeCmd(id *string, asJSON *bool) *cobra.Command {
 	cmd.Flags().StringVar(&flagNote, "note", "", "why the human should care")
 	cmd.Flags().StringVar(&flagSnippet, "snippet", "", "code snippet ('-' reads stdin)")
 	return cmd
+}
+
+func newTaskUntrackCmd(id *string, asJSON *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "untrack",
+		Args:  cobra.NoArgs,
+		Short: "Stop showing this task on the dashboard (deletes only its task file)",
+		Long: `untrack removes the task's devboard YAML (and its lock file), so the
+dashboard stops rendering it. Nothing else is touched: the worklog ticket,
+notes, and archive entries all remain.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if taskDisabled(cmd) {
+				return nil
+			}
+			path, err := resolveTaskPath(*id, false)
+			if err != nil {
+				if ec, ok := err.(exitCoder); ok {
+					return jsonOrTextError(cmd, *asJSON, ec.ExitCode(), "%v", err)
+				}
+				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
+			}
+			if err := os.Remove(path); err != nil {
+				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
+			}
+			os.Remove(path + ".lock") // best-effort
+			rel, _ := filepath.Rel(devboard.DataDir(), path)
+			return emitTaskResult(cmd, *asJSON, taskResult{
+				File: rel, Action: "untracked", Detail: "task file removed; worklog data untouched"})
+		},
+	}
 }
 
 func readAllStdin(cmd *cobra.Command) (string, error) {

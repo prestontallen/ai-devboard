@@ -156,6 +156,27 @@ func TestTaskJSONOutput(t *testing.T) {
 	}
 }
 
+func TestTaskUntrackRemovesOnlyTaskFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	p := taskFile(t, dir)
+	os.WriteFile(p+".lock", nil, 0o644)
+
+	if _, _, err := runTask(t, "untrack", "--id", "tkt"); err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{p, p + ".lock"} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Fatalf("%s still exists", gone)
+		}
+	}
+	// untracking again: clear error, exit 1
+	_, _, err := runTask(t, "untrack", "--id", "tkt")
+	if err == nil || !strings.Contains(err.Error(), "no task file") {
+		t.Fatalf("expected no-task-file error, got %v", err)
+	}
+}
+
 func TestTaskMalformedFileFailsCleanly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DEVBOARD_DATA", dir)

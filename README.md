@@ -48,17 +48,25 @@ tracked, scorecard mirrored at contract-agreed and updated at verify, and
 `needs_you` entries added the moment anything waits on the human — and
 removed when resolved. Sync activates only when the data dir exists.
 
+## Install
+
+```sh
+./install.sh            # build worklog, deploy skills, prep devboard
+./install.sh --check    # report drift (exit 1 if anything differs)
+./install.sh --dry-run  # show what would happen
+```
+
+Linux/macOS (Windows → WSL). Requires Go; Docker optional (devboard).
+Prompts before the opt-in pieces (global CLAUDE.md directive, devboard
+container); warns when no personal `*tone*` skill is installed.
+
 ## Wiring (how Claude Code picks these up)
 
 Two layers, both required:
 
 1. **Discoverability** — skills must live under `~/.claude/skills/` to be
-   invocable. Symlink them so repo edits apply immediately:
-
-   ```sh
-   ln -sfn ~/claude-skills/dev-context ~/.claude/skills/dev-context
-   ln -sfn ~/claude-skills/contract ~/.claude/skills/contract
-   ```
+   invocable. `install.sh` symlinks dev-context and contract (repo edits
+   apply immediately) and deploys the worklog skill via its `sync.sh`.
 
 2. **Guaranteed pickup** — skill invocation is normally probabilistic (the
    model matches task against description). To make it deterministic, a

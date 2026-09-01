@@ -155,12 +155,15 @@ Lifecycle commands mirror automatically — no extra step:
 
 In-flight detail that worklog deliberately does not store lives in the
 task file and is edited with the `worklog task` family (`phase`, `plan`,
-`scorecard`, `decision`, `needs-you`, `code` — all take `--id` and
-`--json`; see `worklog task --help`). Never hand-edit task YAML.
+`scorecard`, `decision`, `needs-you`, `code`, `untrack` — all take `--id`
+and `--json`; see `worklog task --help`). Never hand-edit task YAML.
+`worklog task untrack` stops dashboard tracking by deleting only the task
+file; the ticket, notes, and archive are untouched.
 
 **Epic children:** starting a child ticket creates a per-child task file;
-for epic-tracked work delete it and target the epic's slug with `--id`
-instead — the epic's file is the dashboard surface.
+for epic-tracked work run `worklog task untrack --id <child-slug>` and
+target the epic's slug with `--id` instead — the epic's file is the
+dashboard surface.
 
 ## Required behavior
 

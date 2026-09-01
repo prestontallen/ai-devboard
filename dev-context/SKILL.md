@@ -177,8 +177,9 @@ Mandatory sync points:
 
 **Epic children:** when working a milestone that's a child ticket of an
 epic, do NOT keep a per-child task file — the epic's task file is the
-dashboard surface. Pass the epic's slug via `--id`, and delete any stray
-per-child file `worklog start` created.
+dashboard surface. Pass the epic's slug via `--id`, and remove any stray
+per-child file with `worklog task untrack --id <child-slug>` (deletes only
+the task file; worklog data is untouched).
 
 Tier 0 tasks skip devboard entirely. Never create the data dir unprompted.
 
