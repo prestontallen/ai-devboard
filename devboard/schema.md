@@ -6,6 +6,24 @@ content. Producers should write atomically (temp file + rename). Unknown
 top-level fields are rendered generically in an "Other" section — additive
 extensions don't break the renderer.
 
+## Ownership (one author per field)
+
+Worklog is the system of record; a devboard task file is disposable live
+telemetry. Where both systems describe the same task, **each field has
+exactly one author**, and mirroring flows worklog→devboard only. The
+`worklog` binary is the privileged writer of these files — but never a
+required one: a bare schema-valid file with no worklog ticket is fully
+supported.
+
+| Field | Author | Notes |
+|-------|--------|-------|
+| `worklog`, `title` | worklog (when ticket exists) | mirrored from the ticket; agent-authored on bare tasks |
+| `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
+| `phase` | agent (dev-context phases) | worklog `done` sets `done` |
+| `tier`, `branch`, `session` | agent | identity/telemetry |
+| `plan`, `scorecard`, `decisions`, `code`, `needs_you` | agent | in-flight detail; deliberately NOT stored in worklog |
+| notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
+
 ```yaml
 schema: 1                 # required; schema version
 title: Add retry to embedding client
@@ -14,6 +32,10 @@ session: 5cc41a6e-9f2c-4c11-b0a6-2f4e7f1d8a33
                           # optional; Claude Code session id of the agent
                           # working this task — the UI shows a button that
                           # copies `claude --resume <session>`
+worklog: embed-retry      # optional; worklog ticket id (join key). Shown
+                          # as a badge; when the worklog data dir is
+                          # mounted, notes/<id>.md renders in a Notes
+                          # section (render, never copied)
 tier: 2                   # optional; dev-context tier 0-3
 phase: implementing       # optional; intake|clarify|contract|plan|implementing|verify|present|ship|done
 
