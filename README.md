@@ -6,6 +6,7 @@ Skills for structured software development with Claude Code.
 |-----------|---------|
 | [dev-context](dev-context/SKILL.md) | **Entry point skill.** The workflow: task intake → clarify → contract → plan → implement → verify → present. Defines task tiers, human checkpoints, and when code is shown. |
 | [contract](contract/SKILL.md) | Skill: generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 3; also usable standalone for scoping. |
+| [fan-out](fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. First instance: the contract-phase risk scout. |
 | *tone hook* | Not a repo component: dev-context's ship phase drafts all outbound text (commits, PR text, replies, messages) using whatever personal `*tone*` skill is installed on the machine, falling back to a lead-with-the-point default. Personal tone skills are gitignored here; install.sh checks for one and reports. |
 | [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics, archives, notes, search). Imported from `day2day` with history; deploys its skill files via `worklog/scripts/sync.sh`. |
 | [devboard](devboard/README.md) | Live telemetry: dockerized dashboard rendering per-task state (plan, scorecard, decisions, needs-you) from `~/.local/share/devboard/`. |

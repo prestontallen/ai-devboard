@@ -108,6 +108,7 @@ link_skill() {
 }
 link_skill dev-context
 link_skill contract
+link_skill fan-out
 
 case "$mode" in
   check)   "$REPO_ROOT/worklog/scripts/sync.sh" --check >/dev/null \

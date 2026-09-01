@@ -24,20 +24,21 @@ import (
 // top-level fields across read-modify-write cycles (comments are not
 // preserved — documented limitation).
 type Task struct {
-	Schema   int          `yaml:"schema"`
-	Title    string       `yaml:"title,omitempty"`
-	Branch   string       `yaml:"branch,omitempty"`
-	Session  string       `yaml:"session,omitempty"`
-	Worklog  string       `yaml:"worklog,omitempty"`
-	Tier     *int         `yaml:"tier,omitempty"`
-	Phase    string       `yaml:"phase,omitempty"`
-	Plan     []PlanItem   `yaml:"plan,omitempty"`
-	Score    []ScoreItem  `yaml:"scorecard,omitempty"`
-	Decision []Decision   `yaml:"decisions,omitempty"`
-	Code     []CodeRef    `yaml:"code,omitempty"`
-	NeedsYou []NeedsItem  `yaml:"needs_you,omitempty"`
-	Links    []Link       `yaml:"links,omitempty"`
-	Extra    map[string]any `yaml:",inline"`
+	Schema     int            `yaml:"schema"`
+	Title      string         `yaml:"title,omitempty"`
+	Branch     string         `yaml:"branch,omitempty"`
+	Session    string         `yaml:"session,omitempty"`
+	Worklog    string         `yaml:"worklog,omitempty"`
+	Tier       *int           `yaml:"tier,omitempty"`
+	Complexity string         `yaml:"complexity,omitempty"` // low|medium|high; throttles fan-out
+	Phase      string         `yaml:"phase,omitempty"`
+	Plan       []PlanItem     `yaml:"plan,omitempty"`
+	Score      []ScoreItem    `yaml:"scorecard,omitempty"`
+	Decision   []Decision     `yaml:"decisions,omitempty"`
+	Code       []CodeRef      `yaml:"code,omitempty"`
+	NeedsYou   []NeedsItem    `yaml:"needs_you,omitempty"`
+	Links      []Link         `yaml:"links,omitempty"`
+	Extra      map[string]any `yaml:",inline"`
 }
 
 type PlanItem struct {

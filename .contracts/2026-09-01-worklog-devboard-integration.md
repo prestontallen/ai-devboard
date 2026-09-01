@@ -2,7 +2,7 @@
 
 - **Date:** 2026-09-01
 - **Tier:** 3 (Major)
-- **Status:** in-progress (agreed 2026-09-01)
+- **Status:** fulfilled (accepted 2026-09-01)
 - **Worklog:** csk-integration (epic)
 
 ## Intent
@@ -55,7 +55,7 @@ YAML dropped by hand must keep working.
   matching sync.sh conventions: default, `--check`, `--dry-run`.
   First-class targets: Linux and macOS; Windows is detected and directed
   to WSL with a clear message (see Q4)
-- M7 Risk scout: extend the intake/contract process with (a) a difficulty
+- M7 Risk scout: extend the intake/contract process with (a) a complexity
   rating alongside the tier, and (b) a fan-out of subagents at contract
   time that hunt for blockers, unexpected side effects, and impact on
   downstream consumers — anything that would slow the work or surprise us
@@ -88,32 +88,32 @@ YAML dropped by hand must keep working.
 
 | # | Criterion | Verify | Status |
 |---|-----------|--------|--------|
-| 1 | `sync.sh --check` exits 0 and `~/.claude/skills/worklog/SKILL.md` exists and matches the repo copy | run it; diff | ☐ |
-| 2 | When `worklog start <id>` runs in a git repo and the devboard data dir exists, a task file appears at `<data>/<repo>/<id>.yaml` with title, `worklog: <id>`, and `session` from the env | run in a throwaway repo; cat file | ☐ |
-| 3 | When `worklog done <id>` runs, the task file's phase becomes `done` and `needs_you` is emptied | run; cat file | ☐ |
-| 4 | When `worklog pr <id> <url>` runs, the task file gains a `links` entry with that URL | run; cat file | ☐ |
-| 5 | `worklog task needs-you add/resolve`, `plan …`, `scorecard …`, `decision`, `phase`, `code` each mutate exactly their field, atomically, and support `--json` | package + CLI tests; manual spot-check | ☐ |
-| 6 | While the devboard data dir does NOT exist, every side effect and `task` command is a silent no-op with exit 0 (explicit `task` prints a notice to stderr) | unset dir in test env; run all | ☐ |
-| 7 | When the target task file is malformed YAML, `task` commands fail with a clear error and leave the file byte-identical | corrupt a file; run; cmp | ☐ |
-| 8 | Concurrent `task` invocations never produce a torn/corrupt file | stress test in package tests (parallel writers) | ☐ |
-| 9 | A devboard task with `worklog: <id>` renders `notes/<id>.md` in a Notes section; editing the note updates the open page within 2s, no reload | browser check | ☐ |
-| 10 | A task whose `worklog:` id has no notes file, or with no `worklog:` at all, renders without a Notes section and without errors | browser check | ☐ |
-| 11 | A hand-dropped schema-valid YAML with no worklog ticket still renders fully (no regression) | drop example; browser check | ☐ |
-| 12 | dev-context/contract skill sync sections contain only CLI invocations (no hand-YAML instructions); commands they cite exist verbatim in `worklog task --help` | grep skills vs help output | ☐ |
-| 13 | Rebuilt binary reports the new version and `go test ./...` passes in `worklog/` | `worklog --version`; go test | ☐ |
-| 14 | On Linux with Go present, `./install.sh` against a sandbox `$HOME` builds and installs the binary (`worklog --version` works from PATH) and deploys all four repo skill surfaces (worklog SKILL + command, dev-context, contract); it checks for a personal `*tone*` skill, warning (not failing) when none is found | run with `HOME=<tmpdir>`; diff each deployed file; check warning in bare sandbox | ☐ |
-| 15 | A second `./install.sh` run reports up-to-date and changes nothing; `--dry-run` prints intended actions and touches no files; `--check` exits 0 when current, 1 when drifted | run twice; mtime/diff audit | ☐ |
-| 16 | When Go is missing from PATH, install fails before any file change with a clear message and nonzero exit; when Docker is missing, install completes with a warning | PATH-stripped env runs | ☐ |
-| 17 | On an unsupported platform combination, the script exits with an explanatory message (Windows → WSL pointer), never a half-install | fake `uname` via stub on PATH | ☐ |
+| 1 | `sync.sh --check` exits 0 and `~/.claude/skills/worklog/SKILL.md` exists and matches the repo copy | run it; diff | ✅ |
+| 2 | When `worklog start <id>` runs in a git repo and the devboard data dir exists, a task file appears at `<data>/<repo>/<id>.yaml` with title, `worklog: <id>`, and `session` from the env | run in a throwaway repo; cat file | ✅ |
+| 3 | When `worklog done <id>` runs, the task file's phase becomes `done` and `needs_you` is emptied | run; cat file | ✅ |
+| 4 | When `worklog pr <id> <url>` runs, the task file gains a `links` entry with that URL | run; cat file | ✅ |
+| 5 | `worklog task needs-you add/resolve`, `plan …`, `scorecard …`, `decision`, `phase`, `code` each mutate exactly their field, atomically, and support `--json` | package + CLI tests; manual spot-check | ✅ |
+| 6 | While the devboard data dir does NOT exist, every side effect and `task` command is a silent no-op with exit 0 (explicit `task` prints a notice to stderr) | unset dir in test env; run all | ✅ |
+| 7 | When the target task file is malformed YAML, `task` commands fail with a clear error and leave the file byte-identical | corrupt a file; run; cmp | ✅ |
+| 8 | Concurrent `task` invocations never produce a torn/corrupt file | stress test in package tests (parallel writers) | ✅ |
+| 9 | A devboard task with `worklog: <id>` renders `notes/<id>.md` in a Notes section; editing the note updates the open page within 2s, no reload | browser check | ✅ |
+| 10 | A task whose `worklog:` id has no notes file, or with no `worklog:` at all, renders without a Notes section and without errors | browser check | ✅ |
+| 11 | A hand-dropped schema-valid YAML with no worklog ticket still renders fully (no regression) | drop example; browser check | ✅ |
+| 12 | dev-context/contract skill sync sections contain only CLI invocations (no hand-YAML instructions); commands they cite exist verbatim in `worklog task --help` | grep skills vs help output | ✅ |
+| 13 | Rebuilt binary reports the new version and `go test ./...` passes in `worklog/` | `worklog --version`; go test | ✅ |
+| 14 | On Linux with Go present, `./install.sh` against a sandbox `$HOME` builds and installs the binary (`worklog --version` works from PATH) and deploys all four repo skill surfaces (worklog SKILL + command, dev-context, contract); it checks for a personal `*tone*` skill, warning (not failing) when none is found | run with `HOME=<tmpdir>`; diff each deployed file; check warning in bare sandbox | ✅ |
+| 15 | A second `./install.sh` run reports up-to-date and changes nothing; `--dry-run` prints intended actions and touches no files; `--check` exits 0 when current, 1 when drifted | run twice; mtime/diff audit | ✅ |
+| 16 | When Go is missing from PATH, install fails before any file change with a clear message and nonzero exit; when Docker is missing, install completes with a warning | PATH-stripped env runs | ✅ |
+| 17 | On an unsupported platform combination, the script exits with an explanatory message (Windows → WSL pointer), never a half-install | fake `uname` via stub on PATH | ✅ |
 
 ## Definition of done (standing bar)
 
-- [ ] All worklog Go tests pass (existing + new); no new deps beyond what
+- [x] All worklog Go tests pass (existing + new); no new deps beyond what
       the module already carries unless amended
-- [ ] Devboard keeps zero deps beyond python-alpine + PyYAML
-- [ ] No unrelated changes in the diff; commits per milestone
-- [ ] READMEs and schema.md updated where behavior is user-facing
-- [ ] Malformed input can never blank the dashboard or corrupt a store
+- [x] Devboard keeps zero deps beyond python-alpine + PyYAML
+- [x] No unrelated changes in the diff; commits per milestone
+- [x] READMEs and schema.md updated where behavior is user-facing
+- [x] Malformed input can never blank the dashboard or corrupt a store
 
 ## Constraints & assumptions
 
@@ -162,7 +162,7 @@ YAML dropped by hand must keep working.
    diff review
 6. **M6 Install** — install.sh, sandbox-verified · checkpoint: transcript
    of criteria 14–17 + script review
-7. **M7 Risk scout** — difficulty rating + subagent blocker sweep in the
+7. **M7 Risk scout** — complexity rating + subagent blocker sweep in the
    skills · checkpoint: mini-contract (with its own criteria) approved at
    milestone start, then skill diff review; contract closes
 
@@ -171,5 +171,5 @@ YAML dropped by hand must keep working.
 | Date | Change | Why | Approved |
 |------|--------|-----|----------|
 | 2026-09-01 | `worklog task untrack` added to the task family: stops dashboard tracking by deleting only the task YAML (+lock); worklog data untouched. install.sh treats a dirty worklog tree as a distinct version so edits actually reinstall | Requested during M6; the stray-epic-child cleanup needed a real command | yes |
-| 2026-09-01 | M7 Risk scout milestone added: difficulty rating + subagent blocker/side-effect sweep at contract time; criteria deferred to M7's mini-contract | Requested during M4→M5 transition; design intentionally deferred | yes |
+| 2026-09-01 | M7 Risk scout milestone added: complexity rating + subagent blocker/side-effect sweep at contract time; criteria deferred to M7's mini-contract | Requested during M4→M5 transition; design intentionally deferred | yes |
 | 2026-09-01 | Tone hook added: dev-context ship phase drafts outbound text via any installed `*tone*` skill, with a lead-with-the-point fallback; personal tone skills stay out of the repo (gitignored); install.sh (M6) checks for one and warns when absent | Tone is personal/per-context (the human's concise-tone skill carries work-specific footers); process defines the hook, the person supplies the voice | yes |

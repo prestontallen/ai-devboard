@@ -34,6 +34,11 @@ cheap, discovering missing process isn't.
 The human introduces the topic. Before doing anything else:
 - Restate the task in your own words (one or two sentences).
 - Classify the tier and say so.
+- Rate **complexity** (low / medium / high) and say so. Complexity is
+  uncertainty and blast radius, not size — a large mechanical change is
+  low, a one-liner in auth is high. It throttles fan-out depth (see the
+  fan-out skill) and nothing else. Record it:
+  `worklog task complexity <level> --id <slug>`.
 - Note what you'd need to look at (files, docs, prior art) to firm it up.
 
 ### 2. Clarify
@@ -59,6 +64,11 @@ Derive the implementation plan from the contract: ordered steps, files
 touched, test strategy. Tier 2: state the plan briefly and proceed. Tier 3:
 the plan is its own checkpoint — get approval, and break work into
 milestones, each with its own mini-contract.
+
+For high-complexity work, consider a **blind alternatives panel** (fan-out
+skill) before committing to an approach: N unled agents each design a
+solution independently; judge and synthesize. Mention in the plan when you
+used one and what it changed.
 
 ### 5. Implement
 Write the code. While implementing:

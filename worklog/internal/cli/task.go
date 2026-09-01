@@ -46,6 +46,7 @@ format and field-ownership rules.`,
 	cmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "emit a JSON result object instead of styled text")
 
 	cmd.AddCommand(
+		newTaskComplexityCmd(&flagID, &flagJSON),
 		newTaskPhaseCmd(&flagID, &flagJSON),
 		newTaskPlanCmd(&flagID, &flagJSON),
 		newTaskScorecardCmd(&flagID, &flagJSON),
@@ -160,6 +161,23 @@ func index1(arg string, n int, what string) (int, error) {
 		return 0, errWithExit(64, "task: %s index must be 1..%d, got %q", what, n, arg)
 	}
 	return i - 1, nil
+}
+
+func newTaskComplexityCmd(id *string, asJSON *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "complexity <low|medium|high>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Rate the task's complexity (throttles fan-out depth)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c := strings.ToLower(args[0])
+			if c != "low" && c != "medium" && c != "high" {
+				return jsonOrTextError(cmd, *asJSON, 64,
+					"task: complexity must be low|medium|high, got %q", c)
+			}
+			return mutateTask(cmd, *id, *asJSON, true, "complexity set", c,
+				func(t *devboard.Task) error { t.Complexity = c; return nil })
+		},
+	}
 }
 
 func newTaskPhaseCmd(id *string, asJSON *bool) *cobra.Command {

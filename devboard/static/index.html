@@ -25,6 +25,9 @@
   .badge.phase { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
   .badge.attn { color: #111; background: var(--warn); border-color: var(--warn); font-weight: 600; }
   .badge.err { color: var(--bad); border-color: var(--bad); }
+  .badge.cx-low { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .badge.cx-medium { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+  .badge.cx-high { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
   section.queue { background: var(--panel); border: 1px solid var(--warn); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: 1.4rem; }
   section.queue h2 { color: var(--warn); font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem; }
   section.queue li { margin: .25rem 0 .25rem 1.1rem; }
@@ -147,7 +150,7 @@ const isStale = t => t && (Date.now() / 1000 - t) > 2 * 3600;
 const MARKS = { done: "✓", pass: "✓", in_progress: "▶", blocked: "✕", fail: "✕", pending: "○" };
 const mark = st => MARKS[st] || "○";
 const needsCount = t => (t.task && Array.isArray(t.task.needs_you)) ? t.task.needs_you.length : 0;
-const KNOWN = new Set(["schema","title","branch","tier","phase","updated","plan","scorecard","decisions","code","needs_you","links","session","worklog"]);
+const KNOWN = new Set(["schema","title","branch","tier","phase","updated","plan","scorecard","decisions","code","needs_you","links","session","worklog","complexity"]);
 
 /* copy `claude --resume <session>`; data-s carries the session id */
 window.copySession = function (ev, btn) {
@@ -203,6 +206,7 @@ function viewGrid() {
         `<div class="t">${esc(k.title || t.id)}</div><div class="meta">` +
         (k.phase ? `<span class="badge phase">${esc(k.phase)}</span>` : "") +
         (k.tier !== undefined ? `<span class="badge">tier ${esc(k.tier)}</span>` : "") +
+        (k.complexity ? `<span class="badge cx-${esc(k.complexity)}">cx ${esc(k.complexity)}</span>` : "") +
         (k.worklog ? `<span class="badge">☰ ${esc(k.worklog)}</span>` : "") +
         (n ? `<span class="badge attn">needs you · ${n}</span>` : "") +
         resumeBtn(k, "⧉ resume") +
@@ -225,6 +229,7 @@ function viewDetail(hash) {
     (k.branch ? `<span class="badge">⎇ ${esc(k.branch)}</span>` : "") +
     (k.phase ? `<span class="badge phase">${esc(k.phase)}</span>` : "") +
     (k.tier !== undefined ? `<span class="badge">tier ${esc(k.tier)}</span>` : "") +
+    (k.complexity ? `<span class="badge cx-${esc(k.complexity)}">cx ${esc(k.complexity)}</span>` : "") +
     (k.worklog ? `<span class="badge">☰ ${esc(k.worklog)}</span>` : "") +
     `<span class="badge">${ago(t.mtime)}</span>` +
     resumeBtn(k, "⧉ claude --resume") + `</div>`;

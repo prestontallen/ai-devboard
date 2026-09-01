@@ -20,7 +20,7 @@ supported.
 | `worklog`, `title` | worklog (when ticket exists) | mirrored from the ticket; agent-authored on bare tasks |
 | `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
-| `tier`, `branch`, `session` | agent | identity/telemetry |
+| `tier`, `complexity`, `branch`, `session` | agent | identity/telemetry |
 | `plan`, `scorecard`, `decisions`, `code`, `needs_you` | agent | in-flight detail; deliberately NOT stored in worklog |
 | notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
 
@@ -37,6 +37,8 @@ worklog: embed-retry      # optional; worklog ticket id (join key). Shown
                           # mounted, notes/<id>.md renders in a Notes
                           # section (render, never copied)
 tier: 2                   # optional; dev-context tier 0-3
+complexity: medium        # optional; low|medium|high — uncertainty/blast
+                          # radius, throttles fan-out depth (fan-out skill)
 phase: implementing       # optional; intake|clarify|contract|plan|implementing|verify|present|ship|done
 
 plan:                     # todo list

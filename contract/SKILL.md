@@ -86,9 +86,18 @@ milestones sequence the work and the human checkpoints.
    (CLAUDE.md, CI config) if defined; otherwise the default: all tests pass,
    new behavior has tests, lint/format clean, no unrelated diffs, docs
    updated where behavior is user-facing.
-6. **Surface open questions** instead of silently resolving them — each one
+6. **Run the risk scout** (tier 1+ and complexity medium/high): fan out
+   read-only subagents over the draft scope per the fan-out skill's
+   [risk-scout reference](../fan-out/references/risk-scout.md) — lensed
+   scouts for blockers, side effects, downstream consumers (+ prior art at
+   high complexity). Fold every finding into the contract (out-scope line,
+   sad-path criterion, risk, or open question) BEFORE presenting it; a
+   blocker-severity finding must be resolved or explicitly accepted by the
+   human first. The human reviews one pre-vetted document, never a
+   contract plus a separate report.
+7. **Surface open questions** instead of silently resolving them — each one
    is either answered at contract review or logged as an assumption.
-7. **Present for approval** (per dev-context). The contract isn't real
+8. **Present for approval** (per dev-context). The contract isn't real
    until the human says so.
 
 ## Contract lifecycle
