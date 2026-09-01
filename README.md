@@ -2,10 +2,17 @@
 
 Skills for structured software development with Claude Code.
 
-| Skill | Purpose |
-|-------|---------|
-| [dev-context](dev-context/SKILL.md) | **Entry point.** The workflow: task intake → clarify → contract → plan → implement → verify → present. Defines task tiers, human checkpoints, and when code is shown. |
-| [contract](contract/SKILL.md) | Generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 3; also usable standalone for scoping. |
+| Component | Purpose |
+|-----------|---------|
+| [dev-context](dev-context/SKILL.md) | **Entry point skill.** The workflow: task intake → clarify → contract → plan → implement → verify → present. Defines task tiers, human checkpoints, and when code is shown. |
+| [contract](contract/SKILL.md) | Skill: generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 3; also usable standalone for scoping. |
+| [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics, archives, notes, search). Imported from `day2day` with history; deploys its skill files via `worklog/scripts/sync.sh`. |
+| [devboard](devboard/README.md) | Live telemetry: dockerized dashboard rendering per-task state (plan, scorecard, decisions, needs-you) from `~/.local/share/devboard/`. |
+
+Ownership model: worklog is the durable system of record, devboard is
+disposable live telemetry; every shared field has exactly one author, and
+mirroring flows worklog→devboard only (worklog is devboard's privileged
+writer, never a required one).
 
 ## How it fits together
 

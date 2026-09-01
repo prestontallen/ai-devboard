@@ -1,5 +1,12 @@
 # Worklog
 
+> **Note:** this project moved into the
+> [claude-skills](../README.md) repo as `worklog/` (imported from
+> `github.com/prestontallen/day2day` with history, 2026-09-01). It is the
+> system of record behind the repo's dev workflow: the `worklog` binary is
+> also the privileged writer for [devboard](../devboard/README.md) task
+> files. Paths in this README are relative to `worklog/`.
+
 A markdown-based personal task journal that survives across Cursor and Claude Code
 sessions. The agent reads `WORK.md` at the start of every session, archives
 completed tickets to monthly files, keeps long-form notes per epic, and maintains
