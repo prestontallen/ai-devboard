@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import yaml
 
 DATA_DIR = os.environ.get("DEVBOARD_DATA", "/data")
+WORKLOG_DIR = os.environ.get("DEVBOARD_WORKLOG", "/worklog")  # notes/<id>.md rendered per task
 PORT = int(os.environ.get("DEVBOARD_PORT", "8484"))
 SCAN_INTERVAL = float(os.environ.get("DEVBOARD_SCAN_INTERVAL", "1.0"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -27,7 +28,8 @@ _changed = threading.Condition()
 
 
 def _snapshot():
-    """Map of task-file path -> (mtime, size) for change detection."""
+    """Map of watched-file path -> (mtime, size) for change detection.
+    Covers task files and worklog notes, so note edits hot-reload too."""
     snap = {}
     try:
         with os.scandir(DATA_DIR) as repos:
@@ -40,6 +42,14 @@ def _snapshot():
                             st = f.stat()
                             snap[f.path] = (st.st_mtime_ns, st.st_size)
     except FileNotFoundError:
+        pass
+    try:
+        with os.scandir(os.path.join(WORKLOG_DIR, "notes")) as notes:
+            for f in notes:
+                if f.is_file() and f.name.lower().endswith(".md"):
+                    st = f.stat()
+                    snap[f.path] = (st.st_mtime_ns, st.st_size)
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
         pass
     return snap
 
@@ -69,6 +79,14 @@ def _parse_task(path):
         entry["task"] = data
         st = os.stat(path)
         entry["mtime"] = st.st_mtime
+        wl = data.get("worklog")
+        if isinstance(wl, str) and wl and "/" not in wl and ".." not in wl:
+            np = os.path.join(WORKLOG_DIR, "notes", wl + ".md")
+            try:
+                with open(np, "r", encoding="utf-8", errors="replace") as nf:
+                    entry["notes"] = nf.read()
+            except OSError:
+                pass  # no notes file: section simply absent
     except Exception as exc:  # any bad file becomes an error card, never a 500
         entry["error"] = f"{type(exc).__name__}: {exc}"
     return entry

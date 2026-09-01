@@ -5,4 +5,5 @@ services:
       - "${DEVBOARD_PORT:-8484}:8484"
     volumes:
       - "${DEVBOARD_DATA:-~/.local/share/devboard}:/data:ro"
+      - "${WORKLOG_DATA:-~/.local/share/worklog}:/worklog:ro"
     restart: unless-stopped

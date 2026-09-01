@@ -67,6 +67,11 @@
                 border-radius: 999px; padding: .08rem .6rem; font: .72rem var(--mono); cursor: pointer; }
   button.copy:hover { border-color: var(--accent); color: var(--accent); }
   button.copy.ok { border-color: var(--ok); color: var(--ok); }
+  .mdbody { font-size: .88rem; }
+  .mdbody h3, .mdbody h4, .mdbody h5 { margin: .8rem 0 .3rem; color: var(--accent); font-size: .95rem; }
+  .mdbody p { margin: .3rem 0; } .mdbody ul { margin: .3rem 0 .3rem 1.3rem; }
+  .mdbody code { background: var(--panel2); border-radius: 4px; padding: .05rem .3rem; font: .8rem var(--mono); }
+  .mdbody pre { margin: .5rem 0; }
   .errcard { border-color: var(--bad); }
   .errcard .msg { font-family: var(--mono); font-size: .78rem; color: var(--bad); margin-top: .3rem; word-break: break-all; }
   .empty { color: var(--dim); padding: 2rem 0; text-align: center; }
@@ -102,6 +107,31 @@ function hl(code) {
     last = m.index + m[0].length;
   }
   return out + plain(rest.slice(last));
+}
+
+/* minimal markdown for worklog notes: headers, bullets, bold, inline code,
+   fenced blocks. Anything else renders as plain paragraphs. */
+function md(src) {
+  const parts = String(src).split(/^```.*$/m);
+  let html = "";
+  parts.forEach((part, i) => {
+    if (i % 2) { html += `<pre>${hl(part.replace(/^\n|\n$/g, ""))}</pre>`; return; }
+    const inline = s => esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    let listOpen = false, out = [];
+    for (const line of part.split("\n")) {
+      const h = line.match(/^(#{1,6})\s+(.*)/);
+      const li = line.match(/^\s*[-*]\s+(.*)/);
+      if (li) { if (!listOpen) { out.push("<ul>"); listOpen = true; } out.push(`<li>${inline(li[1])}</li>`); continue; }
+      if (listOpen) { out.push("</ul>"); listOpen = false; }
+      if (h) out.push(`<h${h[1].length + 2}>${inline(h[2])}</h${h[1].length + 2}>`);
+      else if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+    }
+    if (listOpen) out.push("</ul>");
+    html += out.join("");
+  });
+  return html;
 }
 
 /* ---------- helpers ---------- */
@@ -233,6 +263,10 @@ function viewDetail(hash) {
     html += `<div class="sec"><h3>Links</h3><ul class="plain">` + k.links.map(l =>
       `<li><span class="mark">↗</span><a href="${esc(l.url || "#")}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a></li>`).join("") +
       `</ul></div>`;
+  }
+  if (t.notes) {
+    html += `<div class="sec notes"><h3>Worklog notes${k.worklog ? " · " + esc(k.worklog) : ""}</h3>` +
+      `<div class="mdbody">${md(t.notes)}</div></div>`;
   }
   const extra = Object.keys(k).filter(key => !KNOWN.has(key));
   if (extra.length) {
