@@ -33,12 +33,13 @@
   .stat.attn { border-color: color-mix(in srgb, var(--hold) 55%, transparent); }
   .stat.attn b { color: var(--hold); }
 
-  /* ---------- attention band ---------- */
-  .band { background: linear-gradient(90deg, color-mix(in srgb, var(--hold) 9%, var(--panel)), var(--panel));
-          border: 1px solid color-mix(in srgb, var(--hold) 45%, var(--border));
-          border-radius: 10px; padding: .85rem 1rem; margin-bottom: 1.3rem; }
-  .band h2 { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--hold);
-             margin-bottom: .5rem; }
+  /* ---------- attention & waiting folds ----------
+     Collapsed by default (same fold pattern as Done/Archived below) — the
+     topbar stat and per-card badges already carry the count at a glance,
+     so the full item list doesn't need to dominate the page by default. */
+  .bandfold { margin-bottom: .4rem; }
+  .bandfold.attn summary { color: var(--hold); font-weight: 600; }
+  .bandfold.wait summary { color: var(--signal); font-weight: 600; }
   .need { display: flex; align-items: center; gap: .8rem; padding: .45rem 0; }
   .need + .need { border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
   .kind { flex: none; font: 500 .68rem var(--mono); text-transform: uppercase; letter-spacing: .06em;
@@ -56,10 +57,7 @@
   .calm::before { content: "✓ "; color: var(--go); }
 
   /* waiting-on: the external-answer queue. Deliberately calmer than the
-     amber needs-you band — signal blue, never --hold. */
-  .band.wait { background: linear-gradient(90deg, color-mix(in srgb, var(--signal) 7%, var(--panel)), var(--panel));
-               border-color: color-mix(in srgb, var(--signal) 35%, var(--border)); }
-  .band.wait h2 { color: var(--signal); }
+     amber needs-you fold — signal blue, never --hold. */
   .kind.wait { color: var(--signal); background: color-mix(in srgb, var(--signal) 14%, transparent);
                text-transform: none; }
   .stat.wait { border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
@@ -433,13 +431,14 @@ function viewBoard() {
   live.forEach(({ repo, t }) => (t.task?.needs_you || []).forEach(n => attn.push({ repo, t, n })));
   let html = "";
   if (attn.length) {
-    html += `<section class="band"><h2>Needs you · ${attn.length}</h2>` + attn.map(({ repo, t, n }) => {
-      const type = esc(n.type || "item");
-      return `<div class="need"><span class="kind ${type}">${type}</span>` +
-        `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
-        `<small>${esc(n.text || "")}</small></div>` +
-        `<span class="go">${resumeBtn(t.task, "⧉ resume")}</span></div>`;
-    }).join("") + `</section>`;
+    html += `<section class="bandfold attn">` + fold("board|needsyou", `Needs you · ${attn.length}`,
+      attn.map(({ repo, t, n }) => {
+        const type = esc(n.type || "item");
+        return `<div class="need"><span class="kind ${type}">${type}</span>` +
+          `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
+          `<small>${esc(n.text || "")}</small></div>` +
+          `<span class="go">${resumeBtn(t.task, "⧉ resume")}</span></div>`;
+      }).join("")) + `</section>`;
   }
   const waits = [];
   live.forEach(({ repo, t }) => (t.task?.waiting_on || []).forEach(w => waits.push({ repo, t, w })));
@@ -449,12 +448,13 @@ function viewBoard() {
   }
   if (waits.length) {
     waits.sort((a, b) => (ageDays(b.w.asked) ?? -1) - (ageDays(a.w.asked) ?? -1));
-    html += `<section class="band wait"><h2>Waiting on others · ${waits.length}</h2>` + waits.map(({ repo, t, w }) => {
-      return `<div class="need"><span class="kind wait">${esc(w.who || "?")}</span>` +
-        `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
-        `<small>${esc(w.text || "")}</small></div>` +
-        `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>`;
-    }).join("") + `</section>`;
+    html += `<section class="bandfold wait">` + fold("board|waits", `Waiting on others · ${waits.length}`,
+      waits.map(({ repo, t, w }) => {
+        return `<div class="need"><span class="kind wait">${esc(w.who || "?")}</span>` +
+          `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
+          `<small>${esc(w.text || "")}</small></div>` +
+          `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>`;
+      }).join("")) + `</section>`;
   }
   const order = live.slice().sort((a, b) =>
     (needsCount(b.t) ? 1 : 0) - (needsCount(a.t) ? 1 : 0) ||
