@@ -1,0 +1,9 @@
+# build artifacts
+/worklog
+/bin/
+/dist/
+
+# editor leftovers
+*.swp
+*~
+.DS_Store
