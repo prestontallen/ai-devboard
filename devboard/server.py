@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Devboard: read-only dashboard over a directory of task files.
+"""Devboard: dashboard over a directory of task files.
 
 Layout: <DEVBOARD_DATA>/<repo>/<task>.{yaml,yml,json}
+        <DEVBOARD_DATA>/<repo>/_archive/<task>.yaml   (archived; flagged in API)
 Endpoints:
-  /            -> static/index.html
-  /api/tasks   -> all tasks, parsed, grouped by repo dir
-  /events      -> SSE stream; emits a message whenever the data dir changes
+  /               -> static/index.html
+  /api/tasks      -> all tasks, parsed, grouped by repo dir
+  /events         -> SSE stream; emits a message whenever the data dir changes
+  /api/archive    -> POST {repo, id}: move task file into <repo>/_archive/
+  /api/unarchive  -> POST {repo, id}: move it back
+
+The two POST endpoints are the server's only writes, and both are a single
+validated rename — task content and the worklog dir are never touched.
 """
 
 import json
@@ -22,6 +28,7 @@ PORT = int(os.environ.get("DEVBOARD_PORT", "8484"))
 SCAN_INTERVAL = float(os.environ.get("DEVBOARD_SCAN_INTERVAL", "1.0"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TASK_EXTS = (".yaml", ".yml", ".json")
+ARCHIVE_DIR = "_archive"  # per-repo subdir; the only place the server ever moves files
 
 _version = 0
 _changed = threading.Condition()
@@ -41,6 +48,14 @@ def _snapshot():
                         if f.is_file() and f.name.lower().endswith(TASK_EXTS):
                             st = f.stat()
                             snap[f.path] = (st.st_mtime_ns, st.st_size)
+                try:
+                    with os.scandir(os.path.join(repo.path, ARCHIVE_DIR)) as arc:
+                        for f in arc:
+                            if f.is_file() and f.name.lower().endswith(TASK_EXTS):
+                                st = f.stat()
+                                snap[f.path] = (st.st_mtime_ns, st.st_size)
+                except (FileNotFoundError, NotADirectoryError):
+                    pass
     except FileNotFoundError:
         pass
     try:
@@ -67,9 +82,11 @@ def _watcher():
                 _changed.notify_all()
 
 
-def _parse_task(path):
+def _parse_task(path, archived=False):
     rel = os.path.relpath(path, DATA_DIR)
     entry = {"file": rel, "id": os.path.splitext(os.path.basename(path))[0]}
+    if archived:
+        entry["archived"] = True
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
@@ -108,6 +125,13 @@ def _all_tasks():
             for f in sorted(os.listdir(rdir))
             if f.lower().endswith(TASK_EXTS) and os.path.isfile(os.path.join(rdir, f))
         ]
+        arcdir = os.path.join(rdir, ARCHIVE_DIR)
+        if os.path.isdir(arcdir):
+            tasks += [
+                _parse_task(os.path.join(arcdir, f), archived=True)
+                for f in sorted(os.listdir(arcdir))
+                if f.lower().endswith(TASK_EXTS) and os.path.isfile(os.path.join(arcdir, f))
+            ]
         if tasks:
             repos.append({"repo": name, "tasks": tasks})
     with _changed:
@@ -140,8 +164,64 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps(_all_tasks(), default=str))
         elif path == "/events":
             self._sse()
+        elif path in ("/api/archive", "/api/unarchive"):
+            self._send(405, '{"error": "POST only"}')
         else:
             self._send(404, '{"error": "not found"}')
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/api/archive":
+            self._move(to_archive=True)
+        elif path == "/api/unarchive":
+            self._move(to_archive=False)
+        else:
+            self._send(404, '{"error": "not found"}')
+
+    def _move(self, to_archive):
+        """Rename a task file into or out of <repo>/_archive/ — the server's
+        only write. The strict application/json requirement doubles as the
+        CSRF guard: cross-origin JSON needs a preflight this server never
+        answers, and simple-request content types are rejected here."""
+        global _version
+        ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        if ctype != "application/json":
+            return self._send(415, '{"error": "Content-Type must be application/json"}')
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(length) or b"")
+            repo, task_id = body.get("repo"), body.get("id")
+        except (ValueError, AttributeError):
+            return self._send(400, '{"error": "invalid JSON body"}')
+        for part in (repo, task_id):
+            if (not isinstance(part, str) or not part or part.startswith(".")
+                    or ".." in part or any(c in part for c in "/\\")):
+                return self._send(400, '{"error": "invalid repo or id"}')
+        repo_dir = os.path.join(DATA_DIR, repo)
+        arc_dir = os.path.join(repo_dir, ARCHIVE_DIR)
+        src_dir, dst_dir = (repo_dir, arc_dir) if to_archive else (arc_dir, repo_dir)
+        fname = None
+        if os.path.isdir(src_dir):
+            for f in sorted(os.listdir(src_dir)):
+                if (f.lower().endswith(TASK_EXTS) and os.path.splitext(f)[0] == task_id
+                        and os.path.isfile(os.path.join(src_dir, f))):
+                    fname = f
+                    break
+        if not fname:
+            return self._send(404, '{"error": "task not found"}')
+        dst = os.path.join(dst_dir, fname)
+        if os.path.exists(dst):
+            return self._send(409, '{"error": "destination already exists"}')
+        try:
+            os.makedirs(dst_dir, exist_ok=True)
+            os.rename(os.path.join(src_dir, fname), dst)
+        except OSError as exc:
+            return self._send(500, json.dumps({"error": f"move failed: {exc}"}))
+        with _changed:  # wake SSE clients now; don't wait out the scan interval
+            _version += 1
+            _changed.notify_all()
+        self._send(200, json.dumps(
+            {"status": "archived" if to_archive else "restored", "repo": repo, "id": task_id}))
 
     def _sse(self):
         self.send_response(200)

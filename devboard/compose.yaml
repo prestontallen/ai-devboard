@@ -4,6 +4,6 @@ services:
     ports:
       - "${DEVBOARD_PORT:-8484}:8484"
     volumes:
-      - "${DEVBOARD_DATA:-~/.local/share/devboard}:/data:ro"
+      - "${DEVBOARD_DATA:-~/.local/share/devboard}:/data"  # rw: archive/un-archive renames task files
       - "${WORKLOG_DATA:-~/.local/share/worklog}:/worklog:ro"
     restart: unless-stopped

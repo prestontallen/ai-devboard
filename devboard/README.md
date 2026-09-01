@@ -1,6 +1,6 @@
 # Devboard
 
-A read-only browser dashboard over a directory of task files, so the human
+A browser dashboard over a directory of task files, so the human
 can follow agent work without living in terminal scrollback. Agents (or
 anyone) drop one YAML/JSON file per task into `<data-root>/<repo>/`; the
 page renders plan todos, the contract scorecard, decisions, code-to-know,
@@ -30,8 +30,9 @@ docker compose up --build -d
 Defaults: data dir `~/.local/share/devboard`, port `8484`, worklog dir
 `~/.local/share/worklog` (for notes rendering). Override with
 `DEVBOARD_DATA=/path WORKLOG_DATA=/path DEVBOARD_PORT=9000 docker compose
-up -d`. Both mounts are read-only — the dashboard can never modify
-workflow state.
+up -d`. The worklog mount is read-only — the dashboard can never modify
+worklog state. The data mount is writable for exactly one operation:
+archiving (see below).
 
 Without Docker: `DEVBOARD_DATA=~/.local/share/devboard python3 server.py`
 (needs `pyyaml`).
@@ -42,6 +43,8 @@ Without Docker: `DEVBOARD_DATA=~/.local/share/devboard python3 server.py`
 <data-root>/
   <repo-name>/          # grouping = directory name
     <task-slug>.yaml    # one file per task (.yml/.json also fine)
+    _archive/           # archived tasks (moved here by the UI; kept on disk)
+      <task-slug>.yaml
 ```
 
 See [schema.md](schema.md) for the task file format (`schema: 1`), and
@@ -50,6 +53,19 @@ See [schema.md](schema.md) for the task file format (`schema: 1`), and
 ```sh
 cp -r examples/* ~/.local/share/devboard/
 ```
+
+## Archive / un-archive
+
+The board's only write action. The archive button (on done cards and in
+every task's detail view) moves the task's file into `<repo>/_archive/`;
+archived tasks leave the grid, stats, and attention band and collapse into
+an "Archived · N" fold with un-archive buttons that move them back. Nothing
+is ever deleted or rewritten — both endpoints (`POST /api/archive`,
+`POST /api/unarchive`, JSON body `{"repo", "id"}`) are a single validated
+rename, and the worklog dir is never touched. There is no auth: anyone who
+can reach the port can archive/un-archive (reversible by design; the server
+rejects non-JSON content types and never answers CORS preflights, so a
+browsing session on another site can't trigger it cross-origin).
 
 ## Behavior notes
 
