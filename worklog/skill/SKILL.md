@@ -138,6 +138,30 @@ The `--json` output shape is:
 When in doubt, surface on the first validation against a given dir
 and suppress on subsequent ones in the same session.
 
+## Devboard side effects
+
+The worklog binary is the privileged writer of devboard task files — the
+YAML rendered by the devboard dashboard (`devboard/schema.md` in the
+claude-skills repo). Everything is a silent no-op when the devboard data
+dir (`$DEVBOARD_DATA`, default `~/.local/share/devboard/`) doesn't exist.
+
+Lifecycle commands mirror automatically — no extra step:
+
+- `worklog start <id>` creates/updates `<data>/<repo>/<id>.yaml` with the
+  ticket title, `worklog: <id>` join key, and the agent session id.
+- `worklog done <id>` sets the task's phase to `done` and clears its
+  needs-you queue.
+- `worklog pr <id> <url>` sets (or with `--clear` removes) the PR link.
+
+In-flight detail that worklog deliberately does not store lives in the
+task file and is edited with the `worklog task` family (`phase`, `plan`,
+`scorecard`, `decision`, `needs-you`, `code` — all take `--id` and
+`--json`; see `worklog task --help`). Never hand-edit task YAML.
+
+**Epic children:** starting a child ticket creates a per-child task file;
+for epic-tracked work delete it and target the epic's slug with `--id`
+instead — the epic's file is the dashboard surface.
+
 ## Required behavior
 
 ### 1. On every session start

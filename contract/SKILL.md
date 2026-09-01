@@ -100,12 +100,17 @@ the contract becomes the scorecard: every criterion gets ✅/❌ plus evidence.
 
 ## Devboard integration
 
-If the devboard data dir exists (see dev-context "Devboard sync"), mirror
-the contract into the task file when it reaches **agreed**: acceptance
-criteria become `scorecard` entries (status `pending`, `verify` carried
-over), and any open questions become `needs_you` entries of type
-`question`. From then on the scorecard in the task file tracks
-verification state live.
+When the contract reaches **agreed**, mirror it into the devboard task
+file via the worklog CLI (never hand-edit the YAML; the commands no-op
+when devboard isn't set up):
+
+- each acceptance criterion: `worklog task scorecard add "<criterion>"
+  --verify "<check>" --id <slug>`
+- each open question for the human: `worklog task needs-you add
+  "<question>" --type question --id <slug>`
+
+From then on the task file's scorecard tracks verification live —
+`worklog task scorecard pass|fail <n>` as checks run (dev-context phase 6).
 
 ## Worklog integration
 

@@ -55,6 +55,14 @@ YAML dropped by hand must keep working.
   matching sync.sh conventions: default, `--check`, `--dry-run`.
   First-class targets: Linux and macOS; Windows is detected and directed
   to WSL with a clear message (see Q4)
+- M7 Risk scout: extend the intake/contract process with (a) a difficulty
+  rating alongside the tier, and (b) a fan-out of subagents at contract
+  time that hunt for blockers, unexpected side effects, and impact on
+  downstream consumers — anything that would slow the work or surprise us
+  later — feeding findings into the contract's risks/scope. Deliberately
+  under-specified: per the tier-3 process, M7's mini-contract settles the
+  design (agent count, prompts, how findings gate the contract) when its
+  turn comes
 
 **Out (explicitly not doing):**
 - Rendering WORK.md Now/Next as the dashboard home view (v-next)
@@ -153,10 +161,14 @@ YAML dropped by hand must keep working.
 5. **M5 Skills** — CLI-based sync sections, redeployed · checkpoint: skill
    diff review
 6. **M6 Install** — install.sh, sandbox-verified · checkpoint: transcript
-   of criteria 14–17 + script review; contract closes
+   of criteria 14–17 + script review
+7. **M7 Risk scout** — difficulty rating + subagent blocker sweep in the
+   skills · checkpoint: mini-contract (with its own criteria) approved at
+   milestone start, then skill diff review; contract closes
 
 ## Amendments
 
 | Date | Change | Why | Approved |
 |------|--------|-----|----------|
+| 2026-09-01 | M7 Risk scout milestone added: difficulty rating + subagent blocker/side-effect sweep at contract time; criteria deferred to M7's mini-contract | Requested during M4→M5 transition; design intentionally deferred | yes |
 | 2026-09-01 | Tone hook added: dev-context ship phase drafts outbound text via any installed `*tone*` skill, with a lead-with-the-point fallback; personal tone skills stay out of the repo (gitignored); install.sh (M6) checks for one and warns when absent | Tone is personal/per-context (the human's concise-tone skill carries work-specific footers); process defines the hook, the person supplies the voice | yes |

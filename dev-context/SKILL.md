@@ -141,33 +141,46 @@ that command too.
 ## Devboard sync
 
 Devboard is the human's dashboard — a browser view rendered from task files
-(see `devboard/schema.md` in the claude-skills repo). **If the devboard data
-dir exists** (`$DEVBOARD_DATA`, default `~/.local/share/devboard/`), keeping
-the task file current is part of the workflow, not optional polish. A stale
-dashboard misleads the human; that's worse than no dashboard.
+(see `devboard/schema.md` in the claude-skills repo). Keeping the task file
+current is part of the workflow, not optional polish: a stale dashboard
+misleads the human, which is worse than no dashboard.
 
-The file: `<data-dir>/<repo-name>/<task-slug>.yaml`, `schema: 1`. Always
-write atomically (temp file + rename). Mandatory sync points:
+**All updates go through the `worklog` CLI — never hand-edit task YAML.**
+Every command below is a silent no-op when the devboard data dir doesn't
+exist, so run them unconditionally; the CLI absorbs the check. `--id` is
+the task slug; omit it when the current repo has exactly one task file.
 
-1. **Intake (tier 1+):** create the file — `title`, `tier`, `phase`,
-   `branch`, and `session` from `$CLAUDE_CODE_SESSION_ID` (this powers the
-   dashboard's `claude --resume` button).
-2. **Every phase transition:** update `phase`.
-3. **Contract agreed:** mirror acceptance criteria into `scorecard`
-   (status `pending`); plan steps into `plan` when the plan is derived.
-4. **During implement:** flip `plan` item states as they change; append to
-   `decisions` when a real decision or amendment is made; add a `code`
-   entry when a load-bearing change lands.
+Mandatory sync points:
+
+1. **Intake (tier 1+):** worklog-ticketed work gets its task file
+   automatically from `worklog start <id>` (title, join key, session for
+   the resume button). Ticketless work: `worklog task phase intake --id
+   <slug>` creates the file.
+2. **Every phase transition:** `worklog task phase <phase> --id <slug>`
+3. **Contract agreed:** one `worklog task scorecard add "<criterion>"
+   --verify "<check>"` per acceptance criterion; one `worklog task plan
+   add "<step>"` per plan step once the plan is derived.
+4. **During implement:** `worklog task plan start|done|block <n>` as steps
+   change; `worklog task decision "<what>" --why "<why>"` when a real
+   decision or amendment is made; `worklog task code <file> --lines <a-b>
+   --lang <lang> --note "<why it matters>"` when a load-bearing change
+   lands.
 5. **The moment anything waits on the human** — a question, or a hard
-   checkpoint (commit summary, PR replies, push) — add a `needs_you` entry
-   with the substance in `detail`. **Remove it as soon as it's resolved**;
-   a stale needs_you poisons the attention queue.
-6. **Verify:** set each `scorecard` status to `pass`/`fail` as checks run.
-7. **Done:** set `phase: done`, clear remaining `needs_you`. (Deleting the
-   file is the human's call, not the agent's.)
+   checkpoint (commit summary, PR replies, push): `worklog task needs-you
+   add "<text>" --type question|checkpoint --detail "<substance>"`.
+   **Resolve it the moment it's resolved** — `worklog task needs-you
+   resolve <n|all>` — a stale entry poisons the attention queue.
+6. **Verify:** `worklog task scorecard pass|fail <n>` as each check runs.
+7. **Done:** `worklog done <id>` handles ticketed work (phase done, queue
+   cleared). Ticketless: `worklog task phase done` then `worklog task
+   needs-you resolve all`. Deleting the file is the human's call.
 
-Tier 0 tasks skip devboard. If the data dir doesn't exist, skip silently —
-never create it unprompted.
+**Epic children:** when working a milestone that's a child ticket of an
+epic, do NOT keep a per-child task file — the epic's task file is the
+dashboard surface. Pass the epic's slug via `--id`, and delete any stray
+per-child file `worklog start` created.
+
+Tier 0 tasks skip devboard entirely. Never create the data dir unprompted.
 
 ## Amendments
 
