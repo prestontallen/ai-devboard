@@ -130,12 +130,14 @@ Flags (see skill §4 for full detail):
 
 The JSON success object includes `epicCompletable: true` when the
 just-archived ticket was the last open child of its epic. The CLI does
-**not** auto-archive the epic; the agent decides whether to follow up.
+**not** auto-archive the epic; run `worklog done <epic-id> --summary
+"..."` to archive it once `epicCompletable` is true (open children,
+including `[~]`, make it refuse). The agent decides when to follow up.
 
 Refusals (each exit 1 except summary-missing-no-TTY which is exit 64):
 
 - `<id>` not in WORK.md
-- `<id>` is an epic — epic archival is not yet supported
+- `<id>` is an epic with open children (error names them), or an epic whose notes file is missing
 - `--summary` empty and stdin is not a TTY
 - `--completed` not a valid YYYY-MM-DD
 

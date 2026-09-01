@@ -11,6 +11,7 @@ import (
 
 	"github.com/prestontallen/day2day/internal/model"
 	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/day2day/internal/reindex"
 	"github.com/prestontallen/day2day/internal/render"
 )
 
@@ -174,6 +175,11 @@ func importOne(wd model.Workdir, t Ticket, sectionOverride, today string, dryRun
 	if parent != "" {
 		pb := doc.BlockByID(parent)
 		if pb == nil {
+			if hint := reindex.ArchivedHint(wd.ArchiveDir(), parent); hint != "" {
+				return id, section, fmt.Sprintf(
+					"%v: epic %q was %s; archived epics cannot take new children",
+					ErrParentMissing, parent, hint)
+			}
 			return id, section, ErrParentMissing.Error()
 		}
 		if !pb.IsEpic() {

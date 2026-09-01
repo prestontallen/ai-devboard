@@ -71,6 +71,7 @@ type Block struct {
 	Acceptance     string    `json:"acceptance"`
 	NotesRef       string    `json:"notesRef"`
 	Status         string    `json:"status"`
+	Plan           string    `json:"plan"`
 	ActiveChildren []string  `json:"activeChildren"`
 }
 

@@ -133,6 +133,10 @@ func formatReport(r standup.Report) string {
 			sb.WriteString(formatCompletedLine(e))
 		}
 	}
+	for _, e := range r.EpicsClosed {
+		sb.WriteString(fmt.Sprintf("- epic closed: **%s** — %s\n",
+			strings.ToUpper(e.ID), e.Title))
+	}
 	sb.WriteString("\n")
 
 	sb.WriteString("## Today\n")
@@ -230,7 +234,7 @@ func formatSimple(r standup.Report) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("# Standup — %s\n\n", r.Today))
 
-	hasAny := len(r.Completed)+len(r.Active)+len(r.Waiting) > 0
+	hasAny := len(r.Completed)+len(r.EpicsClosed)+len(r.Active)+len(r.Waiting) > 0
 	if !hasAny {
 		sb.WriteString("_no entries in window_\n")
 		return sb.String()
@@ -238,6 +242,9 @@ func formatSimple(r standup.Report) string {
 
 	for _, e := range r.Completed {
 		sb.WriteString(fmt.Sprintf("- done: %s — %s\n", strings.ToUpper(e.ID), e.Title))
+	}
+	for _, e := range r.EpicsClosed {
+		sb.WriteString(fmt.Sprintf("- epic closed: %s — %s\n", strings.ToUpper(e.ID), e.Title))
 	}
 	for _, e := range r.Active {
 		sb.WriteString(fmt.Sprintf("- active: %s — %s\n", strings.ToUpper(e.ID), e.Title))

@@ -15,6 +15,7 @@ type Entry struct {
 	Repo       string
 	Parent     string
 	PR         string
+	Type       string // "epic" for archived epics
 	Started    string // YYYY-MM-DD (left side of the arrow)
 	Completed  string // YYYY-MM-DD (right side of the arrow)
 	Summary    string // single line; empty if absent
@@ -25,6 +26,7 @@ var (
 	headingRe   = regexp.MustCompile(`^### ([a-zA-Z0-9_-]+) — (.+)$`)
 	metaRe      = regexp.MustCompile(`^- \*\*(.+?)\*\*:\s*(.*)$`)
 	completedRe = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})`)
+	bareDateRe  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
 
 // ParseFile reads one archive month-file and returns entries in document
@@ -77,6 +79,12 @@ func ParseFile(absPath, sourcePath string) ([]Entry, error) {
 				cur.Started = cm[1]
 				cur.Completed = cm[2]
 			}
+		case "completed": // Completed-only date line (epic entries)
+			if bareDateRe.MatchString(value) {
+				cur.Completed = value
+			}
+		case "type":
+			cur.Type = strings.ToLower(value)
 		case "summary":
 			cur.Summary = value
 		}

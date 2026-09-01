@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/day2day/internal/reindex"
 	"github.com/prestontallen/day2day/internal/parse"
 	"github.com/prestontallen/day2day/internal/render"
 	"github.com/prestontallen/day2day/internal/style"
@@ -371,6 +372,11 @@ func runAddChild(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, input
 	}
 	parent := doc.BlockByID(inputs.Parent)
 	if parent == nil || !parent.IsEpic() {
+		if hint := reindex.ArchivedHint(wd.ArchiveDir(), inputs.Parent); hint != "" {
+			return jsonOrTextError(cmd, flagJSON, 1,
+				"%v: epic %q was %s; archived epics cannot take new children",
+				ErrParentEpicNotFound, inputs.Parent, hint)
+		}
 		return jsonOrTextError(cmd, flagJSON, 1,
 			"%v: %q", ErrParentEpicNotFound, inputs.Parent)
 	}

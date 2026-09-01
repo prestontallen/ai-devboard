@@ -73,6 +73,13 @@ measures uncertainty and blast radius, not size:
 - **high** — 3-4 agents, full lens set; blind seeding becomes worth its
   cost here.
 
+Beware the familiarity trap: having read two files in a flow that spans
+ten feels like knowing the codebase, and "I already investigated this
+myself" is the most tempting reason to skip scouts. Empirically (the
+epic-archive contract, 2026-09-01) scouts at medium found blockers a
+confident inline read missed. If a task truly needs no scouts, that is
+what a **low** rating is for — rate honestly instead of skipping.
+
 Hard cap: 4 parallel agents per fan-out unless the human raises it.
 
 ## When NOT to fan out

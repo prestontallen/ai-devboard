@@ -13,6 +13,7 @@ import (
 
 	"github.com/prestontallen/day2day/internal/model"
 	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/day2day/internal/reindex"
 )
 
 // CheckID is a stable identifier for each rule. CLI output prints
@@ -174,11 +175,15 @@ func checkThreePlaceConsistency(res *Result, wd model.Workdir, doc *model.WorkDo
 		}
 		epic, ok := epics[child.Parent]
 		if !ok {
+			cause := "no matching epic block found in ## Next"
+			if hint := reindex.ArchivedHint(wd.ArchiveDir(), child.Parent); hint != "" {
+				cause = "parent epic was " + hint + " — an archived epic cannot have active children"
+			}
 			res.Violations = append(res.Violations, Violation{
 				Check: CheckThreePlaceConsistency,
 				Message: fmt.Sprintf(
-					"%s:%d: child %s has Parent:%s but no matching epic block found in ## Next",
-					doc.Path, child.StartLine, child.ID, child.Parent),
+					"%s:%d: child %s has Parent:%s but %s",
+					doc.Path, child.StartLine, child.ID, child.Parent, cause),
 			})
 			continue
 		}

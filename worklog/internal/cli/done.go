@@ -103,7 +103,8 @@ func mapDoneError(cmd *cobra.Command, asJSON bool, err error) error {
 	case errors.Is(err, done.ErrSummaryRequired):
 		return jsonOrTextError(cmd, asJSON, 64, "%v", err)
 	case errors.Is(err, done.ErrIDNotFound),
-		errors.Is(err, done.ErrCannotDoneEpic),
+		errors.Is(err, done.ErrEpicHasOpenChildren),
+		errors.Is(err, done.ErrEpicNotesMissing),
 		errors.Is(err, done.ErrInvalidDate):
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	default:

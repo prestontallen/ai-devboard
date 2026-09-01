@@ -148,14 +148,22 @@ func collectRecords(wd model.Workdir) ([]Record, map[string]int, error) {
 				if seen[ae.ID] {
 					continue
 				}
+				status := "archived " + ae.Completed
+				if ae.IsEpic() {
+					status = "archived epic " + ae.Completed
+					if ae.NotesRef != "" {
+						status += " · " + ae.NotesRef
+					}
+				}
 				records = append(records, Record{
 					ID:            ae.ID,
 					Title:         ae.Title,
 					Tags:          ae.Tags,
 					Repo:          ae.Repo,
 					Parent:        ae.Parent,
+					IsEpic:        ae.IsEpic(),
 					Location:      rel,
-					Status:        "archived " + ae.Completed,
+					Status:        status,
 					ArchivedMonth: month,
 				})
 				seen[ae.ID] = true

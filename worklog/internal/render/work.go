@@ -344,8 +344,12 @@ type ArchiveOpts struct {
 	PR        string
 	Files     []string
 	Parent    string
-	Started   string // YYYY-MM-DD
-	Completed string // YYYY-MM-DD
+	Type      string   // "epic" for epic entries; empty for tickets
+	Notes     string   // notes-file ref carried into the archive (epics)
+	Plan      string   // epic Plan field, preserved verbatim
+	Children  []string // epic child roster at archival time
+	Started   string   // YYYY-MM-DD
+	Completed string   // YYYY-MM-DD
 	Summary   string
 	Feedback  []string
 	Time      string
@@ -353,9 +357,10 @@ type ArchiveOpts struct {
 
 // FormatArchiveEntry renders a single archive entry as a slice of lines (no
 // leading or trailing blank). Field order is fixed per the spec:
-//   ### <id> — <title>
-//   Repo, Tags, PR, Files, Parent, Started → Completed, Summary,
-//   Feedback / Notes (with sub-bullets), Time.
+//
+//	### <id> — <title>
+//	Repo, Tags, PR, Files, Parent, Started → Completed, Summary,
+//	Feedback / Notes (with sub-bullets), Time.
 func FormatArchiveEntry(opts ArchiveOpts) []string {
 	lines := []string{fmt.Sprintf("### %s — %s", opts.ID, opts.Title)}
 
@@ -377,12 +382,21 @@ func FormatArchiveEntry(opts ArchiveOpts) []string {
 	addStr("PR", opts.PR)
 	addCSV("Files", opts.Files)
 	addStr("Parent", opts.Parent)
+	addStr("Type", opts.Type)
 
-	if opts.Started != "" || opts.Completed != "" {
+	// Epics (and any entry with no Started) get a Completed-only date line;
+	// the joint form with an empty left side is malformed and unparseable.
+	switch {
+	case opts.Started != "":
 		lines = append(lines, fmt.Sprintf("- **Started → Completed**: %s → %s",
 			opts.Started, opts.Completed))
+	case opts.Completed != "":
+		lines = append(lines, fmt.Sprintf("- **Completed**: %s", opts.Completed))
 	}
 
+	addStr("Notes", opts.Notes)
+	addStr("Plan", opts.Plan)
+	addCSV("Children", opts.Children)
 	addStr("Summary", opts.Summary)
 
 	if len(opts.Feedback) > 0 {
@@ -725,20 +739,20 @@ func WriteAtomic(path string, lines []string) error {
 // block via FormatTicketBlock. Empty optional fields are omitted from the
 // rendered output.
 type BlockOptions struct {
-	Title      string // required
-	ID         string // required
-	Type       string // optional ("ticket", "spike", "chore", "epic")
-	Parent     string // optional
-	Repo       string // optional
-	Tags       []string
-	Started    string // optional, YYYY-MM-DD
-	PR         string // optional
-	Source     string // optional upstream URL
-	Files      []string
-	Acceptance string
+	Title        string // required
+	ID           string // required
+	Type         string // optional ("ticket", "spike", "chore", "epic")
+	Parent       string // optional
+	Repo         string // optional
+	Tags         []string
+	Started      string // optional, YYYY-MM-DD
+	PR           string // optional
+	Source       string // optional upstream URL
+	Files        []string
+	Acceptance   string
 	NotesRef     string
 	Status       string
-	WaitingSince string // YYYY-MM-DD, only set for ## Waiting tickets
+	WaitingSince string      // YYYY-MM-DD, only set for ## Waiting tickets
 	State        model.State // defaults to StatePending
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/prestontallen/day2day/internal/model"
 	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/day2day/internal/reindex"
 	"github.com/prestontallen/day2day/internal/render"
 )
 
@@ -64,6 +65,10 @@ var (
 	ErrCapExceeded     = errors.New("## Now is at cap")
 	ErrAlreadyStarted  = errors.New("ticket is already in ## Now")
 	ErrEpicCannotStart = errors.New("epics do not occupy ## Now")
+	// ErrParentEpicGone: the child resolved from a notes file, but its epic
+	// block is no longer in WORK.md (typically archived). Detected before
+	// any mutation so no partial state is written.
+	ErrParentEpicGone = errors.New("parent epic not in WORK.md")
 )
 
 const cap = 5
@@ -264,6 +269,17 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		newLines = final
 
 	case ResChildOfEpic:
+		// The child came from a notes-file scan; the epic block itself may
+		// be gone (archived epics keep their notes file as history). Refuse
+		// with a clear cause before any mutation.
+		if doc.BlockByID(res.EpicID) == nil {
+			hint := reindex.ArchivedHint(wd.ArchiveDir(), res.EpicID)
+			if hint == "" {
+				hint = "not found and not in the archive"
+			}
+			return Output{}, fmt.Errorf("%w: %q %s; archived epics cannot take new work",
+				ErrParentEpicGone, res.EpicID, hint)
+		}
 		title = res.Block.Title
 		parent = res.EpicID
 		blockLines := render.FormatTicketBlock(render.BlockOptions{

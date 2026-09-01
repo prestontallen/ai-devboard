@@ -29,6 +29,7 @@ type Inputs struct {
 // Output is the JSON wire shape for the CLI success path.
 type Output struct {
 	Status          string   `json:"status"`
+	Type            string   `json:"type,omitempty"` // "epic" for epic archival
 	ID              string   `json:"id"`
 	Title           string   `json:"title"`
 	ArchivePath     string   `json:"archivePath"`
@@ -40,17 +41,18 @@ type Output struct {
 
 // Sentinel errors. The CLI wrapper maps these to specific exit codes.
 var (
-	ErrIDNotFound      = errors.New("ticket ID not found in WORK.md")
-	ErrCannotDoneEpic  = errors.New("cannot done an epic (epic archival not yet supported)")
-	ErrSummaryRequired = errors.New("summary is required")
-	ErrInvalidDate     = errors.New("invalid date (expected YYYY-MM-DD)")
+	ErrIDNotFound          = errors.New("ticket ID not found in WORK.md")
+	ErrSummaryRequired     = errors.New("summary is required")
+	ErrInvalidDate         = errors.New("invalid date (expected YYYY-MM-DD)")
+	ErrEpicHasOpenChildren = errors.New("epic has open children")
+	ErrEpicNotesMissing    = errors.New("epic notes file missing; cannot determine child completeness")
 )
 
 const indexNotUpdatedWarning = "INDEX.md not updated (deferred to Phase 2B-4 reindex)"
 
 var (
-	dateRe         = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	openChildRe    = regexp.MustCompile(`^- \[ \]\s+[a-zA-Z0-9_-]+`)
+	dateRe      = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	openChildRe = regexp.MustCompile(`^- \[ \]\s+[a-zA-Z0-9_-]+`)
 )
 
 // Run performs the archive operation. Sequence:
@@ -69,9 +71,6 @@ var (
 // converges). Order is chosen so a duplicate is the worst outcome,
 // never a lost record.
 func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
-	if strings.TrimSpace(in.Summary) == "" {
-		return Output{}, ErrSummaryRequired
-	}
 	completed := strings.TrimSpace(in.Completed)
 	if completed == "" {
 		completed = today
@@ -91,7 +90,12 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		return Output{}, fmt.Errorf("%w: %q", ErrIDNotFound, in.ID)
 	}
 	if block.IsEpic() {
-		return Output{}, fmt.Errorf("%w: %q is an epic", ErrCannotDoneEpic, in.ID)
+		// The open-children refusal must win over summary-required, so the
+		// completeness check runs first (inside runEpic).
+		return runEpic(wd, doc, block, in, completed, month)
+	}
+	if strings.TrimSpace(in.Summary) == "" {
+		return Output{}, ErrSummaryRequired
 	}
 
 	var warnings []string
@@ -203,6 +207,109 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		Parent:          block.Parent,
 		EpicCompletable: epicCompletable,
 		Warnings:        warnings,
+	}, nil
+}
+
+// childLineRe matches a notes-file child checkbox line, capturing state and
+// id. `[ ]` and `[~]` are OPEN; only `[x]` is complete.
+var childLineRe = regexp.MustCompile(`^- \[([ ~x])\]\s+([a-zA-Z0-9_-]+)`)
+
+// runEpic archives an epic block. Preconditions enforced here, in order:
+//  1. notes/<id>.md must exist — absence is "cannot determine", never
+//     "complete".
+//  2. No open children: notes lines `[ ]`/`[~]` are open, and any WORK.md
+//     block in ANY section naming this epic as Parent is open (children are
+//     recorded in disjoint sources: add --parent writes notes only, import
+//     writes WORK.md only).
+//  3. Summary required (after the children check, so the refusal names the
+//     real problem).
+//
+// The archive entry is epic-shaped: Type, Completed-only date, Notes ref,
+// Plan, and the full child roster — epic metadata is preserved, never
+// silently dropped. notes/<id>.md stays on disk as history.
+func runEpic(wd model.Workdir, doc *model.WorkDoc, block *model.Block, in Inputs, completed, month string) (Output, error) {
+	notesPath := wd.NotesFile(block.ID)
+	notesData, err := os.ReadFile(notesPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Output{}, fmt.Errorf("%w: %s", ErrEpicNotesMissing, notesPath)
+		}
+		return Output{}, fmt.Errorf("notes read: %w", err)
+	}
+
+	var open []string
+	var roster []string
+	for _, line := range strings.Split(string(notesData), "\n") {
+		m := childLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		roster = append(roster, strings.ToLower(m[2]))
+		if m[1] != "x" {
+			open = append(open, fmt.Sprintf("%s (notes, [%s])", strings.ToLower(m[2]), m[1]))
+		}
+	}
+	for _, section := range doc.Sections {
+		for _, b := range section.Blocks {
+			if b.Parent == block.ID {
+				open = append(open, fmt.Sprintf("%s (WORK.md ## %s)", b.ID, section.Name))
+			}
+		}
+	}
+	if len(open) > 0 {
+		return Output{}, fmt.Errorf("%w: %s", ErrEpicHasOpenChildren, strings.Join(open, ", "))
+	}
+
+	if strings.TrimSpace(in.Summary) == "" {
+		return Output{}, ErrSummaryRequired
+	}
+
+	notesRef := block.NotesRef
+	if notesRef == "" {
+		notesRef = "notes/" + block.ID + ".md"
+	}
+	pr := strings.TrimSpace(in.PR)
+	if pr == "" {
+		pr = block.PR
+	}
+
+	entry := render.FormatArchiveEntry(render.ArchiveOpts{
+		ID:        block.ID,
+		Title:     block.Title,
+		Repo:      block.Repo,
+		Tags:      block.Tags,
+		PR:        pr,
+		Type:      "epic",
+		Notes:     notesRef,
+		Plan:      block.Plan,
+		Children:  roster,
+		Completed: completed,
+		Summary:   strings.TrimSpace(in.Summary),
+		Feedback:  trimEachAndDropEmpty(in.Feedback),
+		Time:      strings.TrimSpace(in.Time),
+	})
+
+	archivePath := wd.ArchiveFile(month)
+	if err := render.AppendToArchive(archivePath, entry, completed, month); err != nil {
+		return Output{}, fmt.Errorf("archive write: %w", err)
+	}
+
+	afterRemove, _, err := render.RemoveBlock(doc, block.ID)
+	if err != nil {
+		return Output{}, fmt.Errorf("remove block: %w", err)
+	}
+	if err := render.WriteAtomic(wd.WorkMD(), afterRemove); err != nil {
+		return Output{}, fmt.Errorf("WORK.md write: %w", err)
+	}
+
+	return Output{
+		Status:      "archived",
+		Type:        "epic",
+		ID:          block.ID,
+		Title:       block.Title,
+		ArchivePath: archivePath,
+		Completed:   completed,
+		Warnings:    []string{indexNotUpdatedWarning},
 	}, nil
 }
 

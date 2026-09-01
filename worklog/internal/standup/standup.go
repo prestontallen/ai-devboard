@@ -56,8 +56,11 @@ type Report struct {
 	Since     string           `json:"since"` // YYYY-MM-DD (inclusive)
 	Until     string           `json:"until"` // YYYY-MM-DD (inclusive)
 	Completed []CompletedEntry `json:"completed"`
-	Active    []ActiveEntry    `json:"active"`
-	Waiting   []BlockerEntry   `json:"waiting"`
+	// EpicsClosed lists archived epics separately: their children already
+	// appear in Completed, so counting the epic there would double-report.
+	EpicsClosed []CompletedEntry `json:"epicsClosed,omitempty"`
+	Active      []ActiveEntry    `json:"active"`
+	Waiting     []BlockerEntry   `json:"waiting"`
 }
 
 // Build assembles the standup report.
@@ -102,7 +105,7 @@ func Build(wd model.Workdir, opts Options) (Report, error) {
 			if e.Completed < since.Format("2006-01-02") || e.Completed > until.Format("2006-01-02") {
 				continue
 			}
-			report.Completed = append(report.Completed, CompletedEntry{
+			ce := CompletedEntry{
 				ID:        e.ID,
 				Title:     e.Title,
 				Repo:      e.Repo,
@@ -111,7 +114,12 @@ func Build(wd model.Workdir, opts Options) (Report, error) {
 				Started:   e.Started,
 				Completed: e.Completed,
 				Summary:   e.Summary,
-			})
+			}
+			if e.Type == "epic" {
+				report.EpicsClosed = append(report.EpicsClosed, ce)
+			} else {
+				report.Completed = append(report.Completed, ce)
+			}
 		}
 	}
 	// Sort completed: descending by Completed, then ascending by ID.

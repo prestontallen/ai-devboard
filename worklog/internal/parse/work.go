@@ -168,6 +168,8 @@ func applyMeta(b *model.Block, field, value string) {
 		b.NotesRef = value
 	case "status":
 		b.Status = value
+	case "plan":
+		b.Plan = value
 	case "active children":
 		if value == "" || strings.EqualFold(value, "<none>") {
 			b.ActiveChildren = nil

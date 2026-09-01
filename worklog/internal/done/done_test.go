@@ -268,11 +268,11 @@ func TestRunNotFound(t *testing.T) {
 	}
 }
 
-func TestRunRefusesEpic(t *testing.T) {
+func TestRunEpicRefusedWithoutNotesFile(t *testing.T) {
 	wd := fixtureWorkdir(t, map[string]string{"WORK.md": childFixture})
 	_, err := Run(wd, Inputs{ID: "epic-a", Summary: "x"}, today)
-	if !errors.Is(err, ErrCannotDoneEpic) {
-		t.Errorf("expected ErrCannotDoneEpic, got %v", err)
+	if !errors.Is(err, ErrEpicNotesMissing) {
+		t.Errorf("expected ErrEpicNotesMissing, got %v", err)
 	}
 }
 

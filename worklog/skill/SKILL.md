@@ -500,14 +500,15 @@ exits 64 with `done requires --summary when stdin is not a TTY`.
 
 `parent` is empty for a standalone ticket. **`epicCompletable: true`**
 means the just-archived ticket was the last `- [ ]` child in
-`notes/<parent>.md` — the epic is ready to archive too. The current CLI
-does not yet auto-archive epics; surface this signal to the user so
-they can decide whether to follow up.
+`notes/<parent>.md` — the epic is ready to archive. Run
+`worklog done <epic-id> --summary "..."` to archive it (see "Epic
+archival" below); surface the signal and let the user decide when.
 
 #### JSON error shapes
 
     {"error": "ticket ID not found in WORK.md: \"foo\""}
-    {"error": "cannot done an epic (epic archival not yet supported): \"epic-a\" is an epic"}
+    {"error": "epic has open children: child-2 (notes, [ ]), orphan-1 (WORK.md ## Next)"}
+    {"error": "epic notes file missing; cannot determine child completeness: notes/epic-a.md"}
     {"error": "summary is required"}
     {"error": "done requires --summary when stdin is not a TTY"}
     {"error": "invalid date (expected YYYY-MM-DD): \"yesterday\""}
@@ -517,7 +518,8 @@ they can decide whether to follow up.
 | Case | Error | Exit |
 |---|---|---|
 | `<id>` not in WORK.md | `ErrIDNotFound` | 1 |
-| `<id>` is an epic | `ErrCannotDoneEpic` (epic archival not yet supported) | 1 |
+| `<id>` is an epic with open children | `ErrEpicHasOpenChildren` (names each open child and its source) | 1 |
+| `<id>` is an epic with no notes file | `ErrEpicNotesMissing` (absence is "cannot determine", never "complete") | 1 |
 | `--summary` empty + no TTY | `ErrSummaryRequired` | 64 |
 | `--completed` not a valid YYYY-MM-DD | `ErrInvalidDate` | 1 |
 
@@ -532,10 +534,15 @@ they can decide whether to follow up.
   validator's `index-refs-exist` check stays clean as long as
   INDEX.md doesn't reference an archive/notes file that doesn't
   exist on disk.
-- Epic archival (`worklog done <epic-id>`) is **not yet supported**.
-  When all children of an epic are complete, the JSON output flags
-  `epicCompletable: true` but the epic block stays in `## Next` until
-  manually archived.
+- **Epic archival**: `worklog done <epic-id> --summary "..."` archives an
+  epic once every child is complete — no `[ ]`/`[~]` lines left in
+  `notes/<id>.md` AND no WORK.md block in any section naming it as
+  Parent. The archive entry is epic-shaped (`Type: epic`, Completed-only
+  date, Notes ref, Plan, child roster); `notes/<id>.md` stays on disk as
+  history. Archival is **terminal**: `add --parent`, `import`, and
+  `start` all refuse against an archived epic with an "archived on
+  <date>" error. Archived epics appear in standup as an "epic closed"
+  line, not a completed ticket.
 
 #### Failure recovery
 
