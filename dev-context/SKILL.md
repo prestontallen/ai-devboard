@@ -92,6 +92,14 @@ Committing, pushing, and PR interaction. Every action in this phase is
 gated by the hard checkpoints below — acceptance of the review (phase 7)
 authorizes none of them on its own.
 
+**Tone hook:** all outbound text in this phase — commit messages, PR
+descriptions, PR comments and replies, messages — is drafted in the
+human's tone convention. If a tone skill is installed (any available skill
+whose name contains "tone"), invoke it and follow it. If none exists,
+default to: lead with the point, flat declarative voice, no openers,
+hedges, or ceremony. Either way, draft in that voice *before* presenting
+at a checkpoint, so what the human approves is what ships.
+
 ## Hard checkpoints — the human MUST be involved
 
 Unlike the phase checkpoints, these do not scale with tier. They apply to

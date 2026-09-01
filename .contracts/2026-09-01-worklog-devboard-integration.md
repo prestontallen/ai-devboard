@@ -93,7 +93,7 @@ YAML dropped by hand must keep working.
 | 11 | A hand-dropped schema-valid YAML with no worklog ticket still renders fully (no regression) | drop example; browser check | ☐ |
 | 12 | dev-context/contract skill sync sections contain only CLI invocations (no hand-YAML instructions); commands they cite exist verbatim in `worklog task --help` | grep skills vs help output | ☐ |
 | 13 | Rebuilt binary reports the new version and `go test ./...` passes in `worklog/` | `worklog --version`; go test | ☐ |
-| 14 | On Linux with Go present, `./install.sh` against a sandbox `$HOME` builds and installs the binary (`worklog --version` works from PATH) and deploys all four skill surfaces (worklog SKILL + command, dev-context, contract) matching the repo copies | run with `HOME=<tmpdir>`; diff each deployed file | ☐ |
+| 14 | On Linux with Go present, `./install.sh` against a sandbox `$HOME` builds and installs the binary (`worklog --version` works from PATH) and deploys all four repo skill surfaces (worklog SKILL + command, dev-context, contract); it checks for a personal `*tone*` skill, warning (not failing) when none is found | run with `HOME=<tmpdir>`; diff each deployed file; check warning in bare sandbox | ☐ |
 | 15 | A second `./install.sh` run reports up-to-date and changes nothing; `--dry-run` prints intended actions and touches no files; `--check` exits 0 when current, 1 when drifted | run twice; mtime/diff audit | ☐ |
 | 16 | When Go is missing from PATH, install fails before any file change with a clear message and nonzero exit; when Docker is missing, install completes with a warning | PATH-stripped env runs | ☐ |
 | 17 | On an unsupported platform combination, the script exits with an explanatory message (Windows → WSL pointer), never a half-install | fake `uname` via stub on PATH | ☐ |
@@ -159,3 +159,4 @@ YAML dropped by hand must keep working.
 
 | Date | Change | Why | Approved |
 |------|--------|-----|----------|
+| 2026-09-01 | Tone hook added: dev-context ship phase drafts outbound text via any installed `*tone*` skill, with a lead-with-the-point fallback; personal tone skills stay out of the repo (gitignored); install.sh (M6) checks for one and warns when absent | Tone is personal/per-context (the human's concise-tone skill carries work-specific footers); process defines the hook, the person supplies the voice | yes |
