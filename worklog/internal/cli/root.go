@@ -80,6 +80,7 @@ scripts that handled validation, sync, and lint.`,
 		newWaitCmd(),
 		newSyncCmd(),
 		newLintSpecsCmd(),
+		newTaskCmd(),
 	)
 	return cmd
 }

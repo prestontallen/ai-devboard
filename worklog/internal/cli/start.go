@@ -65,6 +65,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 			if err != nil {
 				return mapResumeError(cmd, asJSON, err)
 			}
+			devboardOnStart(out.ID, "")
 			if asJSON {
 				return emitJSON(cmd.OutOrStdout(), out)
 			}
@@ -87,6 +88,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	if err != nil {
 		return mapStartError(cmd, asJSON, err)
 	}
+	devboardOnStart(out.ID, out.Title)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)

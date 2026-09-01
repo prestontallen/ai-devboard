@@ -89,6 +89,7 @@ func runDone(
 	if err != nil {
 		return mapDoneError(cmd, asJSON, err)
 	}
+	devboardOnDone(out.ID)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
