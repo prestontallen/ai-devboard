@@ -1,0 +1,12 @@
+schema: 1
+title: Canonize scripts for convention-capture skills
+tier: 1
+phase: plan
+
+plan:
+  - text: Inventory existing ad-hoc scripts
+    state: done
+  - text: Define canonical script layout
+    state: pending
+
+custom_field: unknown top-level fields land in the "Other" section

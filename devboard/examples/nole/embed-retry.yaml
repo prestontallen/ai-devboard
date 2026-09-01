@@ -1,0 +1,60 @@
+schema: 1
+title: Add retry to embedding client
+branch: feat/embed-retry
+session: 5cc41a6e-9f2c-4c11-b0a6-2f4e7f1d8a33
+tier: 2
+phase: implementing
+
+plan:
+  - text: Wrap indexer embedding calls in retry decorator
+    state: done
+  - text: Add backoff + jitter tests
+    state: in_progress
+  - text: Surface retry exhaustion as clear error
+    state: pending
+  - text: Update indexer docs
+    state: pending
+
+scorecard:
+  - text: Retries on connection error, max 3 attempts
+    verify: pytest tests/test_retry.py::test_retry_backoff
+    status: pass
+  - text: Fails after 3 attempts with actionable error message
+    verify: pytest tests/test_retry.py::test_exhaustion
+    status: pending
+  - text: Sync path latency unchanged
+    verify: pytest tests/test_sync_latency.py
+    status: pending
+
+decisions:
+  - what: Retry lives in the indexer, not the shared client
+    why: The sync path shares the client and cannot tolerate blocking
+    when: 2026-09-01
+  - what: Exponential backoff with jitter, 0.5s base
+    why: Ollama restarts take 1-10s; jitter avoids thundering herd
+    when: 2026-09-01
+
+code:
+  - file: nole/indexer.py
+    lines: 88-104
+    lang: python
+    note: The load-bearing change — all embedding calls now route through this
+    snippet: |
+      @retry(attempts=3, backoff=exponential(base=0.5, jitter=True))
+      def embed_batch(texts: list[str]) -> list[Vector]:
+          # raises EmbeddingUnavailable after final attempt
+          return client.embed(texts)
+
+needs_you:
+  - type: question
+    text: Is 30s max total wait acceptable for batch jobs?
+    detail: |
+      Worst case: 3 attempts x 10s timeout. Alternative is fail-fast + queue.
+  - type: checkpoint
+    text: Commit approval pending
+    detail: |
+      Message: "indexer: retry embedding calls with jittered backoff"
+
+links:
+  - label: Contract
+    url: https://github.com/prestontallen/nole/blob/main/.contracts/embed-retry.md

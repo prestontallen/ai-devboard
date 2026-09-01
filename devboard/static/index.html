@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Devboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --panel2: #1e2230; --border: #2a2f40;
+    --text: #d7dae4; --dim: #8b91a7; --accent: #7aa2f7;
+    --ok: #9ece6a; --bad: #f7768e; --warn: #e0af68; --pending: #565f89;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; padding: 1.2rem 1.5rem 4rem; }
+  a { color: var(--accent); text-decoration: none; }
+  header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 1.2rem; }
+  header h1 { font-size: 1.15rem; letter-spacing: .04em; }
+  header h1 a { color: var(--text); }
+  #conn { font-size: .78rem; color: var(--dim); }
+  #conn.live::before { content: "●"; color: var(--ok); margin-right: .35rem; }
+  #conn.down::before { content: "●"; color: var(--bad); margin-right: .35rem; }
+  .badge { display: inline-block; padding: .05rem .55rem; border-radius: 999px; font-size: .72rem;
+           border: 1px solid var(--border); color: var(--dim); white-space: nowrap; }
+  .badge.phase { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .badge.attn { color: #111; background: var(--warn); border-color: var(--warn); font-weight: 600; }
+  .badge.err { color: var(--bad); border-color: var(--bad); }
+  section.queue { background: var(--panel); border: 1px solid var(--warn); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: 1.4rem; }
+  section.queue h2 { color: var(--warn); font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: .5rem; }
+  section.queue li { margin: .25rem 0 .25rem 1.1rem; }
+  h2.repo { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 1.3rem 0 .6rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: .7rem; }
+  .card { display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .8rem .95rem; color: var(--text); }
+  .card:hover { border-color: var(--accent); }
+  .card.attn { border-color: var(--warn); }
+  .card .t { font-weight: 600; margin-bottom: .35rem; }
+  .card .meta { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+  .card .ago { font-size: .72rem; color: var(--dim); margin-top: .4rem; }
+  .stale { opacity: .55; }
+  /* detail */
+  .detail h1 { font-size: 1.3rem; margin-bottom: .3rem; }
+  .detail .meta { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1.1rem; align-items: center; }
+  .sec { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1.1rem; margin-bottom: .9rem; }
+  .sec > h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: .6rem; }
+  .sec.needs { border-color: var(--warn); } .sec.needs > h3 { color: var(--warn); }
+  ul.plain { list-style: none; }
+  ul.plain li { padding: .22rem 0; display: flex; gap: .55rem; align-items: baseline; }
+  .mark { font-family: var(--mono); flex: none; width: 1.4rem; text-align: center; }
+  .done .mark { color: var(--ok); } .done span.txt { color: var(--dim); text-decoration: line-through; }
+  .in_progress .mark { color: var(--accent); } .blocked .mark { color: var(--bad); }
+  .pending .mark { color: var(--pending); }
+  .pass .mark { color: var(--ok); } .fail .mark { color: var(--bad); }
+  .verify, .why, .sub { display: block; font-size: .8rem; color: var(--dim); }
+  .decision { border-left: 3px solid var(--accent); padding: .15rem 0 .15rem .7rem; margin: .55rem 0; }
+  .qitem { border-left: 3px solid var(--warn); padding: .15rem 0 .15rem .7rem; margin: .55rem 0; }
+  .codeblock { margin: .7rem 0; }
+  .codeblock .path { font-family: var(--mono); font-size: .78rem; color: var(--accent); }
+  .codeblock .note { font-size: .85rem; color: var(--dim); margin: .15rem 0 .3rem; }
+  pre { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: .7rem .85rem;
+        overflow-x: auto; font: .8rem/1.5 var(--mono); }
+  .hl-c { color: #5c6370; font-style: italic; } .hl-s { color: #9ece6a; }
+  .hl-k { color: #bb9af7; } .hl-n { color: #e0af68; }
+  table.kv { font-size: .85rem; border-collapse: collapse; }
+  table.kv td { padding: .15rem .8rem .15rem 0; vertical-align: top; color: var(--dim); }
+  table.kv td:first-child { color: var(--text); font-family: var(--mono); font-size: .78rem; }
+  button.copy { background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+                border-radius: 999px; padding: .08rem .6rem; font: .72rem var(--mono); cursor: pointer; }
+  button.copy:hover { border-color: var(--accent); color: var(--accent); }
+  button.copy.ok { border-color: var(--ok); color: var(--ok); }
+  .errcard { border-color: var(--bad); }
+  .errcard .msg { font-family: var(--mono); font-size: .78rem; color: var(--bad); margin-top: .3rem; word-break: break-all; }
+  .empty { color: var(--dim); padding: 2rem 0; text-align: center; }
+  .crumb { font-size: .8rem; margin-bottom: .8rem; display: inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="#">devboard</a></h1>
+  <span id="conn">connecting…</span>
+</header>
+<main id="app"><div class="empty">loading…</div></main>
+
+<script>
+"use strict";
+let DB = { repos: [] };
+const $app = document.getElementById("app");
+const $conn = document.getElementById("conn");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
+const KW = /\b(def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|yield|async|await|const|let|var|function|new|typeof|export|default|fn|pub|impl|struct|enum|match|use|mod|go|func|type|interface|package|nil|null|None|true|false|True|False|self|this)\b/g;
+function hl(code) {
+  let out = "", rest = esc(code);
+  const tok = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|#[^\n]*|\/\/[^\n]*)/g;
+  let last = 0, m;
+  const plain = s => s.replace(KW, '<span class="hl-k">$1</span>')
+                      .replace(/\b(\d+\.?\d*)\b/g, '<span class="hl-n">$1</span>');
+  while ((m = tok.exec(rest))) {
+    out += plain(rest.slice(last, m.index));
+    const cls = (m[0][0] === "#" || m[0].startsWith("//")) ? "hl-c" : "hl-s";
+    out += `<span class="${cls}">${m[0]}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + plain(rest.slice(last));
+}
+
+/* ---------- helpers ---------- */
+const ago = t => {
+  if (!t) return "";
+  const s = Math.max(0, (Date.now() / 1000) - t);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+};
+const isStale = t => t && (Date.now() / 1000 - t) > 2 * 3600;
+const MARKS = { done: "✓", pass: "✓", in_progress: "▶", blocked: "✕", fail: "✕", pending: "○" };
+const mark = st => MARKS[st] || "○";
+const needsCount = t => (t.task && Array.isArray(t.task.needs_you)) ? t.task.needs_you.length : 0;
+const KNOWN = new Set(["schema","title","branch","tier","phase","updated","plan","scorecard","decisions","code","needs_you","links","session"]);
+
+/* copy `claude --resume <session>`; data-s carries the session id */
+window.copySession = function (ev, btn) {
+  ev.preventDefault(); ev.stopPropagation();
+  const cmd = `claude --resume ${btn.dataset.s}`;
+  const done = () => {
+    const prev = btn.textContent;
+    btn.textContent = "copied ✓"; btn.classList.add("ok");
+    setTimeout(() => { btn.textContent = prev; btn.classList.remove("ok"); }, 1500);
+  };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(cmd).then(done).catch(() => fallbackCopy(cmd, done));
+  } else fallbackCopy(cmd, done);
+};
+function fallbackCopy(text, done) {   // non-secure contexts (e.g. served over LAN ip)
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); done(); } finally { ta.remove(); }
+}
+const resumeBtn = (k, label) => k.session
+  ? `<button class="copy" data-s="${esc(k.session)}" onclick="copySession(event, this)" title="copy: claude --resume ${esc(k.session)}">${label}</button>`
+  : "";
+
+/* ---------- views ---------- */
+function render() {
+  const hash = decodeURIComponent(location.hash.slice(1));
+  $app.innerHTML = hash ? viewDetail(hash) : viewGrid();
+}
+
+function viewGrid() {
+  if (!DB.repos.length) return `<div class="empty">No tasks yet. Drop a <code>&lt;repo&gt;/&lt;task&gt;.yaml</code> into the data directory.</div>`;
+  let attn = [];
+  DB.repos.forEach(r => r.tasks.forEach(t => {
+    (t.task?.needs_you || []).forEach(n => attn.push({ repo: r.repo, t, n }));
+  }));
+  let html = "";
+  if (attn.length) {
+    html += `<section class="queue"><h2>Needs you (${attn.length})</h2><ul>` +
+      attn.map(({repo, t, n}) =>
+        `<li><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
+        ` <span class="badge">${esc(n.type || "item")}</span> ${esc(n.text || "")}</li>`).join("") +
+      `</ul></section>`;
+  }
+  for (const r of DB.repos) {
+    html += `<h2 class="repo">${esc(r.repo)}</h2><div class="grid">` + r.tasks.map(t => {
+      if (t.error) {
+        return `<div class="card errcard"><div class="t">${esc(t.file)}</div>` +
+               `<span class="badge err">parse error</span><div class="msg">${esc(t.error)}</div></div>`;
+      }
+      const k = t.task, n = needsCount(t);
+      return `<a class="card${n ? " attn" : ""}${isStale(k.updated_ts ?? t.mtime) ? " stale" : ""}" href="#${esc(r.repo)}/${esc(t.id)}">` +
+        `<div class="t">${esc(k.title || t.id)}</div><div class="meta">` +
+        (k.phase ? `<span class="badge phase">${esc(k.phase)}</span>` : "") +
+        (k.tier !== undefined ? `<span class="badge">tier ${esc(k.tier)}</span>` : "") +
+        (n ? `<span class="badge attn">needs you · ${n}</span>` : "") +
+        resumeBtn(k, "⧉ resume") +
+        `</div><div class="ago">${ago(t.mtime)}</div></a>`;
+    }).join("") + `</div>`;
+  }
+  return html;
+}
+
+function viewDetail(hash) {
+  const [repo, id] = hash.split("/");
+  const r = DB.repos.find(x => x.repo === repo);
+  const t = r?.tasks.find(x => x.id === id);
+  const crumb = `<a class="crumb" href="#">← all tasks</a>`;
+  if (!t) return `${crumb}<div class="empty">Task <code>${esc(hash)}</code> not found (removed?).</div>`;
+  if (t.error) return `${crumb}<div class="sec errcard"><h3>parse error</h3><div class="msg">${esc(t.error)}</div></div>`;
+  const k = t.task;
+  let html = crumb + `<div class="detail"><h1>${esc(k.title || t.id)}</h1><div class="meta">` +
+    `<span class="badge">${esc(repo)}</span>` +
+    (k.branch ? `<span class="badge">⎇ ${esc(k.branch)}</span>` : "") +
+    (k.phase ? `<span class="badge phase">${esc(k.phase)}</span>` : "") +
+    (k.tier !== undefined ? `<span class="badge">tier ${esc(k.tier)}</span>` : "") +
+    `<span class="badge">${ago(t.mtime)}</span>` +
+    resumeBtn(k, "⧉ claude --resume") + `</div>`;
+
+  if (Array.isArray(k.needs_you) && k.needs_you.length) {
+    html += `<div class="sec needs"><h3>Needs you</h3>` + k.needs_you.map(n =>
+      `<div class="qitem"><b>${esc(n.type || "item")}</b> — ${esc(n.text || "")}` +
+      (n.detail ? `<pre>${hl(String(n.detail))}</pre>` : "") + `</div>`).join("") + `</div>`;
+  }
+  if (Array.isArray(k.plan) && k.plan.length) {
+    html += `<div class="sec"><h3>Plan</h3><ul class="plain">` + k.plan.map(p => {
+      const st = p.state || "pending";
+      return `<li class="${esc(st)}"><span class="mark">${mark(st)}</span><span class="txt">${esc(p.text || p)}</span></li>`;
+    }).join("") + `</ul></div>`;
+  }
+  if (Array.isArray(k.scorecard) && k.scorecard.length) {
+    html += `<div class="sec"><h3>Contract scorecard</h3><ul class="plain">` + k.scorecard.map(c => {
+      const st = c.status || "pending";
+      return `<li class="${esc(st)}"><span class="mark">${mark(st)}</span><span><span class="txt">${esc(c.text || c)}</span>` +
+        (c.verify ? `<span class="verify">verify: ${esc(c.verify)}</span>` : "") + `</span></li>`;
+    }).join("") + `</ul></div>`;
+  }
+  if (Array.isArray(k.decisions) && k.decisions.length) {
+    html += `<div class="sec"><h3>Decisions</h3>` + k.decisions.map(d =>
+      `<div class="decision"><b>${esc(d.what || d)}</b>` +
+      (d.why ? `<span class="why">why: ${esc(d.why)}</span>` : "") +
+      (d.when ? `<span class="sub">${esc(d.when)}</span>` : "") + `</div>`).join("") + `</div>`;
+  }
+  if (Array.isArray(k.code) && k.code.length) {
+    html += `<div class="sec"><h3>Code to know</h3>` + k.code.map(c =>
+      `<div class="codeblock"><span class="path">${esc(c.file || "")}${c.lines ? ":" + esc(c.lines) : ""}</span>` +
+      (c.note ? `<div class="note">${esc(c.note)}</div>` : "") +
+      (c.snippet ? `<pre>${hl(String(c.snippet))}</pre>` : "") + `</div>`).join("") + `</div>`;
+  }
+  if (Array.isArray(k.links) && k.links.length) {
+    html += `<div class="sec"><h3>Links</h3><ul class="plain">` + k.links.map(l =>
+      `<li><span class="mark">↗</span><a href="${esc(l.url || "#")}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a></li>`).join("") +
+      `</ul></div>`;
+  }
+  const extra = Object.keys(k).filter(key => !KNOWN.has(key));
+  if (extra.length) {
+    html += `<div class="sec"><h3>Other</h3><table class="kv">` + extra.map(key =>
+      `<tr><td>${esc(key)}</td><td>${esc(typeof k[key] === "object" ? JSON.stringify(k[key], null, 1) : k[key])}</td></tr>`).join("") +
+      `</table></div>`;
+  }
+  return html + `</div>`;
+}
+
+/* ---------- data + hot reload ---------- */
+async function refresh() {
+  try {
+    const res = await fetch("/api/tasks", { cache: "no-store" });
+    DB = await res.json();
+    render();
+  } catch (e) { /* server briefly away; SSE reconnect will retrigger */ }
+}
+function connect() {
+  const es = new EventSource("/events");           // EventSource auto-reconnects
+  es.onopen = () => { $conn.textContent = "live"; $conn.className = "live"; refresh(); };
+  es.onmessage = refresh;
+  es.onerror = () => { $conn.textContent = "reconnecting…"; $conn.className = "down"; };
+}
+window.addEventListener("hashchange", render);
+connect();
+refresh();
+</script>
+</body>
+</html>

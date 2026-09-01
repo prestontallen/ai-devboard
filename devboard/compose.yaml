@@ -1,0 +1,8 @@
+services:
+  devboard:
+    build: .
+    ports:
+      - "${DEVBOARD_PORT:-8484}:8484"
+    volumes:
+      - "${DEVBOARD_DATA:-~/.local/share/devboard}:/data:ro"
+    restart: unless-stopped
