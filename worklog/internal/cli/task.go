@@ -167,6 +167,10 @@ type taskResult struct {
 	File   string `json:"file"`
 	Action string `json:"action"`
 	Detail string `json:"detail,omitempty"`
+	// Warnings carries non-fatal lint output. It rides the result rather than
+	// stderr because the consumer is an agent reading --json, and stdout stays
+	// exactly one JSON document.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func emitTaskResult(cmd *cobra.Command, asJSON bool, res taskResult) error {
@@ -179,14 +183,21 @@ func emitTaskResult(cmd *cobra.Command, asJSON bool, res taskResult) error {
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), style.Good.Render(line)+
 		style.Dim.Render("  ("+res.File+")"))
+	for _, w := range res.Warnings {
+		fmt.Fprintln(cmd.OutOrStdout(), style.Warn.Render("NOTE: "+w))
+	}
 	return nil
 }
 
 // mutateTask is the shared body of every subcommand: resolve, mutate, emit.
 // child routes the mutation to that child's own entry when --id names an
 // epic — see mutateTaskOrChild.
+// warn hooks run after the mutation and outside devboard.Mutate's flock, so a
+// hook that shells out never holds the lock. Variadic so the ten other callers
+// stay untouched.
 func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force bool,
-	action, detail string, fn func(*devboard.Task) error) error {
+	action, detail string, fn func(*devboard.Task) error,
+	warn ...func(string) []string) error {
 	if taskDisabled(cmd) {
 		return nil
 	}
@@ -204,8 +215,15 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 		}
 		return jsonOrTextError(cmd, asJSON, code, "%v", err)
 	}
+	var warnings []string
+	for _, w := range warn {
+		if w != nil {
+			warnings = append(warnings, w(path)...)
+		}
+	}
 	rel, _ := filepath.Rel(devboard.DataDir(), path)
-	return emitTaskResult(cmd, asJSON, taskResult{File: rel, Action: action, Detail: detail})
+	return emitTaskResult(cmd, asJSON,
+		taskResult{File: rel, Action: action, Detail: detail, Warnings: warnings})
 }
 
 // index1 parses a 1-based list index against a length.
@@ -380,7 +398,7 @@ criterion 2. Re-read the list before addressing one by index after a removal.`,
 						t.Score = append(t.Score, devboard.ScoreItem{
 							Text: text, Verify: flagVerify, Status: "pending"})
 						return nil
-					})
+					}, verifyLintHook("add", flagVerify, "", *child))
 			}
 
 			arg, text, err := itemArgs(cmd, *asJSON, "scorecard", verb, args)
@@ -391,6 +409,10 @@ criterion 2. Re-read the list before addressing one by index after a removal.`,
 			switch verb {
 			case "edit":
 				setVerify := cmd.Flags().Changed("verify")
+				editedVerify := ""
+				if setVerify {
+					editedVerify = flagVerify
+				}
 				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "criterion edited", "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Score), "scorecard")
@@ -402,7 +424,7 @@ criterion 2. Re-read the list before addressing one by index after a removal.`,
 							t.Score[i].Verify = flagVerify
 						}
 						return nil
-					})
+					}, verifyLintHook("edit", editedVerify, arg, *child))
 			case "remove":
 				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "criterion removed", "#"+arg,
 					func(t *devboard.Task) error {
@@ -422,7 +444,7 @@ criterion 2. Re-read the list before addressing one by index after a removal.`,
 						}
 						t.Score[i].Status = verb
 						return nil
-					})
+					}, verifyLintHook(verb, "", arg, *child))
 			default:
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task scorecard: unknown verb %q (add|edit|remove|pass|fail|pending)", verb)
