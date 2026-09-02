@@ -97,7 +97,6 @@ scripts that handled validation, sync, and lint.`,
 		newLintSpecsCmd(),
 		newTaskCmd(),
 		newInstallCmd(),
-		newPingCmd(),
 	)
 	return cmd
 }
