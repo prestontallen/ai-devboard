@@ -155,3 +155,16 @@ children:
     title: Cut duplicated devboard-sync and tone content
     state: done
 ```
+
+### Per-child board routing
+
+A child's board-grid presence stays inside its epic's single nested card
+(the compact roster, and the expanded per-child sections on the epic's own
+detail page) — a child never gets its own top-level card. Both the roster
+chips and the per-child section headings link to a dedicated detail hash,
+`#<repo>/<epic-id>/<child-id>`, distinct from an epic's own
+`#<repo>/<epic-id>` and a standalone ticket's `#<repo>/<task-id>`, so a
+child's plan/scorecard/decisions/code can be read on its own without the
+rest of the epic's children in view. This is a UI routing convention only;
+no schema field carries it, and no per-child archive endpoint exists —
+archiving stays a whole-file action from the epic's own view.

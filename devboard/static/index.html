@@ -102,10 +102,16 @@
   a.card:hover { border-color: var(--signal); }
   .card.attn { border-color: color-mix(in srgb, var(--hold) 55%, var(--border)); }
   .card.stale { opacity: .62; }
-  .card .head { display: flex; align-items: start; gap: .55rem; }
-  .card .t { font-weight: 600; line-height: 1.3; min-width: 0; }
-  .chip { flex: none; font: .66rem var(--mono); color: var(--dim); border: 1px solid var(--border);
-          border-radius: 5px; padding: .12rem .45rem; white-space: nowrap; }
+  .card .head { display: flex; align-items: start; gap: .55rem; flex-wrap: wrap; }
+  .card .t { font-weight: 600; line-height: 1.3; min-width: 0; flex: 1 1 auto; }
+  /* max-width + ellipsis: a chip can now carry unbounded text (an epic's
+     real title, not just the fixed "◆ epic" badge) — without this a long
+     one forces the title into an unreadably narrow column instead of
+     truncating itself. */
+  .chip { flex: none; display: inline-block; font: .66rem var(--mono); color: var(--dim);
+          border: 1px solid var(--border); border-radius: 5px; padding: .12rem .45rem;
+          white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+          vertical-align: bottom; }
   .head .chip { margin-left: auto; }
   .flag { flex: none; font: 600 .66rem var(--mono); color: #14100a; background: var(--hold);
           border-radius: 5px; padding: .14rem .45rem; white-space: nowrap; }
@@ -118,7 +124,8 @@
   .childroster { display: flex; flex-wrap: wrap; gap: .35rem; }
   .childchip { font: .68rem var(--mono); border: 1px solid var(--border); border-radius: 999px;
                padding: .14rem .6rem; color: var(--dim); max-width: 100%; overflow: hidden;
-               text-overflow: ellipsis; white-space: nowrap; }
+               text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .childchip:hover { border-color: var(--signal); color: var(--signal); }
   .childchip.active { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 55%, var(--border));
                        box-shadow: 0 0 0 1px color-mix(in srgb, var(--signal) 25%, transparent) inset; }
   .childchip.done { color: var(--go); border-style: dashed; opacity: .8; }
@@ -406,6 +413,11 @@ window.moveTask = function (ev, btn) {
     setTimeout(() => { btn.textContent = prev; btn.classList.remove("bad"); }, 2500);
   });
 };
+window.goToChild = function (ev, el) {
+  ev.preventDefault(); ev.stopPropagation();
+  location.hash = `${el.dataset.repo}/${el.dataset.epic}/${el.dataset.child}`;
+};
+
 const moveBtn = (repo, t) => isArchived(t)
   ? `<button class="act" data-act="/api/unarchive" data-repo="${esc(repo)}" data-id="${esc(t.id)}" onclick="moveTask(event, this)">⤴ un-archive</button>`
   : `<button class="act" data-act="/api/archive" data-repo="${esc(repo)}" data-id="${esc(t.id)}" onclick="moveTask(event, this)">⌫ archive</button>`;
@@ -493,12 +505,12 @@ function frictionHTML() {
 
 /* ---------- board ---------- */
 function statsHTML() {
+  const friction = feedbackOpen().length;
   const ts = flat().filter(x => !x.t.error && !isArchived(x.t));
   const inFlight = ts.filter(x => (x.t.task.phase || "") !== "done").length;
   const need = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + needsCount(x.t), 0);
   const waiting = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + waitCount(x.t), 0);
   const stale = ts.filter(x => (x.t.task.phase || "") !== "done" && isStale(x.t.mtime)).length;
-  const friction = feedbackOpen().length;
   return `<div class="stat"><b>${inFlight}</b><span>in flight</span></div>` +
     (need ? `<div class="stat attn"><b>${need}</b><span>need you</span></div>` : "") +
     (waiting ? `<div class="stat wait"><b>${waiting}</b><span>waiting on</span></div>` : "") +
@@ -511,12 +523,16 @@ const isDone = t => !t.error && (t.task.phase || "") === "done";
 /* compact per-card roster: one chip per child, active first, state-colored */
 const CHILD_ORDER = { active: 0, pending: 1, done: 2 };
 const CHILD_MARK = { active: "▶ ", pending: "○ ", done: "✓ " };
-function childrenRosterHTML(children) {
+function childrenRosterHTML(children, repo, epicId) {
   if (!children.length) return `<div class="calm childrenempty">no children started yet</div>`;
   const sorted = children.slice().sort((a, b) => (CHILD_ORDER[a.state] ?? 1) - (CHILD_ORDER[b.state] ?? 1));
+  // A real <a href> can't nest inside the card's own outer <a> (invalid
+  // HTML — browsers split/restructure nested anchors), so this navigates
+  // via a click handler instead, same as moveBtn/resumeBtn do.
   return `<div class="childroster">` + sorted.map(c => {
     const st = c.state || "pending";
-    return `<span class="childchip ${st}" title="${esc(c.title || c.id)} · ${esc(st)}">` +
+    return `<span class="childchip ${st}" data-repo="${esc(repo)}" data-epic="${esc(epicId)}" data-child="${esc(c.id)}" ` +
+      `onclick="goToChild(event,this)" title="${esc(c.title || c.id)} · ${esc(st)}">` +
       (CHILD_MARK[st] || "") + esc(c.title || c.id) + `</span>`;
   }).join("") + `</div>`;
 }
@@ -537,7 +553,7 @@ function cardHTML({ repo, t }) {
       (wn ? `<span class="chip waitchip">⧖ ${wn}</span>` : "") +
       `<span class="chip epicbadge">◆ epic</span>` +
       `<span class="chip">${esc(repo)}</span></div>` +
-      childrenRosterHTML(children) +
+      childrenRosterHTML(children, repo, t.id) +
       `<div class="foot">` +
       `<span>${children.length} ${children.length === 1 ? "child" : "children"}` +
       (activeN ? ` · ${activeN} active` : "") + `</span>` +
@@ -706,20 +722,45 @@ function childrenDetailHTML(children, hash) {
     const inner = (cl || cr)
       ? `<div class="cols childcols">${cl ? `<div>${cl}</div>` : ""}${cr ? `<div>${cr}</div>` : ""}</div>`
       : `<div class="calm" style="margin:0">nothing recorded yet</div>`;
-    return `<div class="sec childsec"><h3>${esc(c.title || c.id)} ` +
+    return `<div class="sec childsec"><h3><a href="#${esc(hash)}/${esc(c.id)}">${esc(c.title || c.id)}</a> ` +
       `<span class="count child-${st}">${CHILD_BADGE[st] || st}</span></h3>` +
       (c.branch || c.phase ? `<div class="fnote">${c.branch ? "⎇ " + esc(c.branch) : ""}${c.branch && c.phase ? " · " : ""}${c.phase ? esc(c.phase) : ""}</div>` : "") +
       inner + `</div>`;
   }).join("");
 }
 
+/* A roster chip or a childrenDetailHTML heading links to
+   #repo/epicId/childId — a route that didn't exist before this ticket.
+   Resolve the epic file first, then hand off to a dedicated child view. */
+function viewChildDetail(repo, t, childId, hash) {
+  const k = t.task;
+  const crumb = `<a class="crumb" href="#${esc(repo)}/${esc(t.id)}">← ${esc(k.title || t.id)}</a>`;
+  const c = (k.children || []).find(x => x.id === childId);
+  if (!c) return `${crumb}<div class="empty">Child <code>${esc(childId)}</code> not found (removed?).</div>`;
+  const fk = s => `${hash}|${s}`;
+  let html = crumb + `<div class="hero"><h1>${esc(c.title || c.id)}</h1><div class="metarow">` +
+    `<span class="chip">${esc(repo)}</span>` +
+    `<span class="chip epicbadge">◆ ${esc(k.title || t.id)}</span>` +
+    (c.branch ? `<span class="chip">⎇ ${esc(c.branch)}</span>` : "") +
+    (c.tier !== undefined ? `<span class="chip">tier ${esc(c.tier)}${c.complexity ? " · cx " + esc(c.complexity) : ""}</span>` : (c.complexity ? `<span class="chip">cx ${esc(c.complexity)}</span>` : "")) +
+    (c.worklog ? `<span class="chip">☰ ${esc(c.worklog)}</span>` : "") +
+    (c.state ? `<span class="count child-${esc(c.state)}">${CHILD_BADGE[c.state] || esc(c.state)}</span>` : "") +
+    resumeBtn(c, "⧉ claude --resume") +
+    `</div>` + stepperHTML(c.phase, c.type) + `</div>`;
+  const { left, right } = taskBodyHTML(c, fk);
+  html += (left && right) ? `<div class="cols"><div>${left}</div><div>${right}</div></div>`
+    : (left || right || `<div class="empty">nothing recorded yet</div>`);
+  return html;
+}
+
 function viewDetail(hash) {
-  const [repo, id] = hash.split("/");
+  const [repo, id, childId] = hash.split("/");
   const r = DB.repos.find(x => x.repo === repo);
   const t = r?.tasks.find(x => x.id === id);
   const crumb = `<a class="crumb" href="#">← all tasks</a>`;
   if (!t) return `${crumb}<div class="empty">Task <code>${esc(hash)}</code> not found (removed?).</div>`;
   if (t.error) return `${crumb}<div class="sec errcard"><h3>parse error</h3><div class="msg">${esc(t.error)}</div></div>`;
+  if (childId !== undefined) return viewChildDetail(repo, t, childId, hash);
   const k = t.task, fk = s => `${hash}|${s}`, epic = k.type === "epic";
 
   let html = crumb + `<div class="hero"><h1>${esc(k.title || t.id)}</h1><div class="metarow">` +
