@@ -97,9 +97,11 @@ obtain_release() {
 
 obtain_build() {
   command -v go >/dev/null 2>&1 || return 1
+  # Dev stamp tracks the latest tag, so it never goes stale across releases.
+  local ver; ver="$(git -C "$REPO_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
   mkdir -p "$(dirname "$BIN")"
   ( cd "$REPO_ROOT/worklog" && go build \
-      -ldflags "-X main.version=0.2.0-dev -X main.commit=$rev -X 'main.date=$(date -u +%Y-%m-%d)'" \
+      -ldflags "-X main.version=${ver:-0.0.0}-dev -X main.commit=$rev -X 'main.date=$(date -u +%Y-%m-%d)'" \
       -o "$BIN" ./cmd/worklog )
   echo "installed: $BIN ($("$BIN" --version | sed 's/^worklog version //')) [local build]"
 }
