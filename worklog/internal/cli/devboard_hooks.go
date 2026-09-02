@@ -22,17 +22,26 @@ func syncDevboard(fn func() error) {
 func devboardOnStart(id, title, blockType string) {
 	syncDevboard(func() error { return devboard.OnStart(id, title, blockType) })
 }
-func devboardOnDone(id string)    { syncDevboard(func() error { return devboard.OnDone(id) }) }
-func devboardOnPR(id, url string) { syncDevboard(func() error { return devboard.OnPR(id, url) }) }
+func devboardOnDone(id string) { syncDevboard(func() error { return devboard.OnDone(id) }) }
 
-// devboardOnPRChild mirrors a PR link onto childID's own entry in the
-// epic's devboard file (via mutateTaskOrChild, same link-replace logic
-// devboard.OnPR uses for a plain ticket). No-op when the epic has no
-// devboard file yet — same "no-op when absent" contract as OnPR; nothing
-// has synced the epic into existence yet, and a bare PR mirror shouldn't
-// be the thing that does (devboardSyncEpic already owns that, from
-// start/done).
-func devboardOnPRChild(epicID, childID, url string) {
+// devboardOnPR/devboardOnPRChild are thin name="PR" wrappers around the
+// generic devboardOnLink/devboardOnLinkChild below — kept as their own
+// named functions only so pr.go's call sites don't change.
+func devboardOnPR(id, url string)                   { devboardOnLink(id, "PR", url) }
+func devboardOnPRChild(epicID, childID, url string) { devboardOnLinkChild(epicID, childID, "PR", url) }
+
+func devboardOnLink(id, name, url string) {
+	syncDevboard(func() error { return devboard.OnLink(id, name, url) })
+}
+
+// devboardOnLinkChild mirrors a named link onto childID's own entry in
+// the epic's devboard file (via mutateTaskOrChild, same link-replace
+// logic devboard.OnLink uses for a plain ticket). No-op when the epic has
+// no devboard file yet — same "no-op when absent" contract as OnLink;
+// nothing has synced the epic into existence yet, and a bare link mirror
+// shouldn't be the thing that does (devboardSyncEpic already owns that,
+// from start/done).
+func devboardOnLinkChild(epicID, childID, name, url string) {
 	syncDevboard(func() error {
 		if !devboard.Enabled() {
 			return nil
@@ -44,13 +53,13 @@ func devboardOnPRChild(epicID, childID, url string) {
 		_, err = mutateTaskOrChild(path, childID, func(t *devboard.Task) error {
 			kept := t.Links[:0]
 			for _, l := range t.Links {
-				if l.Label != "PR" {
+				if l.Label != name {
 					kept = append(kept, l)
 				}
 			}
 			t.Links = kept
 			if url != "" {
-				t.Links = append(t.Links, devboard.Link{Label: "PR", URL: url})
+				t.Links = append(t.Links, devboard.Link{Label: name, URL: url})
 			}
 			return nil
 		})

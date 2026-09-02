@@ -19,6 +19,9 @@ var (
 	metaField      = regexp.MustCompile(`^  - \*\*(.+?)\*\*:\s*(.*)$`)
 	// `**ID** — Title` or `**ID** -- Title` form for the bullet line body.
 	titleIDRe = regexp.MustCompile(`^\*\*(.+?)\*\*\s*(?:—|--)\s*(.*)$`)
+	// `<name> — <url>` or `<name> -- <url>` form for a **Link**: line's
+	// value, same separator convention as titleIDRe.
+	linkNameURLRe = regexp.MustCompile(`^(.+?)\s*(?:—|--)\s*(.*)$`)
 )
 
 // File reads and parses the WORK.md at path.
@@ -158,6 +161,10 @@ func applyMeta(b *model.Block, field, value string) {
 		b.PR = value
 	case "source":
 		b.Source = value
+	case "link":
+		if m := linkNameURLRe.FindStringSubmatch(value); m != nil {
+			b.Links = append(b.Links, model.LinkEntry{Name: strings.TrimSpace(m[1]), URL: strings.TrimSpace(m[2])})
+		}
 	case "waiting since":
 		b.WaitingSince = value
 	case "files":

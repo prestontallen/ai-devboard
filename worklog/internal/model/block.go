@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // State of a top-level worklog item.
 type State string
 
@@ -58,21 +60,29 @@ type Block struct {
 	State   State       `json:"-"`
 	Title   string      `json:"title"`
 
-	ID             string    `json:"id"`
-	Type           BlockType `json:"type"`
-	Parent         string    `json:"parent"`
-	Repo           string    `json:"repo"`
-	Tags           []string  `json:"tags"`
-	Started        string    `json:"started"`
-	PR             string    `json:"pr"`
-	Source         string    `json:"source"`
-	WaitingSince   string    `json:"waitingSince"`
-	Files          []string  `json:"files"`
-	Acceptance     string    `json:"acceptance"`
-	NotesRef       string    `json:"notesRef"`
-	Status         string    `json:"status"`
-	Plan           string    `json:"plan"`
-	ActiveChildren []string  `json:"activeChildren"`
+	ID             string      `json:"id"`
+	Type           BlockType   `json:"type"`
+	Parent         string      `json:"parent"`
+	Repo           string      `json:"repo"`
+	Tags           []string    `json:"tags"`
+	Started        string      `json:"started"`
+	PR             string      `json:"pr"`
+	Source         string      `json:"source"`
+	WaitingSince   string      `json:"waitingSince"`
+	Files          []string    `json:"files"`
+	Acceptance     string      `json:"acceptance"`
+	NotesRef       string      `json:"notesRef"`
+	Status         string      `json:"status"`
+	Plan           string      `json:"plan"`
+	ActiveChildren []string    `json:"activeChildren"`
+	Links          []LinkEntry `json:"links"`
+}
+
+// LinkEntry is one `**Link**: <name> — <url>` metadata line. Unlike every
+// other field on Block, Link is repeatable — a block may carry any number.
+type LinkEntry struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // IsEpic reports whether the block is an epic container.
@@ -83,3 +93,14 @@ func (b Block) IsActive() bool { return b.State == StateActive }
 
 // IsDone reports whether the block is complete (`[x]`).
 func (b Block) IsDone() bool { return b.State == StateDone }
+
+// LinkByName returns the block's link with the given name (case-
+// insensitive) and whether one was found.
+func (b Block) LinkByName(name string) (LinkEntry, bool) {
+	for _, l := range b.Links {
+		if strings.EqualFold(l.Name, name) {
+			return l, true
+		}
+	}
+	return LinkEntry{}, false
+}

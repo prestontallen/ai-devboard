@@ -301,3 +301,50 @@ func TestParseSource(t *testing.T) {
 		t.Errorf("Source = %q, want https://company.atlassian.net/browse/JIRA-1", b.Source)
 	}
 }
+
+func TestParseLinksRepeatable(t *testing.T) {
+	src := `## Now
+- [~] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Link**: Jira — https://company.atlassian.net/browse/AUTH-1234
+  - **Link**: Slack — https://example.slack.com/archives/C1/p1
+## Next
+## Someday
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if len(b.Links) != 2 {
+		t.Fatalf("Links = %v, want 2 entries", b.Links)
+	}
+	if b.Links[0].Name != "Jira" || b.Links[0].URL != "https://company.atlassian.net/browse/AUTH-1234" {
+		t.Errorf("Links[0] = %+v", b.Links[0])
+	}
+	if b.Links[1].Name != "Slack" || b.Links[1].URL != "https://example.slack.com/archives/C1/p1" {
+		t.Errorf("Links[1] = %+v", b.Links[1])
+	}
+}
+
+func TestParseLinksMissing(t *testing.T) {
+	src := `## Now
+- [ ] **AUTH-1** — Refactor auth
+  - **ID**: auth-1
+  - **Started**: 2026-05-15
+`
+	doc, err := Bytes("WORK.md", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	b := doc.BlockByID("auth-1")
+	if b == nil {
+		t.Fatal("block auth-1 not found")
+	}
+	if len(b.Links) != 0 {
+		t.Errorf("Links = %v, want none", b.Links)
+	}
+}

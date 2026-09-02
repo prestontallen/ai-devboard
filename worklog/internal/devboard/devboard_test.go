@@ -29,6 +29,7 @@ func TestDisabledWhenDirMissing(t *testing.T) {
 		"OnStart": func() error { return OnStart("x", "X", "") },
 		"OnDone":  func() error { return OnDone("x") },
 		"OnPR":    func() error { return OnPR("x", "u") },
+		"OnLink":  func() error { return OnLink("x", "Jira", "u") },
 	} {
 		if err := fn(); err != nil {
 			t.Fatalf("%s while disabled: %v", name, err)
@@ -108,6 +109,39 @@ func TestOnPRSetAndClear(t *testing.T) {
 	yaml.Unmarshal(raw, &task)
 	if len(task.Links) != 0 {
 		t.Fatalf("links after clear=%v", task.Links)
+	}
+}
+
+func TestOnLinkSetAndClear(t *testing.T) {
+	dir := withDataDir(t)
+	p := seed(t, dir, "repo-a", "tkt-4", "schema: 1\ntitle: T\n")
+	if err := OnLink("tkt-4", "Jira", "https://x/jira/1"); err != nil {
+		t.Fatal(err)
+	}
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	if len(task.Links) != 1 || task.Links[0].URL != "https://x/jira/1" || task.Links[0].Label != "Jira" {
+		t.Fatalf("links=%v", task.Links)
+	}
+	// Setting a second named link must not disturb the first.
+	if err := OnLink("tkt-4", "Slack", "https://x/slack/1"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(p)
+	task = Task{}
+	yaml.Unmarshal(raw, &task)
+	if len(task.Links) != 2 {
+		t.Fatalf("links after second set=%v", task.Links)
+	}
+	if err := OnLink("tkt-4", "Jira", ""); err != nil { // clear just Jira
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(p)
+	task = Task{}
+	yaml.Unmarshal(raw, &task)
+	if len(task.Links) != 1 || task.Links[0].Label != "Slack" {
+		t.Fatalf("links after clearing Jira=%v", task.Links)
 	}
 }
 

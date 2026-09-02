@@ -29,6 +29,7 @@ var fieldOrder = []string{
 	"Tags",
 	"PR",
 	"Source",
+	"Link",
 	"Notes",
 	"Plan",
 	"Started",

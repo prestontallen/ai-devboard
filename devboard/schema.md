@@ -25,7 +25,7 @@ supported.
 | `worklog`, `title` | worklog (when ticket exists) | mirrored from the ticket; agent-authored on bare tasks |
 | `type` | worklog | `epic` marks this file as an epic container; `spike` marks investigation-first work (short phase track); absent for an ordinary ticket |
 | `children` | worklog (roster identity), agent (per-child in-flight detail) | see "Epic files" below |
-| `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
+| `links` (PR) | worklog (`worklog pr`) | other entries worklog too (`worklog link <id> <name> [url]`, e.g. Jira/Slack/docs — any name, not just PR) |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
 | `tier`, `complexity`, `branch`, `session` | agent | identity/telemetry |
 | `plan`, `scorecard`, `decisions`, `code`, `needs_you`, `waiting_on` | agent | in-flight detail; deliberately NOT stored in worklog |
@@ -106,9 +106,13 @@ needs_you:                # attention queue — questions & pending checkpoints
   - type: question
     text: Is 30s max total wait acceptable for batch jobs?
 
-links:
+links:                    # `worklog pr` writes the PR entry; `worklog link`
+                          # writes any other named entry (Jira, Slack, a
+                          # design doc — the name is free-form)
   - label: PR #42
     url: https://github.com/prestontallen/nole/pull/42
+  - label: Jira
+    url: https://company.atlassian.net/browse/AUTH-1234
 ```
 
 ## Epic files

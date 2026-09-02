@@ -502,8 +502,18 @@ func indexOfChild(children []ChildEntry, id string) int {
 }
 
 // OnPR sets (or clears, url=="") the PR link on the ticket's task file.
-// No-op when no task file exists.
+// No-op when no task file exists. A thin wrapper around OnLink — PR is
+// just the one link name every ticket's CLI (worklog pr) special-cases
+// with an always-rendered WORK.md field; the devboard mirror itself has
+// no reason to duplicate the generic logic.
 func OnPR(id, url string) error {
+	return OnLink(id, "PR", url)
+}
+
+// OnLink sets (or clears, url=="") the named link on the ticket's task
+// file, leaving every other link untouched. No-op when no task file
+// exists.
+func OnLink(id, name, url string) error {
 	if !Enabled() {
 		return nil
 	}
@@ -514,13 +524,13 @@ func OnPR(id, url string) error {
 	return Mutate(path, func(t *Task) error {
 		kept := t.Links[:0]
 		for _, l := range t.Links {
-			if l.Label != "PR" {
+			if l.Label != name {
 				kept = append(kept, l)
 			}
 		}
 		t.Links = kept
 		if url != "" {
-			t.Links = append(t.Links, Link{Label: "PR", URL: url})
+			t.Links = append(t.Links, Link{Label: name, URL: url})
 		}
 		return nil
 	})
