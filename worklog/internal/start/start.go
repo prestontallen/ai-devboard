@@ -73,7 +73,9 @@ var (
 
 const cap = 5
 
-const indexNotUpdatedWarning = "INDEX.md not updated (deferred to Phase 2B)"
+// IndexNotUpdatedWarning is exported so the CLI can tell it apart from other
+// warnings when deciding which follow-up hint to print.
+const IndexNotUpdatedWarning = "INDEX.md not updated (deferred to Phase 2B)"
 
 // childLineRe matches a checkbox child line in a notes file. The state char
 // is captured but ignored for matching; only `[ ]` lines represent open
@@ -320,7 +322,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		Parent:   parent,
 		Started:  today,
 		WorkMD:   wd.WorkMD(),
-		Warnings: []string{indexNotUpdatedWarning},
+		Warnings: []string{IndexNotUpdatedWarning},
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/start"
@@ -88,6 +89,10 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	if err != nil {
 		return mapStartError(cmd, asJSON, err)
 	}
+	// Checked before the write, since the write is what creates the group.
+	if group := devboard.PendingNewGroup(); group != "" {
+		out.Warnings = append(out.Warnings, newDevboardGroupWarning(group))
+	}
 	devboardOnStart(out.ID, out.Title)
 
 	if asJSON {
@@ -120,6 +125,15 @@ func mapStartError(cmd *cobra.Command, asJSON bool, err error) error {
 	}
 }
 
+// newDevboardGroupWarning describes a devboard repo group being created for
+// the first time. Worth saying out loud: a group named after something that
+// isn't the repo means task files are being filed where the dashboard won't
+// look for them.
+func newDevboardGroupWarning(group string) string {
+	return "devboard: creating a new repo group \"" + group +
+		"\"; if that is not this repository's name, task files are being filed in the wrong place"
+}
+
 func emitStartText(cmd *cobra.Command, out start.Output) {
 	w := cmd.OutOrStdout()
 	headline := fmt.Sprintf("started %s in ## %s (Started: %s)",
@@ -129,9 +143,13 @@ func emitStartText(cmd *cobra.Command, out start.Output) {
 	}
 	fmt.Fprintln(w, style.Good.Render(headline))
 	for _, warning := range out.Warnings {
-		fmt.Fprintln(w,
-			style.Warn.Render("NOTE: "+warning)+
-				" Run "+style.SubHeading.Render("worklog validate")+
-				" to check the rest of the worklog.")
+		line := style.Warn.Render("NOTE: " + warning)
+		// The validate hint only makes sense for the INDEX warning; it is no
+		// help at all for a devboard grouping notice.
+		if warning == start.IndexNotUpdatedWarning {
+			line += " Run " + style.SubHeading.Render("worklog validate") +
+				" to check the rest of the worklog."
+		}
+		fmt.Fprintln(w, line)
 	}
 }
