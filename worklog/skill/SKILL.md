@@ -41,9 +41,10 @@ matching the ticket key (e.g. `ent-3794`) or another stable slug.
 
 ## CLI command map for agents
 
-The `worklog` Go binary is the canonical mutation surface. For every
-intent below, use the CLI where available; fall back to manual edits
-(documented per-section below) only when CLI is not yet implemented.
+The `worklog` Go binary is the canonical mutation surface. Every intent
+below has a command. There is no manual-edit fallback: if you need
+something the CLI can't do, say so and stop, rather than opening the file
+in an editor.
 
 | Intent | CLI command | Status |
 |---|---|---|
@@ -55,6 +56,7 @@ intent below, use the CLI where available; fall back to manual edits
 | Add an epic | `worklog add --type epic --id <id> --title "..."` (creates `notes/<id>.md` scaffold) | available |
 | Add a child of an epic | `worklog add --parent <epic-id> --id <child-id> --title "..."` | available |
 | Start a ticket | `worklog start <id>` (standalone or child-of-epic) | available |
+| Edit ticket fields | `worklog edit <id>` (`--title`, `--repo`, `--tags`, `--notes`, `--files`, `--acceptance`, `--status`; empty value removes the line; `--json`) | available |
 | Complete a ticket | `worklog done <id> --summary "..."` (sets `epicCompletable: true` when last child) | available |
 | Set PR on ticket | `worklog pr <id> <url>` (read with `worklog pr <id>`; `--clear` empties; `--edit` opens Huh prompt; `--json` for machines) | available |
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
@@ -157,6 +159,10 @@ In-flight detail that worklog deliberately does not store lives in the
 task file and is edited with the `worklog task` family (`phase`, `plan`,
 `scorecard`, `decision`, `needs-you`, `code`, `untrack` — all take `--id`
 and `--json`; see `worklog task --help`). Never hand-edit task YAML.
+`plan` and `scorecard` take `edit <n> "<text>"` and `remove <n>` alongside
+`add` and the status verbs, so a contract amendment can reword or drop an
+item. Both renumber on removal: re-read the list before addressing an item
+by index afterwards.
 `worklog task untrack` stops dashboard tracking by deleting only the task
 file; the ticket, notes, and archive are untouched.
 
@@ -760,12 +766,14 @@ heading. Most recent day at the top of the file.
 
 <!-- rules:start -->
 - **Mutate worklog data only through `worklog` subcommands — never via
-  Read/Edit/Write/StrReplace on worklog files directly.** If a user asks for
-  an operation the CLI doesn't support (remove a section, rewrite past content,
-  delete an entry), surface the limit explicitly rather than silently falling
+  Read/Edit/Write/StrReplace on worklog files directly.** Correcting a live
+  ticket is `worklog edit <id>`; correcting a task file's plan or scorecard is
+  `worklog task plan|scorecard edit|remove <n>`. For an operation that still
+  has no command (moving a ticket between sections, rewriting an archive
+  entry, deleting anything), surface the limit explicitly rather than falling
   back to a direct file edit. Either suggest a CLI-compatible workflow ("append
   a note marking those items as stale") or ask permission before touching the
-  file directly. The CLI being append-only is a deliberate limit, not a gap to
+  file directly. What the CLI won't do is a deliberate limit, not a gap to
   work around.
 - **Never auto-delete an archive entry, notes file, or anything in the worklog.**
   Move-then-delete is allowed (during archival from `WORK.md`); standalone

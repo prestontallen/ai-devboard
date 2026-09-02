@@ -124,4 +124,10 @@ From then on the task file's scorecard tracks verification live —
 
 If the task has (or warrants) an item in Preston's worklog, mirror the
 one-line acceptance summary into the item's **Acceptance** field and link
-the contract file from **Notes**.
+the contract file from **Notes**:
+
+    worklog edit <id> --acceptance "<one-line summary>"
+    worklog note <id> "Contract: .contracts/<yyyy-mm-dd>-<slug>.md"
+
+`worklog edit` works on a ticket in any section and inserts either field if
+the block doesn't carry it yet. Never hand-edit `WORK.md` to do this.

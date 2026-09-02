@@ -49,11 +49,9 @@ func RemoveBlock(doc *model.WorkDoc, blockID string) ([]string, *model.Block, er
 var activeChildrenLineRe = regexp.MustCompile(`^(  - \*\*Active children\*\*:\s*)(.*)$`)
 
 var (
-	prLineRe           = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
-	tagsLineRe         = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
-	startedLineRe      = regexp.MustCompile(`^  - \*\*Started\*\*:`)
-	notesLineRe        = regexp.MustCompile(`^  - \*\*Notes\*\*:(\s.*)?$`)
-	waitingSinceLineRe = regexp.MustCompile(`^  - \*\*Waiting since\*\*:(\s.*)?$`)
+	prLineRe      = regexp.MustCompile(`^  - \*\*PR\*\*:(\s.*)?$`)
+	tagsLineRe    = regexp.MustCompile(`^  - \*\*Tags\*\*:`)
+	startedLineRe = regexp.MustCompile(`^  - \*\*Started\*\*:`)
 )
 
 // SetBlockPR rewrites (or inserts) the `**PR**:` line for the block identified
@@ -580,106 +578,16 @@ func AppendToSection(doc *model.WorkDoc, section model.SectionName, blockLines [
 }
 
 // SetBlockNotesRef rewrites (or inserts) the `**Notes**:` line for the block
-// identified by blockID. Insertion point when the line is absent: after the
-// `**PR**:` line if present, otherwise before `**Started**:`, otherwise at the
-// end of the block's metadata range.
+// identified by blockID. Thin wrapper over SetBlockField; note that an empty
+// value removes the line rather than blanking it, which no caller does today.
 func SetBlockNotesRef(doc *model.WorkDoc, blockID, value string) ([]string, error) {
-	b := doc.BlockByID(blockID)
-	if b == nil {
-		return nil, fmt.Errorf("%w: %q", ErrBlockNotFound, blockID)
-	}
-
-	out := make([]string, len(doc.Lines))
-	copy(out, doc.Lines)
-
-	newLine := "  - **Notes**: " + value
-
-	metaStart := b.StartLine
-	metaEnd := b.EndLine
-
-	// 1) Existing Notes line → rewrite in place.
-	for i := metaStart; i < metaEnd && i < len(out); i++ {
-		if notesLineRe.MatchString(out[i]) {
-			out[i] = newLine
-			return out, nil
-		}
-	}
-
-	// 2) Insert after PR line, else before Started, else at end of metadata.
-	insertAt := -1
-	for i := metaStart; i < metaEnd && i < len(out); i++ {
-		if prLineRe.MatchString(out[i]) {
-			insertAt = i + 1
-			break
-		}
-	}
-	if insertAt < 0 {
-		for i := metaStart; i < metaEnd && i < len(out); i++ {
-			if startedLineRe.MatchString(out[i]) {
-				insertAt = i
-				break
-			}
-		}
-	}
-	if insertAt < 0 {
-		insertAt = metaEnd
-	}
-
-	res := make([]string, 0, len(out)+1)
-	res = append(res, out[:insertAt]...)
-	res = append(res, newLine)
-	res = append(res, out[insertAt:]...)
-	return res, nil
+	return SetBlockField(doc, blockID, "Notes", value)
 }
 
 // SetBlockWaitingSince rewrites (or inserts/removes) the `**Waiting since**:`
-// line for the block identified by blockID. When value is empty the line is
-// removed entirely. Insertion point when absent: after `**Started**:`, else at
-// end of the block's metadata range.
+// line for the block identified by blockID. An empty value removes the line.
 func SetBlockWaitingSince(doc *model.WorkDoc, blockID, value string) ([]string, error) {
-	b := doc.BlockByID(blockID)
-	if b == nil {
-		return nil, fmt.Errorf("%w: %q", ErrBlockNotFound, blockID)
-	}
-
-	out := make([]string, len(doc.Lines))
-	copy(out, doc.Lines)
-
-	metaStart := b.StartLine
-	metaEnd := b.EndLine
-
-	// 1) Existing line: rewrite (non-empty) or remove (empty).
-	for i := metaStart; i < metaEnd && i < len(out); i++ {
-		if waitingSinceLineRe.MatchString(out[i]) {
-			if value == "" {
-				res := make([]string, 0, len(out)-1)
-				res = append(res, out[:i]...)
-				res = append(res, out[i+1:]...)
-				return res, nil
-			}
-			out[i] = "  - **Waiting since**: " + value
-			return out, nil
-		}
-	}
-
-	if value == "" {
-		return out, nil
-	}
-
-	// 2) Insert after Started line, else at end of metadata range.
-	insertAt := metaEnd
-	for i := metaStart; i < metaEnd && i < len(out); i++ {
-		if startedLineRe.MatchString(out[i]) {
-			insertAt = i + 1
-			break
-		}
-	}
-
-	res := make([]string, 0, len(out)+1)
-	res = append(res, out[:insertAt]...)
-	res = append(res, "  - **Waiting since**: "+value)
-	res = append(res, out[insertAt:]...)
-	return res, nil
+	return SetBlockField(doc, blockID, "Waiting since", value)
 }
 
 // InsertSectionBefore inserts `## newSection` (and a blank line after it)

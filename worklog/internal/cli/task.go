@@ -219,22 +219,82 @@ func newTaskPhaseCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	}
 }
 
+// itemArgs validates the positional arity of a list subcommand's verb and
+// returns the index argument plus the replacement text (empty unless the verb
+// is "edit"). Both list subcommands accept 2 or 3 args, so the per-verb rule
+// has to be enforced here rather than by cobra.
+func itemArgs(cmd *cobra.Command, asJSON bool, what, verb string, args []string) (string, string, error) {
+	if verb == "edit" {
+		if len(args) != 3 {
+			return "", "", jsonOrTextError(cmd, asJSON, 64,
+				"task %s edit: want <n> <text>", what)
+		}
+		return args[1], args[2], nil
+	}
+	if len(args) != 2 {
+		return "", "", jsonOrTextError(cmd, asJSON, 64,
+			"task %s %s: takes exactly one argument", what, verb)
+	}
+	return args[1], "", nil
+}
+
 func newTaskPlanCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "plan <add <text> | start|done|block|pending <n>>",
-		Args:  cobra.ExactArgs(2),
-		Short: "Add a plan item or set an item's state (1-based index)",
+		Use:   "plan <add <text> | edit <n> <text> | remove <n> | start|done|block|pending <n>>",
+		Args:  cobra.RangeArgs(2, 3),
+		Short: "Add, reword, remove, or re-state a plan item (1-based index)",
+		Long: `plan maintains the task file's ordered plan.
+
+  worklog task plan add "<text>"        # append an item
+  worklog task plan edit <n> "<text>"   # reword item n, keeping its state
+  worklog task plan remove <n>          # delete item n
+  worklog task plan start|done|block|pending <n>
+
+remove renumbers: dropping item 2 makes the old item 3 the new item 2. Re-read
+the list before addressing an item by index after a removal.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			verb, arg := args[0], args[1]
+			verb := args[0]
 			states := map[string]string{
 				"start": "in_progress", "done": "done",
 				"block": "blocked", "pending": "pending",
 			}
-			switch {
-			case verb == "add":
-				return mutateTask(cmd, *id, *asJSON, true, *force, "plan item added", arg,
+			if verb == "add" {
+				if len(args) != 2 {
+					return jsonOrTextError(cmd, *asJSON, 64,
+						"task plan add: takes exactly one argument")
+				}
+				text := args[1]
+				return mutateTask(cmd, *id, *asJSON, true, *force, "plan item added", text,
 					func(t *devboard.Task) error {
-						t.Plan = append(t.Plan, devboard.PlanItem{Text: arg, State: "pending"})
+						t.Plan = append(t.Plan, devboard.PlanItem{Text: text, State: "pending"})
+						return nil
+					})
+			}
+
+			arg, text, err := itemArgs(cmd, *asJSON, "plan", verb, args)
+			if err != nil {
+				return err
+			}
+
+			switch {
+			case verb == "edit":
+				return mutateTask(cmd, *id, *asJSON, false, *force, "plan item edited", "#"+arg,
+					func(t *devboard.Task) error {
+						i, err := index1(arg, len(t.Plan), "plan")
+						if err != nil {
+							return err
+						}
+						t.Plan[i].Text = text
+						return nil
+					})
+			case verb == "remove":
+				return mutateTask(cmd, *id, *asJSON, false, *force, "plan item removed", "#"+arg,
+					func(t *devboard.Task) error {
+						i, err := index1(arg, len(t.Plan), "plan")
+						if err != nil {
+							return err
+						}
+						t.Plan = append(t.Plan[:i], t.Plan[i+1:]...)
 						return nil
 					})
 			case states[verb] != "":
@@ -249,7 +309,7 @@ func newTaskPlanCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 					})
 			default:
 				return jsonOrTextError(cmd, *asJSON, 64,
-					"task plan: unknown verb %q (add|start|done|block|pending)", verb)
+					"task plan: unknown verb %q (add|edit|remove|start|done|block|pending)", verb)
 			}
 		},
 	}
@@ -259,17 +319,63 @@ func newTaskPlanCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 func newTaskScorecardCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagVerify string
 	cmd := &cobra.Command{
-		Use:   "scorecard <add <text> | pass|fail|pending <n>>",
-		Args:  cobra.ExactArgs(2),
-		Short: "Add a scorecard criterion or set its status (1-based index)",
+		Use:   "scorecard <add <text> | edit <n> <text> | remove <n> | pass|fail|pending <n>>",
+		Args:  cobra.RangeArgs(2, 3),
+		Short: "Add, reword, remove, or set the status of a scorecard criterion (1-based index)",
+		Long: `scorecard maintains the task file's acceptance criteria.
+
+  worklog task scorecard add "<text>" --verify "<check>"
+  worklog task scorecard edit <n> "<text>" [--verify "<check>"]
+  worklog task scorecard remove <n>
+  worklog task scorecard pass|fail|pending <n>
+
+edit keeps the criterion's status; --verify is only rewritten when passed.
+remove renumbers: dropping criterion 2 makes the old criterion 3 the new
+criterion 2. Re-read the list before addressing one by index after a removal.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			verb, arg := args[0], args[1]
-			switch verb {
-			case "add":
-				return mutateTask(cmd, *id, *asJSON, true, *force, "criterion added", arg,
+			verb := args[0]
+			if verb == "add" {
+				if len(args) != 2 {
+					return jsonOrTextError(cmd, *asJSON, 64,
+						"task scorecard add: takes exactly one argument")
+				}
+				text := args[1]
+				return mutateTask(cmd, *id, *asJSON, true, *force, "criterion added", text,
 					func(t *devboard.Task) error {
 						t.Score = append(t.Score, devboard.ScoreItem{
-							Text: arg, Verify: flagVerify, Status: "pending"})
+							Text: text, Verify: flagVerify, Status: "pending"})
+						return nil
+					})
+			}
+
+			arg, text, err := itemArgs(cmd, *asJSON, "scorecard", verb, args)
+			if err != nil {
+				return err
+			}
+
+			switch verb {
+			case "edit":
+				setVerify := cmd.Flags().Changed("verify")
+				return mutateTask(cmd, *id, *asJSON, false, *force, "criterion edited", "#"+arg,
+					func(t *devboard.Task) error {
+						i, err := index1(arg, len(t.Score), "scorecard")
+						if err != nil {
+							return err
+						}
+						t.Score[i].Text = text
+						if setVerify {
+							t.Score[i].Verify = flagVerify
+						}
+						return nil
+					})
+			case "remove":
+				return mutateTask(cmd, *id, *asJSON, false, *force, "criterion removed", "#"+arg,
+					func(t *devboard.Task) error {
+						i, err := index1(arg, len(t.Score), "scorecard")
+						if err != nil {
+							return err
+						}
+						t.Score = append(t.Score[:i], t.Score[i+1:]...)
 						return nil
 					})
 			case "pass", "fail", "pending":
@@ -284,11 +390,12 @@ func newTaskScorecardCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 					})
 			default:
 				return jsonOrTextError(cmd, *asJSON, 64,
-					"task scorecard: unknown verb %q (add|pass|fail|pending)", verb)
+					"task scorecard: unknown verb %q (add|edit|remove|pass|fail|pending)", verb)
 			}
 		},
 	}
-	cmd.Flags().StringVar(&flagVerify, "verify", "", "verification command/check for an added criterion")
+	cmd.Flags().StringVar(&flagVerify, "verify", "",
+		"verification command/check; set on add, rewritten on edit only when passed")
 	return cmd
 }
 
