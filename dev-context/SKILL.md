@@ -245,7 +245,7 @@ the list before addressing an item by index afterward. `worklog pr <id>
 epic, the epic's task file is the dashboard surface — `worklog start`/
 `done`/`pr` on a child automatically sync that child's entry there and
 never create a per-child file. Every `task` subcommand (`plan`,
-`scorecard`, `decisions`, `code`, `needs-you`, `waiting-on`, `complexity`,
+`scorecard`, `decisions`, `amend`, `code`, `needs-you`, `waiting-on`, `complexity`,
 `phase`) needs BOTH `--id <epic-slug>` AND `--child <child-slug>` — the
 epic's own top-level fields are unused, so each child keeps its own
 independent phase/plan/scorecard/branch/session (this is what lets more
@@ -263,4 +263,7 @@ Tier 0 tasks skip devboard entirely. Never create the data dir unprompted.
 Contracts change; they just don't change silently. Any scope, criteria, or
 deliverable change gets a one-line amendment proposal and a human yes. Log
 amendments in the contract file (tier 2+) so the document stays the source
-of truth.
+of truth, and record them with `worklog task amend "<what>" --why "<why>"
+--complexity <unchanged|low|medium|high>` — the flag is required because the
+rating is what gates the risk scout, and it is the thing amendments forget.
+The command prints the re-sync checklist for everything it cannot update.

@@ -78,6 +78,14 @@ decisions:                # implementation decisions + amendments
   - what: Retry lives in indexer, not shared client
     why: Sync path can't tolerate blocking
     when: 2026-09-01
+  - what: Retargeted to a generic link mechanism
+    why: The storage layer had already generalised
+    when: 2026-09-02
+    complexity: low -> high
+                          # optional; written only by `worklog task amend`,
+                          # which requires a re-rate. "low (unchanged)" when
+                          # the rating was reconsidered and kept. A plain
+                          # `worklog task decision` entry omits it.
 
 code:                     # code the human should be aware of
   - file: nole/indexer.py

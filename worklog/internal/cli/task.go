@@ -81,6 +81,7 @@ format and field-ownership rules.`,
 		newTaskPhaseCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskPlanCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskScorecardCmd(&flagID, &flagChild, &flagForce, &flagJSON),
+		newTaskAmendCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskDecisionCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskNeedsYouCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskWaitingOnCmd(&flagID, &flagChild, &flagForce, &flagJSON),
@@ -250,6 +251,101 @@ func newTaskComplexityCmd(id, child *string, force *bool, asJSON *bool) *cobra.C
 				func(t *devboard.Task) error { t.Complexity = c; return nil })
 		},
 	}
+}
+
+// resyncChecklist names the artifacts an amendment leaves stale. The CLI owns
+// one of them; the rest are the human's, so the value is in naming them all at
+// the moment the amendment is recorded rather than trusting recall later.
+func resyncChecklist(child string) []string {
+	title := "worklog ticket title: `worklog edit title <id>` (the task YAML re-mirrors from WORK.md on the next start)"
+	if child != "" {
+		title = "child title: edit the `- [ ] <id>: <title>` line in notes/<epic>.md — the roster sync rewrites the YAML title from it"
+	}
+	return []string{
+		"re-sync checklist:",
+		"  contract file: add a row to its Amendments table, with this complexity rating",
+		"  " + title,
+		"  ticket acceptance: `worklog edit <id> --acceptance ...` if the criteria moved",
+		"  scorecard: `worklog task scorecard` — add, edit or remove criteria the amendment changed",
+		"  plan: `worklog task plan` — steps the amendment invalidated",
+		"  slug: the ticket id is structural and is NOT renamed; a retargeted amendment leaves it describing the old design",
+	}
+}
+
+func newTaskAmendCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command {
+	var flagWhy, flagComplexity string
+	cmd := &cobra.Command{
+		Use:   "amend <what>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Record a contract amendment, forcing a complexity re-rate",
+		Long: `amend records a change to an agreed contract as a decisions entry that
+carries the complexity rating alongside it, and prints a checklist of the
+artifacts the amendment leaves stale.
+
+  worklog task amend "<what>" --why "<why>" --complexity <unchanged|low|medium|high>
+
+--complexity is required. In the contract corpus 16 of 23 contracts were
+amended and the rating was re-decided once, while that rating is what gates
+the risk scout — so an amendment is exactly the moment to ask. "unchanged"
+keeps the current rating and is refused when there is no rating to keep.
+
+The checklist is advisory and rides the result's warnings, so --json output
+stays a single document.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Enforced here rather than with cobra's MarkFlagRequired, which is
+			// used nowhere in this CLI: it exits 1 with a plain error and writes
+			// nothing to stdout under --json, leaving an agent with no document
+			// to parse. Usage refusals here are 64, like every other one.
+			if !cmd.Flags().Changed("complexity") {
+				return jsonOrTextError(cmd, *asJSON, 64,
+					"task amend: --complexity is required (unchanged|low|medium|high); "+
+						"an amendment is when the rating needs re-deciding")
+			}
+			c := strings.ToLower(strings.TrimSpace(flagComplexity))
+			switch c {
+			case "unchanged", "low", "medium", "high":
+			default:
+				return jsonOrTextError(cmd, *asJSON, 64,
+					"task amend: --complexity must be unchanged|low|medium|high, got %q", flagComplexity)
+			}
+			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "amendment recorded", args[0],
+				func(t *devboard.Task) error {
+					old := strings.TrimSpace(t.Complexity)
+					next := c
+					if c == "unchanged" {
+						// "unchanged from nothing" is the skip this verb exists to
+						// prevent: only 5 of 23 contracts carried a rating at all.
+						if old == "" {
+							return errWithExit(64, "task amend: --complexity unchanged "+
+								"needs a rating to keep, and this task has none — state low|medium|high")
+						}
+						next = old
+					}
+					transition := next
+					switch {
+					case old == "":
+						transition = next + " (first rating)"
+					case old == next:
+						transition = old + " (unchanged)"
+					default:
+						transition = old + " → " + next
+					}
+					t.Complexity = next
+					t.Decision = append(t.Decision, devboard.Decision{
+						What:       args[0],
+						Why:        flagWhy,
+						When:       time.Now().Format("2006-01-02"),
+						Complexity: transition,
+					})
+					return nil
+				},
+				func(string) []string { return resyncChecklist(*child) })
+		},
+	}
+	cmd.Flags().StringVar(&flagWhy, "why", "", "rationale for the amendment")
+	cmd.Flags().StringVar(&flagComplexity, "complexity", "",
+		"required: unchanged|low|medium|high — the re-rate this amendment forces")
+	return cmd
 }
 
 func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command {

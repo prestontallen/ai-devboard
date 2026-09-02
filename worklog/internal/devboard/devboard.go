@@ -112,6 +112,12 @@ type Decision struct {
 	What string `yaml:"what"`
 	Why  string `yaml:"why,omitempty"`
 	When string `yaml:"when,omitempty"`
+	// Complexity records a re-rate that came with a contract amendment, as
+	// "medium → high" or "low (unchanged)". Set only by `task amend`; a plain
+	// decision leaves it empty. It lives here rather than on a separate
+	// amendments list because decisions are already the rendered timeline for
+	// both, and this field travels with the slice the epic child view copies.
+	Complexity string `yaml:"complexity,omitempty"`
 }
 
 type CodeRef struct {

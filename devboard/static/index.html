@@ -280,7 +280,7 @@ const phaseIdx = p => PHASES.indexOf(String(p ?? ""));
 // full track rather than as an unknown phase.
 const phasesFor = (type, phase) =>
   type === "spike" && (!phase || SPIKE_PHASES.includes(String(phase))) ? SPIKE_PHASES : PHASES;
-const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children"]);
+const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children","repo_path"]);
 
 /* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
 const KW = /\b(def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|yield|async|await|const|let|var|function|new|typeof|export|default|fn|pub|impl|struct|enum|match|use|mod|go|func|type|interface|package|nil|null|None|true|false|True|False|self|this)\b/g;
@@ -665,6 +665,7 @@ function taskBodyHTML(k, fk) {
         const d = itemText(dRaw);
         return `<div class="ev"><b>${esc(d.what || d.text || "")}</b>` +
           (d.why ? `<small>${esc(d.why)}</small>` : "") +
+          (dRaw && dRaw.complexity ? `<small>complexity: ${esc(dRaw.complexity)}</small>` : "") +
           (d.when ? `<span class="when">${esc(d.when)}</span>` : "") + `</div>`;
       }).join("") + `</div></div>`;
   }

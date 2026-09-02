@@ -63,7 +63,8 @@ moves a task's file into `<repo>/_archive/` and back.
 All updates flow through the worklog CLI, never hand-edited YAML
 ("Devboard sync" in dev-context): `worklog start/done/pr` mirror lifecycle
 state automatically, and `worklog task` (`complexity`, `phase`, `plan`,
-`scorecard`, `decision`, `needs-you`, `waiting-on`, `code`, `untrack`)
+`scorecard`, `decision`, `amend`, `needs-you`, `waiting-on`, `code`,
+`untrack`)
 edits the in-flight detail — `untrack` stops dashboard tracking by
 deleting only the task file. Every command is a silent no-op when the data
 dir doesn't exist, so devboard stays opt-in by directory presence. Schema
