@@ -1,0 +1,113 @@
+{
+  "oriented_at_start": "pass",
+  "no_hand_edit": "pass",
+  "used_cli_for_task": "pass",
+  "no_malformed_note_heading": "pass",
+  "result_summary": {
+    "duration_api_ms": 24875,
+    "stop_reason": "end_turn",
+    "session_id": "517e0c1e-4553-40a8-b5ec-e0c3c14deba1",
+    "total_cost_usd": 0.40086299999999997,
+    "usage": {
+      "input_tokens": 14,
+      "cache_creation_input_tokens": 26134,
+      "cache_read_input_tokens": 201640,
+      "output_tokens": 1505,
+      "output_tokens_details": {
+        "thinking_tokens": 321
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 26134,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 436,
+          "cache_read_input_tokens": 35825,
+          "cache_creation_input_tokens": 435,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 435
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 933,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001008,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5[1m]": {
+        "inputTokens": 14,
+        "outputTokens": 1505,
+        "cacheReadInputTokens": 201640,
+        "cacheCreationInputTokens": 26134,
+        "webSearchRequests": 0,
+        "costUSD": 0.399855,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 8,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Done — ticket is tracked and in flight:\n\n- **`ticket-list-pagination`** — \"Fix pagination bug in the ticket list view\", tagged `bug, pagination, ui`\n- Started **2026-09-02**, now in `## Now` (1/5)\n- Note in `notes/ticket-list-pagination.md` recording the block: can't reproduce locally, waiting on QA for steps or a failing case\n- `**Status**`: \"Blocked — waiting on QA repro\" so it reads as blocked at a glance\n- INDEX rebuilt, `worklog validate` clean (0 violations)\n\nTwo things worth flagging:\n\n**I didn't do any actual work on the bug.** You asked me to start it and then noted the block in the same breath — with no repro and no repo pointed at, there was nothing to debug against. If there's a codebase you want me looking at, tell me where and I'll dig into the pagination logic on spec while QA gets back to you.\n\n**Consider parking it in `## Waiting`.** It's sitting in `## Now` holding a slot while blocked on someone else — exactly what `worklog wait ticket-list-pagination` is for (cap-exempt, stamps a waiting-since date, shows up under standup blockers). I left it in `## Now` because you said \"start working on it,\" but say the word and I'll move it.",
+    "ttft_ms": 1699,
+    "type": "result",
+    "duration_ms": 24275,
+    "uuid": "56dfe535-ab26-4de7-9ef2-63049fc8eaf9",
+    "ttft_stream_ms": 918,
+    "time_to_request_ms": 62,
+    "queued_turn_count": 0
+  }
+}

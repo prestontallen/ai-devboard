@@ -1,0 +1,113 @@
+{
+  "oriented_at_start": "pass",
+  "no_hand_edit": "pass",
+  "used_cli_for_task": "pass",
+  "no_malformed_note_heading": "pass",
+  "result_summary": {
+    "duration_api_ms": 38513,
+    "stop_reason": "end_turn",
+    "session_id": "2554fc97-00a7-4d1a-8ae4-30b7643c21b8",
+    "total_cost_usd": 0.310651,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 15272,
+      "cache_read_input_tokens": 188516,
+      "output_tokens": 2503,
+      "output_tokens_details": {
+        "thinking_tokens": 996
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 15272,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 458,
+          "cache_read_input_tokens": 25180,
+          "cache_creation_input_tokens": 218,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 218
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 933,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001008,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5[1m]": {
+        "inputTokens": 18,
+        "outputTokens": 2503,
+        "cacheReadInputTokens": 188516,
+        "cacheCreationInputTokens": 15272,
+        "webSearchRequests": 0,
+        "costUSD": 0.309643,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 11,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Done. `ticket-list-pagination` — \"Fix pagination bug in the ticket list view\":\n\n1. **Added** to `## Next`\n2. **Started** — promoted to `## Now`, start-dated 2026-09-02\n3. **Noted** the block in `notes/ticket-list-pagination.md`: waiting on a repro from QA, can't confirm the failing pagination path without their steps/dataset\n4. **Parked** in `## Waiting` (waiting since 2026-09-02), and rebuilt `INDEX.md`\n\nOne judgment call worth flagging: you asked me to start it, but since it's blocked I moved it on to `## Waiting` rather than leaving it in `## Now` — that's what the worklog's blocked state is for, and `## Waiting` is cap-exempt so it doesn't eat one of your five in-flight slots. `worklog start ticket-list-pagination` pulls it straight back into `## Now` when the repro lands. Say the word if you'd rather it sit in `## Now` meanwhile.\n\nTwo notes from the CLI: the worklog is at `/tmp/tmp.GeZ0afr2OO` (not `~/.local/share/worklog`), and `start` warned it created a new devboard repo group named `tmp.T5AMxYqTqf` from the working directory — if that's not this repo's real name, the task files are being filed under the wrong group.",
+    "ttft_ms": 1555,
+    "type": "result",
+    "duration_ms": 37800,
+    "uuid": "51fe6b30-d2eb-458a-8735-097d9bd7a214",
+    "ttft_stream_ms": 805,
+    "time_to_request_ms": 54,
+    "queued_turn_count": 0
+  }
+}

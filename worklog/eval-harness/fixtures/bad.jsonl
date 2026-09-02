@@ -1,0 +1,9 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog add --title \"x\" --id x --section Next --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"id\":\"x\"}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/tmp/fake-data-dir-fixture/WORK.md","old_string":"## Now","new_string":"## Now\n- manual edit"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"edited"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog status --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"sections\":[]}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog note x \"## 2026-09-02 12:00\\nblocked\" --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"appended\":true}"}]}}
+{"type":"result","subtype":"success","total_cost_usd":0.045,"usage":{"input_tokens":5000,"output_tokens":800},"is_error":false}

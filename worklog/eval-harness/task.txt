@@ -1,0 +1,1 @@
+Add a ticket to the worklog for "Fix pagination bug in the ticket list view", then start working on it, and leave a note that you're blocked waiting on a repro from QA.

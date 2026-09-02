@@ -1,0 +1,9 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog status --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"sections\":[]}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog add --title \"Fix pagination bug in the ticket list view\" --id fix-pagination-bug --section Next --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"id\":\"fix-pagination-bug\"}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog start fix-pagination-bug --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"status\":\"started\"}"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"worklog note fix-pagination-bug \"Blocked: waiting on a repro from QA.\" --json"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"{\"appended\":true}"}]}}
+{"type":"result","subtype":"success","total_cost_usd":0.0123,"usage":{"input_tokens":1000,"output_tokens":200},"is_error":false}

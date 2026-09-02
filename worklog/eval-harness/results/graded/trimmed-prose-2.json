@@ -1,0 +1,113 @@
+{
+  "oriented_at_start": "pass",
+  "no_hand_edit": "pass",
+  "used_cli_for_task": "pass",
+  "no_malformed_note_heading": "pass",
+  "result_summary": {
+    "duration_api_ms": 22078,
+    "stop_reason": "end_turn",
+    "session_id": "6d1c4381-2e48-46b2-982b-bdfb98b88d41",
+    "total_cost_usd": 0.255113,
+    "usage": {
+      "input_tokens": 16,
+      "cache_creation_input_tokens": 13860,
+      "cache_read_input_tokens": 159990,
+      "output_tokens": 1417,
+      "output_tokens_details": {
+        "thinking_tokens": 158
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 13860,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 330,
+          "cache_read_input_tokens": 23685,
+          "cache_creation_input_tokens": 301,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 301
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 933,
+        "outputTokens": 16,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001013,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-opus-5[1m]": {
+        "inputTokens": 16,
+        "outputTokens": 1417,
+        "cacheReadInputTokens": 159990,
+        "cacheCreationInputTokens": 13860,
+        "webSearchRequests": 0,
+        "costUSD": 0.25409999999999994,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 10,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Done — ticket `ticket-list-pagination` is logged and parked as blocked:\n\n- **Added** \"Fix pagination bug in the ticket list view\" to `## Next`\n- **Started** it (start-dated 2026-09-02, promoted to `## Now`)\n- **Noted** the blocker in `notes/ticket-list-pagination.md` — no reliable repro from the report alone; need page size, page number, and filter state from QA before touching the query/offset logic\n- **Moved** it to `## Waiting` (waiting since 2026-09-02), so it isn't holding one of the 5 `## Now` slots while it's stalled\n- **Reindexed** `INDEX.md`\n\nOne thing worth flagging: I logged and parked the ticket but did no actual investigation of the pagination code — this session has no repo or working directory with that code in it, and the block is exactly \"can't reproduce yet.\" When QA sends the repro, `worklog start ticket-list-pagination` pulls it back into `## Now`.",
+    "ttft_ms": 1751,
+    "type": "result",
+    "duration_ms": 21518,
+    "uuid": "8493eee3-8017-46a7-ba5e-9b613b0e5b65",
+    "ttft_stream_ms": 918,
+    "time_to_request_ms": 52,
+    "queued_turn_count": 0
+  }
+}
