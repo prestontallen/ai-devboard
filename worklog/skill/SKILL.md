@@ -135,33 +135,18 @@ a batch of mutations.
 
 ### Tone
 
-Note bodies, `done --summary`/`--feedback`, and the devboard-side
-`decision` / `needs-you` / `waiting-on` text are human-facing — rendered on
-the dashboard and read back later by Preston, not internal bookkeeping.
-Draft them in his installed tone convention (any skill whose name contains
-"tone"; dev-context's Tone hook has the mechanics and the fallback voice),
-including for a plain "log this" outside a dev-context task.
+Draft it in Preston's installed tone convention — see the dev-context
+skill's Tone hook (§8 Ship) for the mechanics and the fallback voice. This
+applies even for a plain "log this" outside a dev-context task.
 
 ## Devboard side effects
 
-The binary is the privileged writer of devboard task files — the YAML the
-dashboard renders (`devboard/schema.md` in ai-devboard). Every devboard
-write is a silent no-op when `$DEVBOARD_DATA` (default
-`~/.local/share/devboard/`) doesn't exist, so run these unconditionally.
-
-Lifecycle commands mirror automatically: `start` creates the task file (title,
-`worklog: <id>` join key, session id); `done` sets phase `done` and clears the
-needs-you queue; `pr` sets or clears the PR link.
-
-In-flight detail worklog deliberately doesn't store lives in the task file,
-edited with `worklog task` (`phase`, `plan`, `scorecard`, `decision`,
-`needs-you`, `waiting-on`, `code`, `complexity`, `untrack`). Never hand-edit
-task YAML. `plan` and `scorecard` renumber on removal — re-read the list
-before addressing an item by index afterwards.
-
-**Epic children:** starting a child creates a per-child task file, but the
-epic's file is the dashboard surface. Run `worklog task untrack --id
-<child-slug>` and pass the epic's slug to `--id` instead.
+The binary is the privileged writer of devboard task files (the YAML the
+dashboard renders — `devboard/schema.md` in ai-devboard), including the
+automatic mirroring on `start`/`done`/`pr`. The full sync mechanics — which
+`worklog task` calls to make and when — are documented in the dev-context
+skill's "Devboard sync" section, since that's the skill that actually
+drives them during a task's phases.
 
 ## Feedback capture
 

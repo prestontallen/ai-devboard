@@ -201,14 +201,12 @@ Mandatory sync points:
    `worklog task phase done` and `worklog task needs-you resolve all`.
    Deleting the file is the human's call.
 
-**Tone applies here too.** Every string in steps 4–7 above — `decision`,
-`needs-you`, `waiting-on`, and `done`'s `--summary`/`--feedback` — renders
-straight onto the devboard and into WORK.md/archive; it's human-facing
-text, not internal bookkeeping. Draft it in the same voice as Ship-phase
-text (the Tone hook above): the installed tone skill if one exists, else
-flat and declarative, no hedging or ceremony. Draft *before* writing, not
-after — these fields don't get a separate review pass the way a commit
-message does.
+`plan` and `scorecard` renumber remaining items after a `remove` — re-read
+the list before addressing an item by index afterward. `worklog pr <id>
+<url>` mirrors to the task file's PR field the same way `start`/`done` do.
+
+**Tone applies here too.** Every string in steps 4–7 above is human-facing
+— draft it in the Tone hook's voice (§8 above) before writing, not after.
 
 **Epic children:** when working a milestone that's a child ticket of an
 epic, do NOT keep a per-child task file — the epic's task file is the
