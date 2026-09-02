@@ -66,7 +66,7 @@ in an editor.
 | Mark feedback reviewed | `worklog feedback resolve <timestamp>` (`--json`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
-| Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
+| Deploy skill files | `worklog install` (`--dry-run` / `--check` modes; deploys every skill, not just this one) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
 
 ### Conventions

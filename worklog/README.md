@@ -143,7 +143,7 @@ If you want to change behavior, here's where to look. There's no config file —
 behavior is defined in markdown that the agent reads.
 
 Edit the repo copies under `skill/`, never the deployed ones — a
-redeploy overwrites those. `worklog sync --check` tells you when the two
+redeploy overwrites those. `worklog install --check` tells you when the two
 have diverged.
 
 | Want to change... | Edit this file | Look for |
@@ -159,22 +159,20 @@ have diverged.
 After editing the skill files in the repo, redeploy:
 
 ```bash
-worklog sync           # deploy this skill to every configured target
-worklog sync --check   # verify the deployed copies match the repo
-../install.sh          # deploy all four skills (dev-context, contract, fan-out, worklog)
+worklog install --check   # verify the deployed copies match the repo
+worklog install           # deploy all four skills (dev-context, contract, fan-out, worklog)
+../install.sh             # same, but obtains/updates the binary first
 ```
 
-The repo's `skill/` dir is the single source of truth. `worklog sync`
-reads the install config (`~/.config/ai-devboard/targets`) and never
-writes to a target you declined; with no config it falls back to
-`~/.claude` and `~/.cursor` for standalone worklog use. The top-level
-`install.sh` → `worklog install` flow deploys this skill along with every
-other one, and is the only path that reaches a target you added by hand.
+The repo's `skill/` dir is the single source of truth. `worklog install`
+reads the install config (`~/.config/ai-devboard/targets`) and never writes
+to a target you declined; with no config it detects the agent dirs present
+under `$HOME`. It always deploys every skill, so a target you added by hand
+is reached the same way as the detected ones.
 
-`scripts/sync.sh` is the pre-CLI version of the same thing, kept for
-bootstrapping a machine with no binary yet. It deploys only this skill and
-only to the two hardcoded paths — it does not read the install config, so
-prefer `worklog sync` once a binary exists.
+There is one deploy verb on purpose. A narrower command existed once and
+covered only this skill while claiming to cover them all, so editing
+`contract/SKILL.md` and checking for drift returned a clean result.
 
 ---
 
@@ -296,7 +294,7 @@ Key decisions and their reasons:
 - **Copies per agent, not symlinks**: simpler than configuring symlinks
   across each agent's skill loader, and a copy can't break when the
   checkout moves. The cost is a redeploy after edits, which is why
-  `sync --check` and `install.sh --check` report drift.
+  `worklog install --check` and `install.sh --check` report drift.
 
 ---
 
@@ -336,8 +334,9 @@ Key decisions and their reasons:
 1. Add its skills dir to `~/.config/ai-devboard/targets`, one path per
    line — or rerun `install.sh` interactively and pick it from the
    detected list (`~/.claude`, `~/.cursor`, `~/.windsurf`, `~/.codex`).
-2. Rerun `install.sh` (or `worklog sync` for this skill alone). Both
-   `--check` modes report the new target as drift until it's deployed.
+2. Rerun `worklog install` (or `install.sh`, which updates the binary
+   first). Both `--check` modes report the new target as drift until it's
+   deployed.
 3. Optionally add a reinforcement to that agent's global instructions file
    (whatever the equivalent of `CLAUDE.md` is) — skill discovery is
    probabilistic, a top-of-context directive isn't.
@@ -350,7 +349,7 @@ Key decisions and their reasons:
 2. Update the policy comment at the top of `WORK.md` to describe its purpose.
 3. Update the "Required behavior" section in [SKILL.md](skill/SKILL.md)
    so the agent knows when to move things into `## Blocked`, then
-   `worklog sync` to redeploy.
+   `worklog install` to redeploy.
 
 ### Add a new metadata field (e.g., `**Estimate**:`)
 

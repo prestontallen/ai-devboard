@@ -153,3 +153,52 @@ func TestDryRunTouchesNothing(t *testing.T) {
 		t.Fatal("dry-run created target dir")
 	}
 }
+
+func TestFindRepoRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module x\n")
+	deep := filepath.Join(root, "internal", "cli")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := FindRepoRoot(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root {
+		t.Errorf("FindRepoRoot(%s) = %s, want %s", deep, got, root)
+	}
+}
+
+func TestFindRepoRootMissing(t *testing.T) {
+	// t.TempDir sits under /tmp, which has no go.mod above it.
+	if _, err := FindRepoRoot(t.TempDir()); err == nil {
+		t.Error("expected an error when no go.mod exists above the start dir")
+	}
+}
+
+// Deploy reaches every configured target, not just the first — the property
+// that made the old worklog-only `sync` command's partial coverage a bug.
+func TestRunDeploysToEveryTarget(t *testing.T) {
+	repo, home := fakeRepo(t), t.TempDir()
+	claude := filepath.Join(home, ".claude", "skills")
+	cursor := filepath.Join(home, ".cursor", "skills")
+	if _, err := Run(repo, []string{claude, cursor}, home, ModeInstall); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{claude, cursor} {
+		for _, d := range append(skillDirs, "worklog") {
+			if _, err := os.Stat(filepath.Join(target, d, "SKILL.md")); err != nil {
+				t.Errorf("%s/%s/SKILL.md not deployed: %v", target, d, err)
+			}
+		}
+	}
+	// References travel with their skill dir.
+	if _, err := os.Stat(filepath.Join(cursor, "fan-out", "references", "risk-scout.md")); err != nil {
+		t.Errorf("fan-out references not deployed to cursor: %v", err)
+	}
+	// The command file is Claude-only, keyed off the claude skills target.
+	if _, err := os.Stat(filepath.Join(home, ".claude", "commands", "worklog.md")); err != nil {
+		t.Errorf("claude command file not deployed: %v", err)
+	}
+}

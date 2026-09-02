@@ -29,9 +29,15 @@ type Report struct {
 	Drift   bool
 }
 
-func (r *Report) note(f string, a ...any)  { r.Actions = append(r.Actions, Action{"note", fmt.Sprintf(f, a...)}) }
-func (r *Report) plan(f string, a ...any)  { r.Actions = append(r.Actions, Action{"plan", fmt.Sprintf(f, a...)}) }
-func (r *Report) warn(f string, a ...any)  { r.Actions = append(r.Actions, Action{"warn", fmt.Sprintf(f, a...)}) }
+func (r *Report) note(f string, a ...any) {
+	r.Actions = append(r.Actions, Action{"note", fmt.Sprintf(f, a...)})
+}
+func (r *Report) plan(f string, a ...any) {
+	r.Actions = append(r.Actions, Action{"plan", fmt.Sprintf(f, a...)})
+}
+func (r *Report) warn(f string, a ...any) {
+	r.Actions = append(r.Actions, Action{"warn", fmt.Sprintf(f, a...)})
+}
 func (r *Report) stale(f string, a ...any) {
 	r.Actions = append(r.Actions, Action{"stale", fmt.Sprintf(f, a...)})
 	r.Drift = true
@@ -88,31 +94,6 @@ func Run(repoRoot string, targets []string, home string, mode Mode) (Report, err
 		for _, d := range skillDirs {
 			deployDir(&rep, filepath.Join(repoRoot, d), filepath.Join(target, d),
 				fmt.Sprintf("skill %s -> %s", d, target), mode)
-		}
-		deployFile(&rep, filepath.Join(repoRoot, worklogSkillRel),
-			filepath.Join(target, "worklog", "SKILL.md"),
-			fmt.Sprintf("skill worklog -> %s", target), mode)
-		if target == filepath.Join(home, ".claude", "skills") {
-			deployFile(&rep, filepath.Join(repoRoot, claudeCommandRel),
-				filepath.Join(home, claudeCommandsDir, "worklog.md"),
-				"command worklog -> ~/.claude/commands", mode)
-		}
-	}
-	return rep, nil
-}
-
-// RunWorklogSkill deploys only worklog's skill surfaces (SKILL.md per
-// target + the claude command file) to the configured targets — the
-// targets-aware replacement for `worklog sync`'s fixed pairs, so sync can
-// never write to a target the user declined.
-func RunWorklogSkill(repoRoot string, targets []string, home string, mode Mode) (Report, error) {
-	var rep Report
-	if err := VerifyRepo(repoRoot); err != nil {
-		return rep, err
-	}
-	for _, target := range targets {
-		if err := ValidateTarget(target); err != nil {
-			return rep, err
 		}
 		deployFile(&rep, filepath.Join(repoRoot, worklogSkillRel),
 			filepath.Join(target, "worklog", "SKILL.md"),

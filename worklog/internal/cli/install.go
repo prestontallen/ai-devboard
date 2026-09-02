@@ -57,6 +57,17 @@ prompt, never build.`,
 	return cmd
 }
 
+// resolveRepoRoot returns the Go module root at or above the cwd. It is the
+// last resort in runInstall's repo resolution, behind --repo and the config's
+// 'repo' line; the checkout is its parent, since the module root is worklog/.
+func resolveRepoRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return installer.FindRepoRoot(cwd)
+}
+
 // promptAllowed gates every TUI: huh/bubbletea do NOT check for a TTY
 // themselves (with piped stdin they silently open /dev/tty and take over
 // the terminal), so the guard must be ours. INSTALL_PROMPT_FORCE is the
