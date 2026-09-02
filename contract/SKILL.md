@@ -59,8 +59,14 @@ One sentence, inline: *"Done when: ⟨observable result⟩, verified by ⟨check
 
 ### Tier 2 — Feature (full contract, written to file)
 
-Write to `.contracts/⟨yyyy-mm-dd⟩-⟨slug⟩.md` in the project (create the
-directory; committing it is the human's call). Use the template in
+Write to `~/.local/share/contracts/⟨repo⟩/⟨yyyy-mm-dd⟩-⟨slug⟩.md`, where
+⟨repo⟩ is the basename of the repo root — resolve it with
+`basename $(dirname $(git rev-parse --path-format=absolute --git-common-dir))`
+so a git worktree keys to the real repo rather than the worktree's
+directory name. Create the directory if it doesn't exist. Contracts live
+outside the repo on purpose: they're working documents about how a change
+got built, not part of the product, and they'd otherwise accumulate in
+every repo that adopts this process. Use the template in
 [references/contract-template.md](references/contract-template.md).
 Sections: Intent · Scope (In/Out) · Deliverables · Acceptance criteria ·
 Definition of done · Constraints & assumptions · Risks & open questions ·
@@ -127,7 +133,7 @@ one-line acceptance summary into the item's **Acceptance** field and link
 the contract file from **Notes**:
 
     worklog edit <id> --acceptance "<one-line summary>"
-    worklog note <id> "Contract: .contracts/<yyyy-mm-dd>-<slug>.md"
+    worklog note <id> "Contract: contracts/<repo>/<yyyy-mm-dd>-<slug>.md"
 
 `worklog edit` works on a ticket in any section and inserts either field if
 the block doesn't carry it yet. Never hand-edit `WORK.md` to do this.

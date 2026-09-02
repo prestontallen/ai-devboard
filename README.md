@@ -40,8 +40,11 @@ writer, never a required one).
   human sees a work summary covering how the feature was implemented; no PR
   comment replies without showing the exact text for approval; no push
   without an explicit prompt — approval to commit is not approval to push.
-- Tier 2+ contracts are written to `.contracts/<date>-<slug>.md` in the
-  target project ([template](contract/references/contract-template.md)).
+- Tier 2+ contracts are written to
+  `~/.local/share/contracts/<repo>/<date>-<slug>.md`, outside the target
+  project ([template](contract/references/contract-template.md)). They sit
+  next to the worklog data rather than inside it, so worklog's
+  CLI-only-mutation rule keeps applying to worklog data alone.
 
 ## Devboard
 
@@ -125,7 +128,6 @@ Two layers, both required:
 
 ## Open questions
 
-- Should `.contracts/` live in target repos, or centrally (worklog notes)?
 - Should tier/complexity classification get mechanical heuristics (files
   touched, risk), or stay judgment-based?
 - When to promote the CLAUDE.md directive from repo-local to global.
