@@ -87,35 +87,107 @@ case ":$PATH:" in
   *) warn "$BIN_DIR is not on PATH — add it to your shell profile" ;;
 esac
 
-# ---------- skills ------------------------------------------------------
-# dev-context and contract: symlinked, so repo edits apply live (checkout
-# installs). worklog SKILL + command: deployed by its own sync.sh (copies).
-link_skill() {
-  local name="$1" target="$REPO_ROOT/$1" link="$SKILLS_DIR/$1"
-  if [[ "$(readlink "$link" 2>/dev/null)" == "$target" ]]; then
-    [[ "$mode" == install ]] && note "skill $name: up to date (symlink)"
+# ---------- skill deployment targets ------------------------------------
+# One mechanism for every agent: full copies of each skill dir, drift caught
+# by --check and healed by re-running. Targets come from a saved config
+# (written by the interactive prompt) or, absent that, from detecting known
+# agent dirs. Edit the config or rerun interactively to change targets.
+TARGETS_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ai-devboard/targets"
+
+detect_targets() {
+  local d
+  for d in "$HOME/.claude" "$HOME/.cursor" "$HOME/.windsurf" "$HOME/.codex"; do
+    [[ -d "$d" ]] && printf '%s/skills\n' "$d"
+  done
+  return 0
+}
+
+prompt_targets() { # writes config; prints chosen targets on stdout
+  local sel=() dets=() d a custom extra
+  echo "Select skill install targets (saved to $TARGETS_CONF):" >&2
+  # NOTE: no loop-wide redirect here — the answer reads must hit stdin,
+  # not the detection list.
+  mapfile -t dets < <(detect_targets)
+  for d in "${dets[@]}"; do
+    read -r -p "  deploy to $d? [Y/n] " a || a=""
+    [[ "$a" == [nN]* ]] || sel+=("$d")
+  done
+  read -r -p "  additional paths (comma-separated, blank for none): " custom || custom=""
+  if [[ -n "$custom" ]]; then
+    IFS=',' read -ra extra <<<"$custom"
+    for d in "${extra[@]}"; do
+      d="$(echo "$d" | xargs)"
+      [[ -n "$d" ]] && sel+=("${d/#\~/$HOME}")
+    done
+  fi
+  mkdir -p "$(dirname "$TARGETS_CONF")"
+  printf '%s\n' "${sel[@]}" > "$TARGETS_CONF"
+  echo "targets saved; edit $TARGETS_CONF or rerun interactively to change" >&2
+  printf '%s\n' "${sel[@]}"
+}
+
+load_targets() {
+  if [[ -f "$TARGETS_CONF" ]]; then
+    grep -vE '^[[:space:]]*(#|$)' "$TARGETS_CONF" || true
+  elif [[ "$mode" == install ]] && { [[ -t 0 ]] || [[ -n "${INSTALL_PROMPT_FORCE:-}" ]]; }; then
+    prompt_targets
+  else
+    detect_targets
+  fi
+}
+
+mapfile -t TARGETS < <(load_targets)
+[[ -f "$TARGETS_CONF" ]] || note "targets: using detected agent dirs (no $TARGETS_CONF yet; run interactively to choose)"
+(( ${#TARGETS[@]} )) || warn "no skill targets detected or configured; skills not deployed"
+
+# deploy_dir/deploy_file: copy with diff-verified idempotency. Legacy
+# symlinks from older installs are migrated to copies.
+deploy_dir() {
+  local src="$1" dst="$2" label="$3"
+  if [[ -L "$dst" ]]; then
+    case "$mode" in
+      check)  stale "$label: legacy symlink (re-run install to convert to a copy)"; return 0 ;;
+      dryrun) plan  "replace symlink $dst with a copy"; return 0 ;;
+      install) rm "$dst" ;;
+    esac
+  fi
+  if diff -rq "$src" "$dst" >/dev/null 2>&1; then
+    [[ "$mode" == install ]] && note "$label: up to date"
     return 0
   fi
   case "$mode" in
-    check)  stale "skill $name: $link is not a symlink to the repo" ;;
-    dryrun) plan  "symlink $link -> $target" ;;
+    check)  stale "$label: missing or differs from repo" ;;
+    dryrun) plan  "copy $src -> $dst" ;;
     install)
-      [[ -e "$link" && ! -L "$link" ]] && fail "$link exists and is not a symlink; move it aside first"
-      mkdir -p "$SKILLS_DIR"
-      ln -sfn "$target" "$link"
-      note "skill $name: symlinked" ;;
+      [[ -n "$dst" && "$dst" != "/" ]] || fail "deploy_dir: refusing bad destination"
+      rm -rf "$dst"; mkdir -p "$dst"; cp -R "$src/." "$dst/"
+      note "$label: copied" ;;
   esac
 }
-link_skill dev-context
-link_skill contract
-link_skill fan-out
 
-case "$mode" in
-  check)   "$REPO_ROOT/worklog/scripts/sync.sh" --check >/dev/null \
-             || stale "worklog skill files differ from repo (run worklog/scripts/sync.sh)" ;;
-  dryrun)  "$REPO_ROOT/worklog/scripts/sync.sh" --dry-run | sed 's/^would: //; s/^/would: /' ;;
-  install) "$REPO_ROOT/worklog/scripts/sync.sh" | sed 's/^/skill worklog: /' ;;
-esac
+deploy_file() {
+  local src="$1" dst="$2" label="$3"
+  if diff -q "$src" "$dst" >/dev/null 2>&1; then
+    [[ "$mode" == install ]] && note "$label: up to date"
+    return 0
+  fi
+  case "$mode" in
+    check)  stale "$label: missing or differs from repo" ;;
+    dryrun) plan  "copy $src -> $dst" ;;
+    install) mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; note "$label: copied" ;;
+  esac
+}
+
+for tdir in "${TARGETS[@]}"; do
+  for skill in dev-context contract fan-out; do
+    deploy_dir "$REPO_ROOT/$skill" "$tdir/$skill" "skill $skill -> $tdir"
+  done
+  deploy_file "$REPO_ROOT/worklog/skill/SKILL.md" "$tdir/worklog/SKILL.md" "skill worklog -> $tdir"
+  # claude-specific extra: the /worklog slash-command file
+  if [[ "$tdir" == "$HOME/.claude/skills" ]]; then
+    deploy_file "$REPO_ROOT/worklog/skill/claude/command.md" "$HOME/.claude/commands/worklog.md" "command worklog -> ~/.claude/commands"
+  fi
+done
 
 # ---------- tone hook ---------------------------------------------------
 if compgen -G "$SKILLS_DIR/*tone*" >/dev/null 2>&1; then

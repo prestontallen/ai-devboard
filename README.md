@@ -71,6 +71,17 @@ field-ownership rules: [devboard/schema.md](devboard/schema.md).
 ```
 
 Linux/macOS (Windows → WSL). Requires Go; Docker optional (devboard).
+
+**Skill targets**: the first interactive run detects local AI agent dirs
+(`~/.claude`, `~/.cursor`, `~/.windsurf`, `~/.codex`), prompts per target,
+and accepts additional custom paths; the selection persists to
+`~/.config/ai-devboard/targets` (one path per line — edit it, or rerun
+interactively, to change). Non-interactive runs use the saved config, or
+fall back to detection when none exists. Every target gets the same
+treatment: full copies of all four skills (dev-context, contract, fan-out,
+worklog), with drift caught by `--check` and healed by re-running after
+repo edits. The `/worklog` command file is a Claude-Code-only extra.
+
 Prompts before the opt-in pieces (global CLAUDE.md directive, devboard
 container); warns when no personal `*tone*` skill is installed.
 
@@ -78,10 +89,10 @@ container); warns when no personal `*tone*` skill is installed.
 
 Two layers, both required:
 
-1. **Discoverability** — skills must live under `~/.claude/skills/` to be
-   invocable. `install.sh` symlinks dev-context, contract, and fan-out
-   (repo edits apply immediately) and deploys the worklog skill via its
-   `sync.sh`.
+1. **Discoverability** — skills must live in each agent's skills dir to
+   be invocable. `install.sh` copies all four skills to every configured
+   target (see Install); after editing skills in the repo, re-run it (or
+   `--check` to see drift).
 
 2. **Guaranteed pickup** — skill invocation is normally probabilistic (the
    model matches task against description). To make it deterministic, a
