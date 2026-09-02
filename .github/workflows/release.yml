@@ -1,0 +1,29 @@
+# Release: on a v* tag push, GoReleaser builds worklog for linux/darwin
+# (amd64+arm64) and publishes binaries + checksums.txt to a GitHub release.
+# The install.sh bootstrap downloads releases/latest/download/worklog_<os>_<arch>.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: worklog/go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          workdir: worklog
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

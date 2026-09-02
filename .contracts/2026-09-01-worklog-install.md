@@ -62,7 +62,7 @@ stays the one-command entrypoint.
 
 | # | Criterion | Verify | Status |
 |---|-----------|--------|--------|
-| 1 | `worklog install` with a TTY and no config shows a huh multi-select of detected agent dirs (pre-checked) + custom-path input; selection persists (targets + repo root) and deploys | manual TTY run | ☐ |
+| 1 | `worklog install` with a TTY and no config shows a huh multi-select of detected agent dirs (pre-checked) + custom-path input; selection persists (targets + repo root) and deploys | manual TTY run |✅ |
 | 2 | **TTY guard is ours, not huh's**: with piped stdin the TUI never appears (huh would silently grab /dev/tty otherwise — verified library behavior); fallback order is saved config → detection | pipe test |✅ |
 | 3 | **Zero targets is an error**: an empty resolved target set (incl. huh accessible-mode EOF under TERM=dumb returning zero selections) exits non-zero with a message — never a silent success | TERM=dumb + EOF test |✅ |
 | 4 | Existing plain-path `targets` files parse unchanged (comments, blanks, literal `~` lines); richer config is additive with auto-migration, never a parse error | fixture test with pre-move file |✅ |
@@ -73,7 +73,7 @@ stays the one-command entrypoint.
 | 9 | Small-behavior parity, one check each: PATH warning; tone-skill glob (still `~/.claude/skills` scope); "targets: from config (...)" note on silent runs; `INSTALL_PROMPT_FORCE` seam (or documented replacement) | tests/greps | ☐ |
 | 10 | Streams: TUI on stderr (huh default), report lines on stdout via `internal/style`; `--check` output grep-stable | code review + pipe test |✅ |
 | 11 | Version plumbing: raw `commit`/`version` exposed as accessors (not just the joined string); self-rebuild uses the same rev algorithm as bash (`-- worklog` scope, `-dirty`, UTC date) so the strings match byte-for-byte | unit test both sides | ☐ |
-| 12 | Self-rebuild handoff per Q1's answer, tested (a process cannot swap its own executable and continue) | integration test | ☐ |
+| 12 | Self-rebuild handoff per Q1's answer, tested (a process cannot swap its own executable and continue) | integration test |✅ |
 | 13 | `worklog sync` never writes to a target the user declined (per Q2 resolution); worklog/README's false claim fixed | test + grep |✅ |
 | 14 | All 19 Go packages stay green; new installer package tested | go test ./... |✅ |
 | 14b | Module renamed to `github.com/prestontallen/ai-devboard/worklog`: zero `day2day` references remain in Go source; build, tests, and install.sh all green after | grep + go test + install run |✅ |
