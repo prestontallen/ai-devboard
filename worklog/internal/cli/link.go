@@ -74,6 +74,14 @@ func runLink(cmd *cobra.Command, args []string, clear, edit, asJSON bool) error 
 		return jsonOrTextError(cmd, asJSON, 64,
 			"link: --clear/--edit require a <name>")
 	}
+	// "PR" is reserved. OnPR mirrors the PR into the same label array OnLink
+	// edits, and the label match is case-insensitive, so a link by this name
+	// reaches worklog pr's data. Refusing the name is what makes that
+	// unreachable; a guard on the write path alone would still leave --clear.
+	if hasName && strings.EqualFold(name, "PR") {
+		return jsonOrTextError(cmd, asJSON, 64,
+			"link: %q is a reserved name; use 'worklog pr' to read or set the PR", name)
+	}
 
 	wd, err := resolveWorkdir()
 	if err != nil {
