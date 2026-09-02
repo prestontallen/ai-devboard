@@ -66,7 +66,6 @@ in an editor.
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
-| Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
 
 ### Conventions
@@ -764,7 +763,6 @@ heading. Most recent day at the top of the file.
 
 ## Hard rules
 
-<!-- rules:start -->
 - **Mutate worklog data only through `worklog` subcommands — never via
   Read/Edit/Write/StrReplace on worklog files directly.** Correcting a live
   ticket is `worklog edit <id>`; correcting a task file's plan or scorecard is
@@ -792,7 +790,6 @@ heading. Most recent day at the top of the file.
   a child is promoted or archived: the child's checkbox in `notes/<epic-id>.md`,
   the parent's `**Active children**:` field in `WORK.md`, and the child's
   `**Parent**: <epic-id>` field in its `## Now` ticket block.
-<!-- rules:end -->
 
 ## Fallback
 

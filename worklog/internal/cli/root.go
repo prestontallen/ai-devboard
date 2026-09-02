@@ -62,7 +62,7 @@ func newRoot() *cobra.Command {
 It reads and (eventually) writes a small markdown corpus at
 $HOME/.local/share/worklog/ — a front-page WORK.md, a per-month archive, an
 INDEX.md spine, and per-epic notes files. The tool replaces a set of bash
-scripts that handled validation, sync, and lint.`,
+scripts that handled validation and sync.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		// Default action: run "status" so `worklog` alone shows the front page.
@@ -95,7 +95,6 @@ scripts that handled validation, sync, and lint.`,
 		newNoteCmd(),
 		newWaitCmd(),
 		newSyncCmd(),
-		newLintSpecsCmd(),
 		newTaskCmd(),
 		newInstallCmd(),
 	)

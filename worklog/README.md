@@ -115,7 +115,6 @@ say so out loud rather than reaching for the file — and run
 These are the rules the agent will refuse to violate. Knowing them lets you
 spot when the agent is acting weird and call it out.
 
-<!-- rules:start -->
 1. **Worklog data is mutated only through `worklog` subcommands**, never by
    editing the files directly. Live tickets are corrected with
    `worklog edit <id>`; anything the CLI refuses is a deliberate limit, and
@@ -135,7 +134,6 @@ spot when the agent is acting weird and call it out.
 7. **Notes files reference in-repo plans, not duplicate them.** If the truth
    moves, only one place needs updating.
 8. **Nothing in the worklog is silently deleted, ever.**
-<!-- rules:end -->
 
 ---
 
@@ -311,18 +309,21 @@ Key decisions and their reasons:
    index update step. Recoverable (see "Maintenance & recovery").
 3. **The agent has to be trusted to follow the rules.** `worklog validate`
    checks the structural invariants after the fact (cap, lingering `[x]`,
-   three-place epic consistency, dangling index refs) and
-   `worklog lint-specs` catches rule-text drift between the spec files —
-   but nothing *prevents* a rule violation at the moment it happens. The
-   hard rules in `SKILL.md` are still enforced by convention, and by you
-   noticing when they're broken.
-4. **No cross-device locking.** If you sync to iCloud and edit on two
+   three-place epic consistency, dangling index refs), but nothing
+   *prevents* a rule violation at the moment it happens. The hard rules in
+   `SKILL.md` are still enforced by convention, and by you noticing when
+   they're broken.
+4. **The rules text lives in three copies** — this README, `skill/SKILL.md`,
+   and `skill/claude/command.md` — each written for a different reader, and
+   nothing checks that they still agree. If they drift far enough to matter,
+   collapse them to one source rather than reinstating a comparison.
+5. **No cross-device locking.** If you sync to iCloud and edit on two
    machines simultaneously, you'll get a conflict file. The agent doesn't
    resolve those.
-5. **No automation around Jira/GitHub.** When you say *"ENT-3794 is merged"*,
+6. **No automation around Jira/GitHub.** When you say *"ENT-3794 is merged"*,
    the agent records it in the worklog but doesn't update Jira or post to
    the PR. Wire that up via your existing commit-and-pr workflow if you want.
-6. **Notes files are not validated.** Nothing checks that the child checklist
+7. **Notes files are not validated.** Nothing checks that the child checklist
    in `notes/<epic>.md` matches the children referenced in `WORK.md`. If you
    manually delete a child from the notes file, `INDEX.md` will still list it.
 

@@ -58,7 +58,6 @@ below; in every case it falls through to the same underlying behavior.
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
-| Detect rule drift | `worklog lint-specs` (`--print` mode) | available |
 | Rebuild `INDEX.md` | `worklog reindex` (`--dry-run` / `--json` modes) | available |
 
 ### Conventions
@@ -452,7 +451,6 @@ Bad signal or empty trigger → exit 64.
 
 ## Hard rules (inherited from the skill)
 
-<!-- rules:start -->
 - `## Now` is capped at 5 tickets. Epics never occupy `## Now` — only child
   tickets (or standalone non-epic tickets) do.
 - Completion is move-then-delete, atomic.
@@ -461,7 +459,6 @@ Bad signal or empty trigger → exit 64.
   child's checkbox in `notes/<epic>.md`, the parent's `**Active children**:`
   in `WORK.md`, and the child's `**Parent**:` field in its `## Now` block.
 - Always update `INDEX.md` on add / archive / relocate.
-<!-- rules:end -->
 
 ## Fallback
 
