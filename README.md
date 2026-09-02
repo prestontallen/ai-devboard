@@ -70,7 +70,10 @@ field-ownership rules: [devboard/schema.md](devboard/schema.md).
 ./install.sh --dry-run  # show what would happen
 ```
 
-Linux/macOS (Windows → WSL). Requires Go; Docker optional (devboard).
+Linux/macOS (Windows → WSL). Go is OPTIONAL: the bootstrap downloads the
+latest release binary for your platform (sha256-verified) and falls back
+to a local `go build` when the download isn't possible; dev machines with
+a dev-stamped binary stay on the build path. Docker optional (devboard).
 
 **Skill targets**: the first interactive run detects local AI agent dirs
 (`~/.claude`, `~/.cursor`, `~/.windsurf`, `~/.codex`), prompts per target,

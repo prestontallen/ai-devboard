@@ -97,8 +97,14 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode) error 
 
 	// Self-staleness: rebuild-and-exec so the run continues on the fresh
 	// binary (a process cannot replace its own executable and carry on).
+	// Release-stamped binaries skip the rev comparison entirely — their
+	// commit can never match a moving checkout, and their currency is
+	// judged against the latest release tag (by the bootstrap, which has
+	// the network path); a false rev-drift here would rebuild users off
+	// their verified release binary.
 	// WORKLOG_INSTALL_REEXEC breaks rebuild loops on racing dirty trees.
-	if rev, err := installer.RepoRev(repoRoot); err == nil && rev != BuildCommit() {
+	releaseStamped := !strings.Contains(BuildVersion(), "-dev") && !strings.Contains(BuildVersion(), "-snapshot")
+	if rev, err := installer.RepoRev(repoRoot); err == nil && !releaseStamped && rev != BuildCommit() {
 		switch mode {
 		case installer.ModeCheck:
 			fmt.Fprintln(out, style.Bad.Render(fmt.Sprintf(

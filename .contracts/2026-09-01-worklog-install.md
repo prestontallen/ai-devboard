@@ -3,7 +3,7 @@
 - **Date:** 2026-09-01
 - **Tier:** 3 (Major — Go subcommand + release pipeline + bootstrap rewrite)
 - **Complexity:** medium
-- **Status:** in-progress (agreed 2026-09-01)
+- **Status:** fulfilled (accepted 2026-09-02)
 - **Worklog:** wl-install-cmd
 
 ## Intent
@@ -70,9 +70,9 @@ stays the one-command entrypoint.
 | 6 | Repo root persists in config; `worklog install --check` from outside the repo works, and a moved/deleted checkout yields a distinct "repo not found at <path>; re-run install.sh from a checkout" error — not drift, not a deploy | move-repo test |✅ |
 | 7 | Deploy parity: copies with diff idempotency, legacy symlink→copy migration (with check/dry-run wording), claude-only command.md extra, all four skills incl. fan-out | Go tests + sandbox diff |✅ |
 | 8 | Mode parity: `--check` exits 1 on drift/0 clean and writes nothing (targets config included); `--dry-run` narrates and touches nothing; opt-in prompts only in interactive install mode | sandbox matrix |✅ |
-| 9 | Small-behavior parity, one check each: PATH warning; tone-skill glob (still `~/.claude/skills` scope); "targets: from config (...)" note on silent runs; `INSTALL_PROMPT_FORCE` seam (or documented replacement) | tests/greps | ☐ |
+| 9 | Small-behavior parity, one check each: PATH warning; tone-skill glob (still `~/.claude/skills` scope); "targets: from config (...)" note on silent runs; `INSTALL_PROMPT_FORCE` seam (or documented replacement) | tests/greps |✅ |
 | 10 | Streams: TUI on stderr (huh default), report lines on stdout via `internal/style`; `--check` output grep-stable | code review + pipe test |✅ |
-| 11 | Version plumbing: raw `commit`/`version` exposed as accessors (not just the joined string); self-rebuild uses the same rev algorithm as bash (`-- worklog` scope, `-dirty`, UTC date) so the strings match byte-for-byte | unit test both sides | ☐ |
+| 11 | Version plumbing: raw `commit`/`version` exposed as accessors (not just the joined string); self-rebuild uses the same rev algorithm as bash (`-- worklog` scope, `-dirty`, UTC date) so the strings match byte-for-byte | unit test both sides |✅ |
 | 12 | Self-rebuild handoff per Q1's answer, tested (a process cannot swap its own executable and continue) | integration test |✅ |
 | 13 | `worklog sync` never writes to a target the user declined (per Q2 resolution); worklog/README's false claim fixed | test + grep |✅ |
 | 14 | All 19 Go packages stay green; new installer package tested | go test ./... |✅ |
@@ -82,25 +82,25 @@ stays the one-command entrypoint.
 
 | # | Criterion | Verify | Status |
 |---|-----------|--------|--------|
-| 15 | GoReleaser builds `worklog_<os>_<arch>` assets + checksums.txt for linux/darwin × amd64/arm64 from a tag | `goreleaser release --snapshot` locally | ☐ |
-| 16 | Actions workflow runs GoReleaser on tag push only; workflow file and first tag are human-approved before push | review + gated push | ☐ |
-| 17 | The published release's `worklog install --check` runs on this machine (release binary is functional, contains the subcommand) | download + run | ☐ |
+| 15 | GoReleaser builds `worklog_<os>_<arch>` assets + checksums.txt for linux/darwin × amd64/arm64 from a tag | `goreleaser release --snapshot` locally |✅ |
+| 16 | Actions workflow runs GoReleaser on tag push only; workflow file and first tag are human-approved before push | review + gated push |✅ |
+| 17 | The published release's `worklog install --check` runs on this machine (release binary is functional, contains the subcommand) | download + run |✅ |
 
 ### M3 — release-first bootstrap
 
 | # | Criterion | Verify | Status |
 |---|-----------|--------|--------|
-| 18 | **Bash still owns binary drift**: `./install.sh --check` on a fresh clone with no binary exits 1 reporting the absent/stale binary and touches nothing (no build, no download) | fresh-clone sandbox | ☐ |
-| 19 | Default mode: download latest release asset for the platform, verify sha256 against checksums.txt (mismatch = hard fail, file discarded), place binary, exec `worklog install --repo <root>` | sandbox with real release | ☐ |
-| 20 | Download unavailable (offline/no release) → falls back to `go build` with a note; neither available → clear error naming both remedies; exit before any file change | PATH/network-stripped runs | ☐ |
-| 21 | Mode-aware drift: release-installed binary checks against latest tag, dev-built against repo rev; skew between release binary and newer checkout skills is surfaced, not silently ignored | scenario tests | ☐ |
+| 18 | **Bash still owns binary drift**: `./install.sh --check` on a fresh clone with no binary exits 1 reporting the absent/stale binary and touches nothing (no build, no download) | fresh-clone sandbox |✅ |
+| 19 | Default mode: download latest release asset for the platform, verify sha256 against checksums.txt (mismatch = hard fail, file discarded), place binary, exec `worklog install --repo <root>` | sandbox with real release |✅ |
+| 20 | Download unavailable (offline/no release) → falls back to `go build` with a note; neither available → clear error naming both remedies; exit before any file change | PATH/network-stripped runs |✅ |
+| 21 | Mode-aware drift: release-installed binary checks against latest tag, dev-built against repo rev; skew between release binary and newer checkout skills is surfaced, not silently ignored | scenario tests |✅ |
 
 ## Definition of done
 
-- [ ] No new Go deps (huh/lipgloss/cobra already present)
-- [ ] install.sh under ~80 lines; all logic that CAN live in Go does
-- [ ] No unrelated changes; other agent's in-flight files untouched
-- [ ] READMEs updated (install flow, config format, sync clarification)
+- [x] No new Go deps (huh/lipgloss/cobra already present)
+- [x] install.sh under ~80 lines; all logic that CAN live in Go does
+- [x] No unrelated changes; other agent's in-flight files untouched
+- [x] READMEs updated (install flow, config format, sync clarification)
 
 ## Risks & open questions
 
