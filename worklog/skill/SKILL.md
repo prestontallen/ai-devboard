@@ -102,8 +102,12 @@ runs the SessionStart hook that injects it.
 (`ENT-3794` → `ent-3794`); failing that, a 2–4 word lowercase-kebab slug from
 the title (*"rewrite the auth middleware"* → `auth-middleware-rewrite`). Keep
 it short and stable — the ID is referenced from notes, archives, and the
-index. `--type epic` and `--parent` never combine. The `warnings` array is
-load-bearing: read it and surface anything that matters.
+index. `--type` takes `ticket` (default), `epic`, `spike`, or `chore` and
+is validated. `--type epic` and `--parent` never combine; a spike is always
+standalone. `--type spike` is what puts dev-context on the collapsed
+research track, and Type is fixed at creation — `edit` refuses it as
+structural. The `warnings` array is load-bearing: read it and surface
+anything that matters.
 
 **3. Starting.** `## Now` holds tickets only; starting an epic is always a
 refusal that names its startable children. Promoting a child creates its
@@ -136,7 +140,7 @@ a batch of mutations.
 ### Tone
 
 Draft it in Preston's installed tone convention — see the dev-context
-skill's Tone hook (§8 Ship) for the mechanics and the fallback voice. This
+skill's Tone hook (§9 Ship) for the mechanics and the fallback voice. This
 applies even for a plain "log this" outside a dev-context task.
 
 ## Devboard side effects

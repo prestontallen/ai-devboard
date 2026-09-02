@@ -300,3 +300,26 @@ func TestTaskMalformedFileFailsCleanly(t *testing.T) {
 		t.Fatal("malformed file modified")
 	}
 }
+
+// research joins the phase enum between clarify and contract; the error
+// message is derived from the same list, so it can never go stale.
+func TestTaskPhaseResearch(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	p := taskFile(t, dir)
+
+	if _, _, err := runTask(t, "phase", "research", "--id", "tkt"); err != nil {
+		t.Fatalf("phase research: %v", err)
+	}
+	if got := loadTask(t, p).Phase; got != "research" {
+		t.Fatalf("phase = %q, want research", got)
+	}
+
+	_, _, err := runTask(t, "phase", "bogus", "--id", "tkt")
+	if err == nil {
+		t.Fatal("expected unknown-phase error")
+	}
+	if !strings.Contains(err.Error(), "research") {
+		t.Fatalf("enum in error message is stale, got %v", err)
+	}
+}

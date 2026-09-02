@@ -26,7 +26,7 @@ func TestDisabledWhenDirMissing(t *testing.T) {
 	}
 	// side effects must succeed as no-ops
 	for name, fn := range map[string]func() error{
-		"OnStart": func() error { return OnStart("x", "X") },
+		"OnStart": func() error { return OnStart("x", "X", "") },
 		"OnDone":  func() error { return OnDone("x") },
 		"OnPR":    func() error { return OnPR("x", "u") },
 	} {
@@ -39,7 +39,7 @@ func TestDisabledWhenDirMissing(t *testing.T) {
 func TestOnStartCreatesTaskFile(t *testing.T) {
 	dir := withDataDir(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-123")
-	if err := OnStart("tkt-1", "Fix the thing"); err != nil {
+	if err := OnStart("tkt-1", "Fix the thing", ""); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*", "tkt-1.yaml"))
@@ -345,5 +345,64 @@ waiting_on:
 	}
 	if !found {
 		t.Fatalf("close-out decision missing: %+v", task.Decision)
+	}
+}
+
+func TestOnStartMirrorsSpikeType(t *testing.T) {
+	dir := withDataDir(t)
+	if err := OnStart("spike-1", "Investigate", "spike"); err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "spike-1.yaml"))
+	if len(matches) != 1 {
+		t.Fatalf("expected one task file, got %v", matches)
+	}
+	var task Task
+	raw, _ := os.ReadFile(matches[0])
+	if err := yaml.Unmarshal(raw, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Type != "spike" {
+		t.Errorf("Type = %q, want spike", task.Type)
+	}
+}
+
+// An ordinary ticket writes no type at all.
+func TestOnStartLeavesTypeEmptyForTicket(t *testing.T) {
+	dir := withDataDir(t)
+	if err := OnStart("tkt-2", "Ordinary", ""); err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "tkt-2.yaml"))
+	var task Task
+	raw, _ := os.ReadFile(matches[0])
+	if err := yaml.Unmarshal(raw, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Type != "" {
+		t.Errorf("Type = %q, want empty", task.Type)
+	}
+}
+
+// A start must never clobber the epic marker SyncEpicRoster owns.
+func TestOnStartNeverOverwritesEpicType(t *testing.T) {
+	dir := withDataDir(t)
+	if err := OnStart("epic-1", "An epic", ""); err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "epic-1.yaml"))
+	if err := Mutate(matches[0], func(tk *Task) error { tk.Type = "epic"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := OnStart("epic-1", "An epic", "spike"); err != nil {
+		t.Fatal(err)
+	}
+	var task Task
+	raw, _ := os.ReadFile(matches[0])
+	if err := yaml.Unmarshal(raw, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Type != "epic" {
+		t.Errorf("Type = %q, want epic preserved", task.Type)
 	}
 }

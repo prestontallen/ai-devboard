@@ -105,9 +105,17 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		pr = block.PR
 	}
 
+	// Type survives into the archive so a closed spike stays findable as one
+	// ("ticket" is the implied default and stays off the entry).
+	archiveType := string(block.Type)
+	if archiveType == string(model.TypeTicket) {
+		archiveType = ""
+	}
+
 	entry := render.FormatArchiveEntry(render.ArchiveOpts{
 		ID:        block.ID,
 		Title:     block.Title,
+		Type:      archiveType,
 		Repo:      block.Repo,
 		Tags:      block.Tags,
 		PR:        pr,

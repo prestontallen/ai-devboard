@@ -3,8 +3,10 @@ name: dev-context
 description: >-
   Development workflow process governing how work moves from "topic introduced"
   to "code shown to the human". Use at the START of any dev task — bugfix,
-  feature, refactor, or project — to classify the task, decide which checkpoints
-  the human sees, and when code is presented. Pairs with the contract skill.
+  feature, refactor, research spike, or project — to classify the task, decide
+  which checkpoints the human sees, and when code is presented. Investigation-
+  first work (a spike, "research X", "look into Y") gets the collapsed spike
+  track. Pairs with the contract skill.
 ---
 
 # Dev Context: from topic to code
@@ -28,6 +30,17 @@ Classify every task at intake. The tier decides how much process applies.
 When unsure between two tiers, pick the higher one — downgrading mid-task is
 cheap, discovering missing process isn't.
 
+## The spike track (investigation-first work)
+
+A task whose deliverable is an **answer, not a change** — worklog `Type:
+spike`, or any "research X" request — skips the feature pipeline:
+**intake → research → present → done**. Gate it with the contract skill's
+spike form, run it per the fan-out skill's research reference, close it
+with `worklog done <id> --summary`.
+
+**No implementation code on a spike, ever** — a fix the research reveals is
+a proposed ticket, not a diff.
+
 ## Phases
 
 ### 1. Intake
@@ -45,9 +58,21 @@ The human introduces the topic. Before doing anything else:
 Investigate the codebase first — most questions answer themselves from the
 code. Ask the human only questions where the answer changes the outcome
 (product intent, tradeoffs, unknowable preferences). Batch them; don't
-dribble questions one at a time.
+dribble questions one at a time — and give each one concrete options with
+consequences and exactly one recommendation. If unknowns keep surfacing
+that the design depends on, propose the research phase rather than asking
+the human to design blind.
 
-### 3. Contract
+### 3. Research (optional; spikes always)
+An investigation pass between clarify and contract, for work where the
+**design itself is the uncertainty**. The agent proposes it for
+high-complexity tier 2–3 tasks; the human approves entry, since it spends
+fan-out tokens. Method: the fan-out skill's
+[research reference](../fan-out/references/research.md). Findings become
+decisions (`worklog task decision`) and feed the contract. Sync:
+`worklog task phase research`.
+
+### 4. Contract
 Invoke the **contract** skill to produce the contract at the tier's depth.
 This is the first hard checkpoint for tier 1+:
 
@@ -59,7 +84,7 @@ This is the first hard checkpoint for tier 1+:
 If a worklog item exists (or should), sync the contract's acceptance summary
 into its **Acceptance** field.
 
-### 4. Plan (tier 2–3)
+### 5. Plan (tier 2–3)
 Derive the implementation plan from the contract: ordered steps, files
 touched, test strategy. Tier 2: state the plan briefly and proceed. Tier 3:
 the plan is its own checkpoint — get approval, and break work into
@@ -70,7 +95,7 @@ skill) before committing to an approach: N unled agents each design a
 solution independently; judge and synthesize. Mention in the plan when you
 used one and what it changed.
 
-### 5. Implement
+### 6. Implement
 Write the code. While implementing:
 - Stay inside the contract's scope. Wanting to touch something out-of-scope
   is a signal to stop and amend, not to quietly expand.
@@ -79,13 +104,13 @@ Write the code. While implementing:
   Y, propose changing Z". Get a yes before continuing.
 - Surface load-bearing discoveries as brief status notes; don't narrate.
 
-### 6. Verify
+### 7. Verify
 Before showing anything, run the contract's verification plan: execute each
 acceptance criterion's check, plus the standing definition-of-done items
 (tests, lint, no unrelated changes). Record pass/fail honestly — a failed
 check is reported, never papered over.
 
-### 7. Present
+### 8. Present
 Now the human sees code. Present it as a review, not a dump:
 - Lead with the contract scorecard: each acceptance criterion with ✅/❌ and
   how it was verified.
@@ -97,9 +122,9 @@ Now the human sees code. Present it as a review, not a dump:
 The task is **done** when the human accepts the review. Mark the contract
 fulfilled; close or update the worklog item.
 
-### 8. Ship
+### 9. Ship
 Committing, pushing, and PR interaction. Every action in this phase is
-gated by the hard checkpoints below — acceptance of the review (phase 7)
+gated by the hard checkpoints below — acceptance of the review (phase 8)
 authorizes none of them on its own.
 
 **Tone hook:** all outbound text in this phase — commit messages, PR
@@ -128,7 +153,7 @@ never carries over to the next.
    the feature was implemented — not a diffstat, but the substance: the
    approach taken and why, key decisions and tradeoffs, which files carry
    the core change, anything surprising or fragile, and any deviation from
-   the contract. Commit only after the human acknowledges. (If phase 7's
+   the contract. Commit only after the human acknowledges. (If phase 8's
    review already covered all of this and the human accepted, a brief "as
    reviewed — committing with message: …" plus their go-ahead suffices.)
 
@@ -171,8 +196,9 @@ Mandatory sync points:
 
 1. **Intake (tier 1+):** worklog-ticketed work gets its task file
    automatically from `worklog start <id>` (title, join key, session for
-   the resume button). Ticketless work: `worklog task phase intake --id
-   <slug>` creates the file.
+   the resume button — and `type: spike`, which is what makes the board
+   render the short research track). Ticketless work: `worklog task phase
+   intake --id <slug>` creates the file.
 2. **Every phase transition:** `worklog task phase <phase> --id <slug>`
 3. **Contract agreed:** one `worklog task scorecard add "<criterion>"
    --verify "<check>"` per acceptance criterion; one `worklog task plan
@@ -206,7 +232,7 @@ the list before addressing an item by index afterward. `worklog pr <id>
 <url>` mirrors to the task file's PR field the same way `start`/`done` do.
 
 **Tone applies here too.** Every string in steps 4–7 above is human-facing
-— draft it in the Tone hook's voice (§8 above) before writing, not after.
+— draft it in the Tone hook's voice (§9 above) before writing, not after.
 
 **Epic children:** when working a milestone that's a child ticket of an
 epic, the epic's task file is the dashboard surface — `worklog start`/

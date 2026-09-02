@@ -23,7 +23,7 @@ supported.
 | Field | Author | Notes |
 |-------|--------|-------|
 | `worklog`, `title` | worklog (when ticket exists) | mirrored from the ticket; agent-authored on bare tasks |
-| `type` | worklog | `epic` marks this file as an epic container; absent for an ordinary ticket |
+| `type` | worklog | `epic` marks this file as an epic container; `spike` marks investigation-first work (short phase track); absent for an ordinary ticket |
 | `children` | worklog (roster identity), agent (per-child in-flight detail) | see "Epic files" below |
 | `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
@@ -46,7 +46,16 @@ worklog: embed-retry      # optional; worklog ticket id (join key). Shown
 tier: 2                   # optional; dev-context tier 0-3
 complexity: medium        # optional; low|medium|high — uncertainty/blast
                           # radius, throttles fan-out depth (fan-out skill)
-phase: implementing       # optional; intake|clarify|contract|plan|implementing|verify|present|ship|done
+type: spike               # optional; epic|spike (mirrored by `worklog
+                          # start` from the ticket's Type). `epic` makes
+                          # this an epic container — see "Epic files";
+                          # `spike` marks investigation-first work, which
+                          # the UI renders on the short track
+                          # intake|research|present|done. Absent for an
+                          # ordinary ticket.
+phase: implementing       # optional; intake|clarify|research|contract|plan|
+                          # implementing|verify|present|ship|done. A spike
+                          # uses the subset intake|research|present|done.
 
 plan:                     # todo list
   - text: Wrap indexer calls in retry decorator

@@ -3,9 +3,10 @@ name: contract
 description: >-
   Generate a work contract from any arbitrary dev task — the single document
   that encapsulates everything required to call the work "done". Use when
-  starting a task (via dev-context phase 3), when the human asks "what would
+  starting a task (via dev-context phase 4), when the human asks "what would
   done look like", or when scoping ambiguous work. Scales from a one-line
-  done-when to a milestone-structured major contract.
+  done-when through a spike's question + done-when to a milestone-structured
+  major contract.
 ---
 
 # Contract: what "done" means, written down first
@@ -78,6 +79,10 @@ completable and gets its own mini-contract (tier-1 form) when its turn
 comes. The top-level contract's criteria are the union that matters; the
 milestones sequence the work and the human checkpoints.
 
+### Spike — investigation-first
+Scoped by a question, not a change; tier-1 weight, inline. Form and rules:
+[references/spike-contract.md](references/spike-contract.md).
+
 ## Generating a contract from an arbitrary task
 
 1. **Extract intent.** What outcome does the human actually want, and why?
@@ -124,7 +129,7 @@ when devboard isn't set up):
   "<question>" --type question --id <slug>`
 
 From then on the task file's scorecard tracks verification live —
-`worklog task scorecard pass|fail <n>` as checks run (dev-context phase 6).
+`worklog task scorecard pass|fail <n>` as checks run (dev-context phase 7).
 
 ## Worklog integration
 

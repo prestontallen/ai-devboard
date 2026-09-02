@@ -340,3 +340,49 @@ func TestRunInvalidDate(t *testing.T) {
 		t.Errorf("expected ErrInvalidDate, got %v", err)
 	}
 }
+
+const spikeFixture = `## Now
+- [~] **SPIKE-1** — Investigate the thing
+  - **ID**: spike-1
+  - **Type**: spike
+  - **Repo**: api
+  - **Started**: 2026-05-15
+
+## Next
+
+## Someday
+`
+
+// A closed spike stays findable as a spike: Type survives into the archive,
+// which is what `worklog search` and the index read.
+func TestRunStandaloneCarriesSpikeTypeIntoArchive(t *testing.T) {
+	wd := fixtureWorkdir(t, map[string]string{"WORK.md": spikeFixture})
+	if _, err := Run(wd, Inputs{
+		ID:      "spike-1",
+		Summary: "Answered: yes, with caveats.",
+	}, today); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	raw, err := os.ReadFile(wd.ArchiveFile("2026-05"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "- **Type**: spike") {
+		t.Errorf("archive entry lost Type:\n%s", raw)
+	}
+}
+
+// An ordinary ticket's archive entry is unchanged — no stray Type line.
+func TestRunStandaloneOmitsTicketTypeInArchive(t *testing.T) {
+	wd := fixtureWorkdir(t, map[string]string{"WORK.md": standaloneFixture})
+	if _, err := Run(wd, Inputs{
+		ID:      "auth-1",
+		Summary: "Done.",
+	}, today); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	raw, _ := os.ReadFile(wd.ArchiveFile("2026-05"))
+	if strings.Contains(string(raw), "**Type**") {
+		t.Errorf("ordinary ticket archive should carry no Type:\n%s", raw)
+	}
+}

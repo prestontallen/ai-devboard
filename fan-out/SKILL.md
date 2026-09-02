@@ -98,10 +98,11 @@ Proven instances live in references/ — read the one that fits before
 spawning:
 
 - **Risk scout** (contract phase) → [references/risk-scout.md](references/risk-scout.md)
+- **Research sweep** (research phase, every spike) →
+  [references/research.md](references/research.md) — the whole
+  choreography, not just the fan-out step.
 
 Patterns worth reaching for that have no reference yet (write one after
 first real use): blind alternatives panel at plan time for high-complexity
 work (N independent designs, judge + synthesize); adversarial verification
-of acceptance criteria at verify time (redundant refuters, vote); blind
-exploration at clarify time for unfamiliar subsystems (lens-diverse,
-union).
+of acceptance criteria at verify time (redundant refuters, vote).

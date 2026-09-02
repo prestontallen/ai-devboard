@@ -15,12 +15,22 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
-// validPhases mirrors the dev-context skill's phase names plus "done".
-var validPhases = map[string]bool{
-	"intake": true, "clarify": true, "contract": true, "plan": true,
-	"implementing": true, "verify": true, "present": true, "ship": true,
-	"done": true,
+// phaseOrder mirrors the dev-context skill's phases in workflow order, plus
+// "done". A spike uses the subset intake → research → present → done.
+// It is the single source for both the lookup map and the error message, so
+// the two cannot drift.
+var phaseOrder = []string{
+	"intake", "clarify", "research", "contract", "plan",
+	"implementing", "verify", "present", "ship", "done",
 }
+
+var validPhases = func() map[string]bool {
+	m := make(map[string]bool, len(phaseOrder))
+	for _, p := range phaseOrder {
+		m[p] = true
+	}
+	return m
+}()
 
 func newTaskCmd() *cobra.Command {
 	var flagID string
@@ -228,7 +238,7 @@ func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Comman
 			p := strings.ToLower(args[0])
 			if !validPhases[p] {
 				return jsonOrTextError(cmd, *asJSON, 64,
-					"task: unknown phase %q (intake|clarify|contract|plan|implementing|verify|present|ship|done)", p)
+					"task: unknown phase %q (%s)", p, strings.Join(phaseOrder, "|"))
 			}
 			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "phase set", p,
 				func(t *devboard.Task) error { t.Phase = p; return nil })

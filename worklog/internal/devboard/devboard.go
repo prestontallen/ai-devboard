@@ -26,9 +26,11 @@ import (
 // top-level fields across read-modify-write cycles (comments are not
 // preserved — documented limitation).
 type Task struct {
-	Schema     int           `yaml:"schema"`
-	Title      string        `yaml:"title,omitempty"`
-	Type       string        `yaml:"type,omitempty"` // "epic" marks this file as an epic container
+	Schema int    `yaml:"schema"`
+	Title  string `yaml:"title,omitempty"`
+	// "epic" marks an epic container; "spike" marks investigation-first
+	// work, which the UI renders on a short phase track.
+	Type       string        `yaml:"type,omitempty"`
 	Branch     string        `yaml:"branch,omitempty"`
 	Session    string        `yaml:"session,omitempty"`
 	Worklog    string        `yaml:"worklog,omitempty"`
@@ -383,7 +385,11 @@ var today = func() string { return time.Now().Format("2006-01-02") }
 
 // OnStart guarantees a task file exists for the started ticket, carrying
 // identity fields. It does NOT set phase — phases are agent-driven.
-func OnStart(id, title string) error {
+//
+// blockType mirrors the ticket's WORK.md Type ("spike", "chore"); empty for
+// an ordinary ticket. Like title, it is identity rather than workflow state
+// — the board reads it to pick the short research track for a spike.
+func OnStart(id, title, blockType string) error {
 	if !Enabled() {
 		return nil
 	}
@@ -393,6 +399,10 @@ func OnStart(id, title string) error {
 	}
 	return Mutate(path, func(t *Task) error {
 		created := t.Title == "" && t.Worklog == ""
+		// "epic" belongs to SyncEpicRoster; a start must never overwrite it.
+		if blockType != "" && blockType != "ticket" && t.Type != "epic" {
+			t.Type = blockType
+		}
 		if title != "" {
 			t.Title = title
 		}

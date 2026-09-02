@@ -115,6 +115,8 @@ Errors:
 - `{"error": "add requires --title and --id when stdin is not a TTY"}` — exit 64
 - `{"error": "section \"Foo\" is invalid (use Next or Someday)"}` — exit 1
 - `--type epic` with `--parent` → exit 1, `ErrEpicHasNoParent`
+- `--type` outside `ticket|epic|spike|chore` → exit 64, `ErrInvalidType`
+- `--type spike` with `--parent` → exit 1, `ErrSpikeHasNoParent`
 - pre-existing `notes/<id>.md` → exit 1, `ErrNotesAlreadyExists`
 - `--parent` doesn't resolve to an epic → exit 1, `ErrParentEpicNotFound`
 - ID collision with an open child in any notes file → exit 1, `ErrIDCollisionInNotes`

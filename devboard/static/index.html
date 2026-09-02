@@ -111,6 +111,8 @@
           border-radius: 5px; padding: .14rem .45rem; white-space: nowrap; }
   .chip.epicbadge { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border));
                      font-weight: 600; }
+  .chip.spikebadge { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 45%, var(--border));
+                     font-weight: 600; }
 
   /* ---------- epic children ---------- */
   .childroster { display: flex; flex-wrap: wrap; gap: .35rem; }
@@ -174,7 +176,11 @@
   .hero { margin-bottom: 1.2rem; }
   .hero h1 { font-size: 1.25rem; margin-bottom: .55rem; }
   .metarow { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: 1rem; }
-  .stepper { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; }
+  /* --steps is set inline from the phase-list length, so a spike's short
+     track and the full track each fill the width without a hard-coded
+     column count. An explicit template is required: implicit columns size
+     to content and would overflow the container. */
+  .stepper { display: grid; grid-template-columns: repeat(var(--steps, 10), minmax(0, 1fr)); gap: 4px; }
   .step { text-align: center; }
   .step i { display: block; height: 6px; border-radius: 3px; background: var(--panel2); margin-bottom: .3rem; }
   .step.on i { background: color-mix(in srgb, var(--signal) 55%, var(--panel2)); }
@@ -257,8 +263,16 @@ const $conn = document.getElementById("conn");
 const $stats = document.getElementById("stats");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-const PHASES = ["intake","clarify","contract","plan","implementing","verify","present","ship","done"];
+const PHASES = ["intake","clarify","research","contract","plan","implementing","verify","present","ship","done"];
+// A spike answers a question instead of shipping a change, so it runs a
+// short track. Every SPIKE_PHASES entry is also in PHASES, which keeps
+// sorting and known-phase checks global — only the rendering is short.
+const SPIKE_PHASES = ["intake","research","present","done"];
 const phaseIdx = p => PHASES.indexOf(String(p ?? ""));
+// A spike parked off its short track (rare, but possible) renders on the
+// full track rather than as an unknown phase.
+const phasesFor = (type, phase) =>
+  type === "spike" && (!phase || SPIKE_PHASES.includes(String(phase))) ? SPIKE_PHASES : PHASES;
 const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children"]);
 
 /* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
@@ -397,18 +411,20 @@ const moveBtn = (repo, t) => isArchived(t)
   : `<button class="act" data-act="/api/archive" data-repo="${esc(repo)}" data-id="${esc(t.id)}" onclick="moveTask(event, this)">⌫ archive</button>`;
 
 /* ---------- shared pieces ---------- */
-function trackHTML(phase) {
-  const i = phaseIdx(phase);
-  const segs = PHASES.map((_, n) =>
+function trackHTML(phase, type) {
+  const list = phasesFor(type, phase);
+  const i = list.indexOf(String(phase ?? ""));
+  const segs = list.map((_, n) =>
     `<i class="${i < 0 ? "" : n < i ? "on" : n === i ? "now" : ""}"></i>`).join("");
   const lbl = i >= 0
-    ? `<div class="phase-lbl">${esc(phase)} <small>· ${i + 1}/${PHASES.length}</small></div>`
+    ? `<div class="phase-lbl">${esc(phase)} <small>· ${i + 1}/${list.length}</small></div>`
     : `<div class="phase-lbl unknown">${phase ? esc(phase) + " · unknown phase" : "no phase"}</div>`;
   return `<div class="track">${segs}</div>${lbl}`;
 }
-function stepperHTML(phase) {
-  const i = phaseIdx(phase);
-  let html = `<div class="stepper">` + PHASES.map((p, n) =>
+function stepperHTML(phase, type) {
+  const list = phasesFor(type, phase);
+  const i = list.indexOf(String(phase ?? ""));
+  let html = `<div class="stepper" style="--steps:${list.length}">` + list.map((p, n) =>
     `<div class="step ${i < 0 ? "" : n < i ? "on" : n === i ? "now" : ""}"><i></i><span>${p}</span></div>`).join("") + `</div>`;
   if (i < 0) html += `<div class="stepper-note">${phase ? esc(phase) + " — not a known phase" : "no phase set"}</div>`;
   return html;
@@ -537,8 +553,9 @@ function cardHTML({ repo, t }) {
     `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
     (n ? `<span class="flag">needs you · ${n}</span>` : "") +
     (wn ? `<span class="chip waitchip">⧖ ${wn}</span>` : "") +
+    (k.type === "spike" ? `<span class="chip spikebadge">◇ spike</span>` : "") +
     `<span class="chip">${esc(repo)}</span></div>` +
-    trackHTML(k.phase) + metersHTML(k) +
+    trackHTML(k.phase, k.type) + metersHTML(k) +
     `<div class="foot">` +
     (t.mtime ? `<span class="dot${stale ? " old" : ""}"></span>${ago(t.mtime)}${stale ? " — stale" : ""}` : "") +
     `<span class="sp"></span>${meta} ${resumeBtn(k, "⧉")}` +
@@ -708,13 +725,14 @@ function viewDetail(hash) {
   let html = crumb + `<div class="hero"><h1>${esc(k.title || t.id)}</h1><div class="metarow">` +
     `<span class="chip">${esc(repo)}</span>` +
     (epic ? `<span class="chip epicbadge">◆ epic</span>` : "") +
+    (k.type === "spike" ? `<span class="chip spikebadge">◇ spike</span>` : "") +
     (!epic && k.branch ? `<span class="chip">⎇ ${esc(k.branch)}</span>` : "") +
     (!epic && k.tier !== undefined ? `<span class="chip">tier ${esc(k.tier)}${k.complexity ? " · cx " + esc(k.complexity) : ""}</span>` : (!epic && k.complexity ? `<span class="chip">cx ${esc(k.complexity)}</span>` : "")) +
     (k.worklog ? `<span class="chip">☰ ${esc(k.worklog)}</span>` : "") +
     (t.mtime ? `<span class="chip">${ago(t.mtime)}</span>` : "") +
     (isArchived(t) ? `<span class="chip archchip">archived</span>` : "") +
     resumeBtn(k, "⧉ claude --resume") + " " + moveBtn(repo, t) +
-    `</div>` + (epic ? "" : stepperHTML(k.phase)) + `</div>`;
+    `</div>` + (epic ? "" : stepperHTML(k.phase, k.type)) + `</div>`;
 
   let left = "", right = "";
   if (epic) {

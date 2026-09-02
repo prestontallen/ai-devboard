@@ -316,3 +316,87 @@ func TestSplitTags(t *testing.T) {
 		}
 	}
 }
+
+// --- spike type -------------------------------------------------------------
+
+func TestAddSpikeWritesTypeIntoBlock(t *testing.T) {
+	wd, doc := loadFixture(t, baseFixture)
+	if _, err := applyStandalone(wd, doc, addInputs{
+		Title:   "Investigate the thing",
+		ID:      "spike-1",
+		Section: "Next",
+		Type:    "spike",
+	}); err != nil {
+		t.Fatalf("applyStandalone: %v", err)
+	}
+	body, _ := os.ReadFile(wd.WorkMD())
+	if !strings.Contains(string(body), "- **Type**: spike") {
+		t.Errorf("block missing Type line:\n%s", body)
+	}
+}
+
+// A spike must survive a parse round-trip, or start/done can't read it back.
+func TestAddSpikeRoundTripsThroughParse(t *testing.T) {
+	wd, doc := loadFixture(t, baseFixture)
+	if _, err := applyStandalone(wd, doc, addInputs{
+		Title:   "Investigate the thing",
+		ID:      "spike-1",
+		Section: "Next",
+		Type:    "spike",
+	}); err != nil {
+		t.Fatalf("applyStandalone: %v", err)
+	}
+	reparsed, err := parse.File(wd.WorkMD())
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	b := reparsed.BlockByID("spike-1")
+	if b == nil {
+		t.Fatal("spike-1 not found after re-parse")
+	}
+	if b.Type != model.TypeSpike {
+		t.Errorf("Type = %q, want %q", b.Type, model.TypeSpike)
+	}
+}
+
+// The default type stays off the block so ordinary tickets are unchanged.
+func TestAddTicketOmitsTypeLine(t *testing.T) {
+	wd, doc := loadFixture(t, baseFixture)
+	if _, err := applyStandalone(wd, doc, addInputs{
+		Title:   "Ordinary work",
+		ID:      "tkt-1",
+		Section: "Next",
+		Type:    "ticket",
+	}); err != nil {
+		t.Fatalf("applyStandalone: %v", err)
+	}
+	body, _ := os.ReadFile(wd.WorkMD())
+	if strings.Contains(string(body), "- **Type**: ticket") {
+		t.Errorf("ordinary ticket should carry no Type line:\n%s", body)
+	}
+}
+
+// Sad path: an unknown --type is refused, not silently dropped.
+func TestAddRejectsUnknownType(t *testing.T) {
+	wd, _ := loadFixture(t, baseFixture)
+	cmd := newAddCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	err := runAdd(cmd, "Typo", "typo-1", "", "", "", "Next", "spke", "", true)
+	if err == nil {
+		t.Fatal("expected refusal for unknown --type")
+	}
+	body, _ := os.ReadFile(wd.WorkMD())
+	if strings.Contains(string(body), "typo-1") {
+		t.Error("refused add must not write a block")
+	}
+}
+
+func TestAddRejectsSpikeWithParent(t *testing.T) {
+	_, _ = loadFixture(t, baseFixture)
+	cmd := newAddCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	err := runAdd(cmd, "Child spike", "spike-kid", "", "", "", "Next", "spike", "some-epic", true)
+	if err == nil {
+		t.Fatal("expected refusal for spike+parent combo")
+	}
+}

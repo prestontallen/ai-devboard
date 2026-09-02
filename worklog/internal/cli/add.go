@@ -28,7 +28,7 @@ type addInputs struct {
 	Tags       []string
 	Acceptance string
 	Section    string // "Next" or "Someday" (ignored for child path)
-	Type       string // "ticket" (default) or "epic"
+	Type       string // "ticket" (default), "epic", "spike", or "chore"
 	Parent     string // <epic-id>; non-empty triggers child path
 }
 
@@ -52,10 +52,21 @@ const indexNotUpdatedWarning = "INDEX.md not updated; run `worklog reindex` when
 // Sentinel errors for the new branches.
 var (
 	ErrEpicHasNoParent    = errors.New("--type epic and --parent cannot be combined")
+	ErrSpikeHasNoParent   = errors.New("--type spike and --parent cannot be combined: a spike is always standalone")
+	ErrInvalidAddType     = errors.New("--type must be one of: ticket, epic, spike, chore")
 	ErrParentEpicNotFound = errors.New("--parent must resolve to an epic block in WORK.md")
 	ErrNotesAlreadyExists = errors.New("notes file for this epic ID already exists")
 	ErrIDCollisionInNotes = errors.New("ID already exists as an open child in a notes file")
 )
+
+// validAddTypes mirrors model.BlockType's named values. `chore` is accepted
+// but carries no behavior; `spike` puts dev-context on its research track.
+var validAddTypes = map[string]bool{
+	string(model.TypeTicket): true,
+	string(model.TypeEpic):   true,
+	string(model.TypeSpike):  true,
+	string(model.TypeChore):  true,
+}
 
 func newAddCmd() *cobra.Command {
 	var (
@@ -105,7 +116,7 @@ INDEX.md is not auto-updated. Run ` + "`worklog reindex`" + ` periodically.`,
 	cmd.Flags().StringVar(&flagTagsCSV, "tags", "", "comma-separated tags")
 	cmd.Flags().StringVar(&flagAcceptance, "acceptance", "", "one-line acceptance criterion (standalone only)")
 	cmd.Flags().StringVar(&flagSection, "section", "Next", "destination section: Next or Someday")
-	cmd.Flags().StringVar(&flagType, "type", "ticket", "ticket type: ticket (default) or epic")
+	cmd.Flags().StringVar(&flagType, "type", "ticket", "ticket type: ticket (default), epic, spike, or chore")
 	cmd.Flags().StringVar(&flagParent, "parent", "", "for child-of-epic: the parent epic's ID")
 	cmd.Flags().BoolVar(&flagJSON, "json", false, "emit JSON status object instead of styled text")
 
@@ -148,10 +159,18 @@ func runAdd(
 	}
 	inputs.Tags = splitTags(flagTagsCSV)
 
+	// An unknown --type is refused rather than silently falling through to the
+	// standalone path, where it would be dropped without trace.
+	if !validAddTypes[inputs.Type] {
+		return jsonOrTextError(cmd, flagJSON, 64, "%v (got %q)", ErrInvalidAddType, inputs.Type)
+	}
+
 	// Determine which branch to take.
 	switch {
 	case inputs.Type == "epic" && inputs.Parent != "":
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", ErrEpicHasNoParent)
+	case inputs.Type == "spike" && inputs.Parent != "":
+		return jsonOrTextError(cmd, flagJSON, 1, "%v", ErrSpikeHasNoParent)
 	case inputs.Parent != "":
 		return runAddChild(cmd, wd, doc, inputs, flagJSON)
 	case inputs.Type == "epic":
@@ -238,9 +257,16 @@ func validateAddInputs(doc *model.WorkDoc, inputs addInputs) error {
 }
 
 func applyStandalone(wd model.Workdir, doc *model.WorkDoc, inputs addInputs) (addOutput, error) {
+	// `ticket` is the implied default and stays off the block, so ordinary
+	// tickets render exactly as before; spike/chore are written explicitly.
+	blockType := inputs.Type
+	if blockType == string(model.TypeTicket) {
+		blockType = ""
+	}
 	blockLines := render.FormatTicketBlock(render.BlockOptions{
 		Title:      inputs.Title,
 		ID:         inputs.ID,
+		Type:       blockType,
 		Repo:       inputs.Repo,
 		Tags:       inputs.Tags,
 		Acceptance: inputs.Acceptance,

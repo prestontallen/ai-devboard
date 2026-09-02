@@ -48,11 +48,15 @@ type Inputs struct {
 
 // Output is the JSON wire shape for the CLI success path.
 type Output struct {
-	Status   string   `json:"status"`
-	ID       string   `json:"id"`
-	Title    string   `json:"title"`
-	Section  string   `json:"section"`
-	Parent   string   `json:"parent"`
+	Status  string `json:"status"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Section string `json:"section"`
+	Parent  string `json:"parent"`
+	// Type is the ticket's block type ("spike", "chore"); empty for an
+	// ordinary ticket. Surfaced so the CLI can mirror it to devboard
+	// without re-parsing WORK.md.
+	Type     string   `json:"type,omitempty"`
 	Started  string   `json:"started"`
 	WorkMD   string   `json:"workMD"`
 	Warnings []string `json:"warnings"`
@@ -231,15 +235,17 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 	}
 
 	var (
-		newLines []string
-		title    string
-		parent   string
+		newLines  []string
+		title     string
+		parent    string
+		blockType string
 	)
 
 	switch res.Resolution {
 	case ResStandalone:
 		title = res.Block.Title
 		parent = res.Block.Parent
+		blockType = string(res.Block.Type)
 		afterRemove, src, err := render.RemoveBlock(doc, in.ID)
 		if err != nil {
 			return Output{}, err
@@ -320,6 +326,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		Title:    title,
 		Section:  "Now",
 		Parent:   parent,
+		Type:     blockType,
 		Started:  today,
 		WorkMD:   wd.WorkMD(),
 		Warnings: []string{IndexNotUpdatedWarning},
