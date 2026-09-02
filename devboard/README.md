@@ -11,7 +11,8 @@ auto-reconnecting).
 
 Tasks with a `worklog:` join key also render the ticket's
 `notes/<id>.md` live from the worklog data dir (second read-only mount) —
-rendered, never copied, and note edits hot-reload too.
+rendered, never copied, and note edits hot-reload too. That mount also
+carries `FEEDBACK.md`, rendered as the global Friction panel (see below).
 
 The intended writer is the `worklog` CLI (`start`/`done`/`pr` side
 effects plus the `worklog task` family, including `untrack` to stop
@@ -67,11 +68,42 @@ can reach the port can archive/un-archive (reversible by design; the server
 rejects non-JSON content types and never answers CORS preflights, so a
 browsing session on another site can't trigger it cross-origin).
 
+## Friction panel
+
+`FEEDBACK.md` at the root of the worklog mount is the friction log the
+worklog skill's capture subagent appends to (`worklog feedback append`).
+The board renders it as a single global band — it is not per-task, so no
+task-file field is involved:
+
+- an unreviewed count in the topbar stats, absent when nothing is outstanding
+- a collapsed `Friction · N` fold with a count per signal, then the
+  unresolved entries newest-first (signal, local time, trigger, and a fold
+  for the excerpt and context)
+- resolved entries in a `Resolved · N` sub-fold, dimmed
+
+Reviewing happens in the CLI, never here: the worklog mount is read-only, so
+each entry offers a button that copies `worklog feedback resolve <timestamp>`
+rather than writing anything. Running it adds a `**Resolved**: <unix-ts>`
+line to that entry, and the board updates over SSE within ~2s.
+
+The entry format is owned by the Go side
+(`worklog/internal/feedback/feedback.go`); `server.py` parses it a second
+time because the container ships no `worklog` binary. The reader skips
+unknown `**Field**:` lines rather than failing, so the two can be extended
+independently. `devboard/test_server.py` (stdlib `unittest`, no extra
+dependency) pins the reader:
+
+```sh
+cd devboard && python3 -m unittest test_server
+```
+
 ## Behavior notes
 
 - Malformed files render as an error card (filename + parse error); they
   never take down the rest of the page.
 - Unknown top-level fields render in an "Other" section — extend freely.
 - Tasks untouched for >2h render dimmed (likely-stale signal).
+- A missing or malformed `FEEDBACK.md` simply means no friction panel —
+  it never takes down the page.
 - Server: Python stdlib + PyYAML; a 1s mtime scan drives the SSE stream
   (no inotify — works identically under Docker volume mounts).

@@ -1,17 +1,17 @@
 //go:build unix
 
-package devboard
+package lockfile
 
 import (
 	"os"
 	"syscall"
 )
 
-// lock takes an exclusive flock on lockPath, blocking until acquired. The
+// Acquire takes an exclusive flock on lockPath, blocking until acquired. The
 // lock file is deliberately never unlinked: removing it while another
 // process waits on the same path lets a third process lock a fresh inode
 // and defeats mutual exclusion.
-func lock(lockPath string) (func(), error) {
+func Acquire(lockPath string) (func(), error) {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err

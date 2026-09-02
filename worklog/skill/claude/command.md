@@ -394,7 +394,7 @@ Exit codes: 0 all success, 64 usage / JSON parse error, 1 any ticket failed or s
 
 ### feedback
 
-**CLI (available):** `worklog feedback [--signal S] [--since YYYY-MM-DD] [--json] [--plain]`
+**CLI (available):** `worklog feedback [--signal S] [--since YYYY-MM-DD] [--unresolved] [--json] [--plain]`
 
 Lists friction-signal entries captured by the worklog agent, stored in
 `FEEDBACK.md` in the worklog data directory.
@@ -405,8 +405,12 @@ Forms:
   markdown when piped).
 - `worklog feedback --signal missing-feature` — filter to one signal type.
 - `worklog feedback --since 2026-05-15` — entries on or after that date.
+- `worklog feedback --unresolved` — only entries not yet marked reviewed.
 - `worklog feedback --json` — structured output (see JSON shape below).
 - `worklog feedback --plain` — raw markdown regardless of TTY.
+
+Filters AND together: `--signal tui-error --unresolved --since 2026-09-01`
+returns only unresolved tui-errors from that date on.
 
 JSON list shape:
 ```json
@@ -417,12 +421,16 @@ JSON list shape:
       "signal": "missing-feature",
       "trigger": "User asked to set a due-date on a ticket.",
       "excerpt": "User: can we add due dates to these tickets",
-      "context": "Triaging tickets in ## Next; wanted to surface deadlines."
+      "context": "Triaging tickets in ## Next; wanted to surface deadlines.",
+      "resolved": 0
     }
   ],
   "count": 1
 }
 ```
+
+`resolved` is the unix time the entry was marked reviewed, omitted while it
+is still outstanding.
 
 **Append subcommand (for capture subagent):**
 `worklog feedback append --signal S --trigger T [--excerpt E] [--context C] [--json]`
@@ -448,6 +456,25 @@ JSON append shape (on `--json`): the stamped `Entry` object:
 
 Valid signals: `missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
 Bad signal or empty trigger → exit 64.
+
+**Resolve subcommand:** `worklog feedback resolve <timestamp> [--json]`
+
+Marks one entry reviewed. Entries are addressed by the unix timestamp in
+their heading — the `timestamp` field in `--json` output — never by position
+in a listing, which shifts as filters change.
+
+Writes a `**Resolved**: <unix-ts>` line into that entry and leaves the rest
+of `FEEDBACK.md` byte-for-byte unchanged. Resolving an already-resolved
+entry prints `already resolved: <ts> (on <date>)` and exits 0. An unknown
+timestamp → exit 64, file untouched.
+
+JSON resolve shape (on `--json`):
+```json
+{"timestamp": 1716148991, "resolved": 1716235391, "already": false}
+```
+
+Two entries captured in the same unix second share a handle; resolve targets
+the first of them.
 
 ## Hard rules (inherited from the skill)
 

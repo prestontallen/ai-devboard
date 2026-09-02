@@ -5,7 +5,8 @@ Layout: <DEVBOARD_DATA>/<repo>/<task>.{yaml,yml,json}
         <DEVBOARD_DATA>/<repo>/_archive/<task>.yaml   (archived; flagged in API)
 Endpoints:
   /               -> static/index.html
-  /api/tasks      -> all tasks, parsed, grouped by repo dir
+  /api/tasks      -> all tasks, parsed, grouped by repo dir, plus the
+                     global friction log parsed from the worklog mount
   /events         -> SSE stream; emits a message whenever the data dir changes
   /api/archive    -> POST {repo, id}: move task file into <repo>/_archive/
   /api/unarchive  -> POST {repo, id}: move it back
@@ -16,6 +17,7 @@ validated rename — task content and the worklog dir are never touched.
 
 import json
 import os
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,12 +25,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import yaml
 
 DATA_DIR = os.environ.get("DEVBOARD_DATA", "/data")
-WORKLOG_DIR = os.environ.get("DEVBOARD_WORKLOG", "/worklog")  # notes/<id>.md rendered per task
+WORKLOG_DIR = os.environ.get("DEVBOARD_WORKLOG", "/worklog")  # notes/<id>.md + FEEDBACK.md, read-only
 PORT = int(os.environ.get("DEVBOARD_PORT", "8484"))
 SCAN_INTERVAL = float(os.environ.get("DEVBOARD_SCAN_INTERVAL", "1.0"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 TASK_EXTS = (".yaml", ".yml", ".json")
 ARCHIVE_DIR = "_archive"  # per-repo subdir; the only place the server ever moves files
+FEEDBACK_MD = "FEEDBACK.md"  # friction log at the worklog root; written only by the worklog CLI
+
+# Entry heading in FEEDBACK.md: "## <unix-ts> — <signal>" (em dash).
+FEEDBACK_HEADING = re.compile(r"^## (\d+) \u2014 (\S+)$")
 
 _version = 0
 _changed = threading.Condition()
@@ -36,7 +42,8 @@ _changed = threading.Condition()
 
 def _snapshot():
     """Map of watched-file path -> (mtime, size) for change detection.
-    Covers task files and worklog notes, so note edits hot-reload too."""
+    Covers task files, worklog notes and FEEDBACK.md, so note edits and
+    newly captured (or resolved) friction hot-reload too."""
     snap = {}
     try:
         with os.scandir(DATA_DIR) as repos:
@@ -57,6 +64,12 @@ def _snapshot():
                 except (FileNotFoundError, NotADirectoryError):
                     pass
     except FileNotFoundError:
+        pass
+    try:
+        fpath = os.path.join(WORKLOG_DIR, FEEDBACK_MD)
+        st = os.stat(fpath)
+        snap[fpath] = (st.st_mtime_ns, st.st_size)
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
         pass
     try:
         with os.scandir(os.path.join(WORKLOG_DIR, "notes")) as notes:
@@ -109,6 +122,58 @@ def _parse_task(path, archived=False):
     return entry
 
 
+def _parse_feedback():
+    """Parse FEEDBACK.md into a list of entries, oldest first.
+
+    Mirrors the format written by `worklog feedback` (Go:
+    internal/feedback/feedback.go). Deliberately permissive — an unknown
+    "**Field**:" line is skipped rather than failing, so the Go side can add
+    fields without breaking the board. Any read or parse problem yields an
+    empty list: friction is a side panel and must never take down the page.
+    """
+    try:
+        with open(os.path.join(WORKLOG_DIR, FEEDBACK_MD), "r",
+                  encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().split("\n")
+    except OSError:
+        return []
+
+    entries, cur, in_excerpt = [], None, False
+    for line in lines:
+        m = FEEDBACK_HEADING.match(line)
+        if m:
+            if cur:
+                entries.append(cur)
+            cur = {"timestamp": int(m.group(1)), "signal": m.group(2),
+                   "trigger": "", "excerpt": "", "context": "", "resolved": 0}
+            in_excerpt = False
+            continue
+        if cur is None:
+            continue
+        if line.startswith("**Trigger**: "):
+            cur["trigger"] = line[len("**Trigger**: "):]
+            in_excerpt = False
+        elif line == "**Excerpt**:":
+            in_excerpt = True
+        elif line.startswith("**Context**: "):
+            cur["context"] = line[len("**Context**: "):]
+            in_excerpt = False
+        elif line.startswith("**Resolved**: "):
+            raw = line[len("**Resolved**: "):].strip()
+            cur["resolved"] = int(raw) if raw.isdigit() else 0
+            in_excerpt = False
+        elif line.startswith("**"):
+            in_excerpt = False  # unknown field: skip the line, keep the entry
+        elif in_excerpt:
+            text = line[2:] if line.startswith("> ") else line
+            cur["excerpt"] = cur["excerpt"] + "\n" + text if cur["excerpt"] else text
+    if cur:
+        entries.append(cur)
+    for e in entries:
+        e["excerpt"] = e["excerpt"].strip()
+    return entries
+
+
 def _all_tasks():
     repos = []
     try:
@@ -136,7 +201,8 @@ def _all_tasks():
             repos.append({"repo": name, "tasks": tasks})
     with _changed:
         v = _version
-    return {"version": v, "generated": time.time(), "repos": repos}
+    return {"version": v, "generated": time.time(), "repos": repos,
+            "feedback": _parse_feedback()}
 
 
 class Handler(BaseHTTPRequestHandler):

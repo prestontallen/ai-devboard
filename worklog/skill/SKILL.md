@@ -62,7 +62,8 @@ in an editor.
 | Search prior work | `worklog search <term>` (`--deep`, `--limit`, `--json`, `--plain` modes; INDEX-first with full-text fallback) | available |
 | Status-report view | `worklog summarize` (`--json`, `--plain`, `--limit N`; grouped by epic, in-progress scope) | available |
 | Capture user friction | (spawned by agent; see Feedback capture) | available |
-| List captured feedback | `worklog feedback` (`--signal`, `--since`, `--json`, `--plain`) | available |
+| List captured feedback | `worklog feedback` (`--signal`, `--since`, `--unresolved`, `--json`, `--plain`) | available |
+| Mark feedback reviewed | `worklog feedback resolve <timestamp>` (`--json`) | available |
 | Add / read notes | `worklog note <id> [text]` (`--edit`, `--editor`, `--json`; positional text appends, no text reads) | available |
 | Park to waiting | `worklog wait <id>` (`--json`; moves Now→Waiting, stamps **Waiting since**:; resume via `worklog start`) | available |
 | Deploy skill files | `worklog sync` (`--dry-run` / `--check` modes) | available |
@@ -861,7 +862,20 @@ Use this prompt verbatim (filling `<SIGNAL>`, `<EXCERPT>`, `<CONTEXT>`):
 Signal vocabulary is closed — use exactly one of:
 `missing-feature`, `tui-error`, `profanity`, `agent-frustration`.
 
-The user reviews captured feedback later via `worklog feedback`.
+The user reviews captured feedback later via `worklog feedback`, or on the
+devboard, which renders a global Friction panel from the same file (counts
+by signal, unresolved entries, resolved ones in a sub-fold).
+
+Once an entry has been dealt with, mark it reviewed:
+
+    worklog feedback resolve <timestamp>
+
+The timestamp is the one in the entry's heading (the `timestamp` field in
+`--json` output), not its position in a listing — positions shift as filters
+change. That writes a `**Resolved**: <unix-ts>` line into the entry and
+leaves the rest of the file untouched; `worklog feedback --unresolved` then
+shows what is still outstanding. Resolving is the human's call, not the
+capture subagent's.
 
 ## Importing tickets
 

@@ -70,6 +70,23 @@
   .sec.waitsec { border-color: color-mix(in srgb, var(--signal) 30%, var(--border)); }
   .sec.waitsec h3 { color: var(--signal); }
   .sec.waitsec .need { display: flex; align-items: center; gap: .8rem; padding: .45rem 0; }
+
+  /* friction: the global FEEDBACK.md log. Deliberately uncoloured — it is a
+     backlog to work through, not something blocking the task in front of
+     you, so it must not compete with the amber needs-you band. */
+  .bandfold.friction summary { color: var(--dim); font-weight: 600; }
+  .kind.sig { color: var(--dim); background: color-mix(in srgb, var(--dim) 12%, transparent);
+              text-transform: none; }
+  .sigcounts { display: flex; gap: .4rem; flex-wrap: wrap; padding: .35rem 0 .15rem; }
+  .sigcounts .chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .fnote { font-size: .82rem; color: var(--dim); margin: .15rem 0 .2rem; }
+  .resolvedwrap { margin-top: .6rem; }
+  .resolvedwrap .need { opacity: .6; }
+  /* Indent an entry's detail under the row it belongs to — unindented it
+     reads as though it belongs to the next entry down. */
+  .bandfold.friction .fold[data-k^="friction|"] { margin: 0 0 .15rem 1.15rem;
+      padding-left: .75rem; border-left: 2px solid color-mix(in srgb, var(--border) 70%, transparent); }
+  .bandfold.friction .fold[data-k^="friction|"] pre { margin: .3rem 0; }
   .sec.waitsec .go { margin-left: auto; flex: none; }
 
   button.act { background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
@@ -304,8 +321,12 @@ const flat = () => DB.repos.flatMap(r => r.tasks.map(t => ({ repo: r.repo, t }))
 
 /* copy `claude --resume <session>`; data-s carries the session id */
 window.copySession = function (ev, btn) {
+  copyToClipboard(ev, btn, `claude --resume ${btn.dataset.s}`);
+};
+/* copy an arbitrary command; data-c carries it */
+window.copyCmd = function (ev, btn) { copyToClipboard(ev, btn, btn.dataset.c); };
+function copyToClipboard(ev, btn, cmd) {
   ev.preventDefault(); ev.stopPropagation();
-  const cmd = `claude --resume ${btn.dataset.s}`;
   const done = () => {
     const prev = btn.textContent;
     btn.textContent = "copied ✓"; btn.classList.add("ok");
@@ -314,7 +335,7 @@ window.copySession = function (ev, btn) {
   if (navigator.clipboard?.writeText) {
     navigator.clipboard.writeText(cmd).then(done).catch(() => fallbackCopy(cmd, done));
   } else fallbackCopy(cmd, done);
-};
+}
 function fallbackCopy(text, done) {   // non-secure contexts (e.g. served over LAN ip)
   const ta = document.createElement("textarea");
   ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
@@ -382,6 +403,49 @@ function metersHTML(k) {
 const fold = (key, label, inner, extra) =>
   `<details class="fold" data-k="${esc(key)}"><summary>${label}</summary>${inner}</details>${extra || ""}`;
 
+/* ---------- friction: the global FEEDBACK.md log ----------
+   Global, not per-task: no task-YAML field is involved. The board only ever
+   reads it — the worklog mount is read-only, so "resolve" is a copyable CLI
+   command, never a button that writes. */
+const SIG_ORDER = ["missing-feature", "tui-error", "profanity", "agent-frustration"];
+const feedbackAll = () => Array.isArray(DB.feedback) ? DB.feedback : [];
+const feedbackOpen = () => feedbackAll().filter(e => !e.resolved);
+const stamp = t => t ? new Date(t * 1000).toLocaleString() : "";
+const newestFirst = xs => xs.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+const resolveBtn = e => e.resolved ? ""
+  : `<button class="act" data-c="worklog feedback resolve ${esc(e.timestamp)}" onclick="copyCmd(event, this)" title="copy: worklog feedback resolve ${esc(e.timestamp)}">⧉ resolve cmd</button>`;
+
+function frictionRow(e, i, group) {
+  const detail = (e.excerpt ? `<pre>${esc(e.excerpt)}</pre>` : "") +
+                 (e.context ? `<div class="fnote">${esc(e.context)}</div>` : "");
+  const sub = stamp(e.timestamp) + (e.resolved ? ` · reviewed ${stamp(e.resolved)}` : "");
+  return `<div class="need"><span class="kind sig">${esc(e.signal || "?")}</span>` +
+    `<div class="what"><b>${esc(e.trigger || "")}</b><small>${esc(sub)}</small></div>` +
+    `<span class="go">${resolveBtn(e)}</span></div>` +
+    (detail ? fold(`friction|${group}|${i}`, "detail", detail) : "");
+}
+
+function frictionHTML() {
+  const all = feedbackAll();
+  if (!all.length) return "";
+  const open = all.filter(e => !e.resolved), done = all.filter(e => e.resolved);
+  const signals = [...new Set(open.map(e => e.signal))]
+    .sort((a, b) => (SIG_ORDER.indexOf(a) + 1 || 99) - (SIG_ORDER.indexOf(b) + 1 || 99));
+  const counts = signals.map(sig =>
+    `<span class="chip">${esc(sig)} <b>${open.filter(e => e.signal === sig).length}</b></span>`).join("");
+  const body =
+    (counts ? `<div class="sigcounts">${counts}</div>` : "") +
+    (open.length
+      ? newestFirst(open).map((e, i) => frictionRow(e, i, "open")).join("")
+      : `<div class="calm">all captured friction reviewed</div>`) +
+    (done.length
+      ? `<div class="resolvedwrap">` + fold("board|frictiondone", `Resolved · ${done.length}`,
+          newestFirst(done).map((e, i) => frictionRow(e, i, "done")).join("")) + `</div>`
+      : "");
+  return `<section class="bandfold friction">` +
+    fold("board|friction", `Friction · ${open.length}`, body) + `</section>`;
+}
+
 /* ---------- board ---------- */
 function statsHTML() {
   const ts = flat().filter(x => !x.t.error && !isArchived(x.t));
@@ -389,10 +453,12 @@ function statsHTML() {
   const need = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + needsCount(x.t), 0);
   const waiting = ts.filter(x => (x.t.task.phase || "") !== "done").reduce((a, x) => a + waitCount(x.t), 0);
   const stale = ts.filter(x => (x.t.task.phase || "") !== "done" && isStale(x.t.mtime)).length;
+  const friction = feedbackOpen().length;
   return `<div class="stat"><b>${inFlight}</b><span>in flight</span></div>` +
     (need ? `<div class="stat attn"><b>${need}</b><span>need you</span></div>` : "") +
     (waiting ? `<div class="stat wait"><b>${waiting}</b><span>waiting on</span></div>` : "") +
-    (stale ? `<div class="stat"><b>${stale}</b><span>stale</span></div>` : "");
+    (stale ? `<div class="stat"><b>${stale}</b><span>stale</span></div>` : "") +
+    (friction ? `<div class="stat"><b>${friction}</b><span>friction</span></div>` : "");
 }
 
 const isDone = t => !t.error && (t.task.phase || "") === "done";
@@ -423,7 +489,7 @@ function cardHTML({ repo, t }) {
 
 function viewBoard() {
   const all = flat();
-  if (!all.length) return `<div class="empty">No tasks yet. Drop a <code>&lt;repo&gt;/&lt;task&gt;.yaml</code> into the data directory.</div>`;
+  if (!all.length) return frictionHTML() + `<div class="empty">No tasks yet. Drop a <code>&lt;repo&gt;/&lt;task&gt;.yaml</code> into the data directory.</div>`;
   const live = all.filter(x => !isDone(x.t) && !isArchived(x.t));
   const done = all.filter(x => isDone(x.t) && !isArchived(x.t));
   const archived = all.filter(x => isArchived(x.t));
@@ -456,6 +522,7 @@ function viewBoard() {
           `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>`;
       }).join("")) + `</section>`;
   }
+  html += frictionHTML();
   const order = live.slice().sort((a, b) =>
     (needsCount(b.t) ? 1 : 0) - (needsCount(a.t) ? 1 : 0) ||
     phaseIdx(b.t.task?.phase) - phaseIdx(a.t.task?.phase) ||

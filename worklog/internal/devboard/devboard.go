@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
 )
 
 // Schema mirror of devboard/schema.md v1. Extra preserves unknown
@@ -265,7 +267,7 @@ func Mutate(path string, fn func(*Task) error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	unlock, err := lock(path + ".lock")
+	unlock, err := lockfile.Acquire(path + ".lock")
 	if err != nil {
 		return err
 	}
