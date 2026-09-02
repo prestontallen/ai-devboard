@@ -1,0 +1,43 @@
+# CI: formatting, vet, and tests for the worklog module on every push and PR.
+# release.yml only builds tags, so without this nothing checks the tree —
+# installer/deploy.go went gofmt-dirty the day it was written and survived.
+name: ci
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worklog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: worklog/go.mod
+          cache-dependency-path: worklog/go.sum
+
+      # gofmt exits 0 whether or not it finds anything, so the file list is
+      # the signal: print it and fail when it is non-empty.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
