@@ -384,7 +384,15 @@ func newTaskScorecardCmd(id, child *string, force *bool, asJSON *bool) *cobra.Co
 
 edit keeps the criterion's status; --verify is only rewritten when passed.
 remove renumbers: dropping criterion 2 makes the old criterion 3 the new
-criterion 2. Re-read the list before addressing one by index after a removal.`,
+criterion 2. Re-read the list before addressing one by index after a removal.
+
+add, edit and pass warn (never refuse) about a verify cell that cannot prove
+anything: hedged wording like "or manual", and cells that are neither a
+command nor an explicit "manual: <procedure>". pass additionally asks the
+toolchain what a 'go test -run <pattern>' cell actually matches, and warns
+when that is nothing — go test exits 0 on zero matches, so such a criterion
+would otherwise pass green having run no code. It stays silent whenever it
+cannot answer: no toolchain, a build failure, or no repo it can identify.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			verb := args[0]
 			if verb == "add" {
