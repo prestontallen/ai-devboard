@@ -175,11 +175,23 @@ func List() ([]string, error) {
 	return out, nil
 }
 
-// RepoName derives the grouping directory for new task files: basename of
-// the enclosing git worktree, falling back to the cwd basename.
+// RepoName derives the grouping directory for new task files: the basename
+// of the repository, falling back to the cwd basename outside a repo.
+//
+// Resolution goes through the *common* git dir rather than the worktree
+// root. `git rev-parse --show-toplevel` answers with the linked worktree's
+// own path, so every task file created from a worktree used to be filed
+// under a group named after the worktree instead of the repo — silently, in
+// a directory that only ever held that one file.
 func RepoName() string {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-	if err == nil {
+	if name := repoNameFromCommonDir(); name != "" {
+		return name
+	}
+	// Older git has no --path-format (added in 2.31). Fall back to the
+	// worktree root, which is correct everywhere except inside a linked
+	// worktree — i.e. those users keep the old behavior rather than gaining
+	// a new failure.
+	if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
 		if top := strings.TrimSpace(string(out)); top != "" {
 			return filepath.Base(top)
 		}
@@ -189,6 +201,51 @@ func RepoName() string {
 		return "unknown"
 	}
 	return filepath.Base(wd)
+}
+
+// repoNameFromCommonDir resolves the repository name via the common git dir,
+// which points at the main repository from anywhere — main checkout, linked
+// worktree, or any subdirectory of either. Returns "" when git can't answer,
+// leaving the caller to fall back.
+func repoNameFromCommonDir() string {
+	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" || !filepath.IsAbs(dir) {
+		return ""
+	}
+	dir = filepath.Clean(dir)
+
+	// Normal repo: the common dir is <root>/.git, so the repo is its parent.
+	if filepath.Base(dir) == ".git" {
+		return filepath.Base(filepath.Dir(dir))
+	}
+	// Bare repo: the common dir *is* the repository (e.g. …/foo.git).
+	return strings.TrimSuffix(filepath.Base(dir), ".git")
+}
+
+// PendingNewGroup returns the repo group name when devboard is enabled and
+// that group has no directory yet — i.e. the next task file written will
+// create it. Empty otherwise.
+//
+// A brand-new group is usually just the first ticket in a new repo, but it is
+// also exactly what a misresolved repo name looks like. The two are
+// indistinguishable here, so this reports rather than decides: callers surface
+// it and let the human notice a name that isn't their repo.
+func PendingNewGroup() string {
+	if !Enabled() {
+		return ""
+	}
+	repo := RepoName()
+	if repo == "" {
+		return ""
+	}
+	if fi, err := os.Stat(filepath.Join(DataDir(), repo)); err == nil && fi.IsDir() {
+		return ""
+	}
+	return repo
 }
 
 // gitBranch returns the current branch name, or "" outside a repo.
