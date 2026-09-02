@@ -27,7 +27,7 @@ supported.
 | `children` | worklog (roster identity), agent (per-child in-flight detail) | see "Epic files" below |
 | `links` (PR) | worklog (`worklog pr`) | other entries worklog too (`worklog link <id> <name> [url]`, e.g. Jira/Slack/docs — any name, not just PR) |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
-| `tier`, `complexity`, `branch`, `session` | agent | identity/telemetry |
+| `tier`, `complexity`, `branch`, `session`, `repo_path` | agent | identity/telemetry |
 | `plan`, `scorecard`, `decisions`, `code`, `needs_you`, `waiting_on` | agent | in-flight detail; deliberately NOT stored in worklog |
 | notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
 
@@ -35,6 +35,12 @@ supported.
 schema: 1                 # required; schema version
 title: Add retry to embedding client
 branch: feat/embed-retry  # optional
+repo_path: /home/you/nole # optional; the repo's working-tree root, recorded
+                          # by `worklog start`. Absent when it could not be
+                          # established with confidence — notably when the
+                          # ticket's **Repo**: disagrees with the repo the
+                          # command ran in, since a wrong path is worse than
+                          # none. Consumers must check it still exists.
 session: 5cc41a6e-9f2c-4c11-b0a6-2f4e7f1d8a33
                           # optional; Claude Code session id of the agent
                           # working this task — the UI shows a button that

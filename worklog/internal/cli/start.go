@@ -70,7 +70,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 				devboardSyncEpic(wd, b.Parent)
 			} else {
 				// Resume path: the block is already in hand, no extra parse.
-				devboardOnStart(out.ID, "", string(b.Type))
+				devboardOnStart(out.ID, "", string(b.Type), b.Repo)
 			}
 			if asJSON {
 				return emitJSON(cmd.OutOrStdout(), out)
@@ -101,7 +101,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	if out.Parent != "" {
 		devboardSyncEpic(wd, out.Parent)
 	} else {
-		devboardOnStart(out.ID, out.Title, out.Type)
+		devboardOnStart(out.ID, out.Title, out.Type, out.Repo)
 	}
 
 	if asJSON {

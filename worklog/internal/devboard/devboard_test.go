@@ -26,7 +26,7 @@ func TestDisabledWhenDirMissing(t *testing.T) {
 	}
 	// side effects must succeed as no-ops
 	for name, fn := range map[string]func() error{
-		"OnStart": func() error { return OnStart("x", "X", "") },
+		"OnStart": func() error { return OnStart("x", "X", "", "") },
 		"OnDone":  func() error { return OnDone("x") },
 		"OnPR":    func() error { return OnPR("x", "u") },
 		"OnLink":  func() error { return OnLink("x", "Jira", "u") },
@@ -40,7 +40,7 @@ func TestDisabledWhenDirMissing(t *testing.T) {
 func TestOnStartCreatesTaskFile(t *testing.T) {
 	dir := withDataDir(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-123")
-	if err := OnStart("tkt-1", "Fix the thing", ""); err != nil {
+	if err := OnStart("tkt-1", "Fix the thing", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*", "tkt-1.yaml"))
@@ -384,7 +384,7 @@ waiting_on:
 
 func TestOnStartMirrorsSpikeType(t *testing.T) {
 	dir := withDataDir(t)
-	if err := OnStart("spike-1", "Investigate", "spike"); err != nil {
+	if err := OnStart("spike-1", "Investigate", "spike", ""); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*", "spike-1.yaml"))
@@ -404,7 +404,7 @@ func TestOnStartMirrorsSpikeType(t *testing.T) {
 // An ordinary ticket writes no type at all.
 func TestOnStartLeavesTypeEmptyForTicket(t *testing.T) {
 	dir := withDataDir(t)
-	if err := OnStart("tkt-2", "Ordinary", ""); err != nil {
+	if err := OnStart("tkt-2", "Ordinary", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*", "tkt-2.yaml"))
@@ -421,14 +421,14 @@ func TestOnStartLeavesTypeEmptyForTicket(t *testing.T) {
 // A start must never clobber the epic marker SyncEpicRoster owns.
 func TestOnStartNeverOverwritesEpicType(t *testing.T) {
 	dir := withDataDir(t)
-	if err := OnStart("epic-1", "An epic", ""); err != nil {
+	if err := OnStart("epic-1", "An epic", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	matches, _ := filepath.Glob(filepath.Join(dir, "*", "epic-1.yaml"))
 	if err := Mutate(matches[0], func(tk *Task) error { tk.Type = "epic"; return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := OnStart("epic-1", "An epic", "spike"); err != nil {
+	if err := OnStart("epic-1", "An epic", "spike", ""); err != nil {
 		t.Fatal(err)
 	}
 	var task Task

@@ -30,8 +30,13 @@ type Task struct {
 	Title  string `yaml:"title,omitempty"`
 	// "epic" marks an epic container; "spike" marks investigation-first
 	// work, which the UI renders on a short phase track.
-	Type       string        `yaml:"type,omitempty"`
-	Branch     string        `yaml:"branch,omitempty"`
+	Type   string `yaml:"type,omitempty"`
+	Branch string `yaml:"branch,omitempty"`
+	// RepoPath is the repository's working-tree root, recorded at start so
+	// tooling has a real directory to work in instead of inferring one from
+	// cwd. Absent whenever it could not be established with confidence —
+	// see RepoRootFor.
+	RepoPath   string        `yaml:"repo_path,omitempty"`
 	Session    string        `yaml:"session,omitempty"`
 	Worklog    string        `yaml:"worklog,omitempty"`
 	Tier       *int          `yaml:"tier,omitempty"`
@@ -299,6 +304,57 @@ func PendingNewGroup() string {
 }
 
 // gitBranch returns the current branch name, or "" outside a repo.
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
+
+// RepoRoot resolves the repository's working-tree root through the same git
+// common dir RepoName() uses, so the recorded path and the group name can
+// never describe different repositories. Returns "" when git cannot answer
+// and for a bare repo, which has no working tree to record.
+func RepoRoot() string {
+	out, err := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" || !filepath.IsAbs(dir) {
+		return ""
+	}
+	dir = filepath.Clean(dir)
+	// Normal repo: the common dir is <root>/.git, so the root is its parent.
+	// A bare repo's common dir *is* the repository and has no working tree.
+	if filepath.Base(dir) != ".git" {
+		return ""
+	}
+	return filepath.Dir(dir)
+}
+
+// RepoRootFor returns the root to record for a ticket that declares
+// declaredRepo in its **Repo**: field, or "" to record nothing.
+//
+// A path resolved from the wrong directory is worse than no path: a consumer
+// would run against the wrong tree instead of staying silent. So when the
+// ticket names a repo and it disagrees with the one cwd resolves to, this
+// records nothing. declaredRepo is free text in WORK.md and is sometimes
+// owner-qualified ("prestontallen/nole"), so only its final element is
+// compared.
+func RepoRootFor(declaredRepo string) string {
+	root := RepoRoot()
+	if root == "" {
+		return ""
+	}
+	declared := strings.TrimSpace(declaredRepo)
+	if declared == "" {
+		return root
+	}
+	if !strings.EqualFold(filepath.Base(filepath.ToSlash(declared)), RepoName()) {
+		return ""
+	}
+	return root
+}
+
 func gitBranch() string {
 	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
@@ -389,7 +445,7 @@ var today = func() string { return time.Now().Format("2006-01-02") }
 // blockType mirrors the ticket's WORK.md Type ("spike", "chore"); empty for
 // an ordinary ticket. Like title, it is identity rather than workflow state
 // — the board reads it to pick the short research track for a spike.
-func OnStart(id, title, blockType string) error {
+func OnStart(id, title, blockType, declaredRepo string) error {
 	if !Enabled() {
 		return nil
 	}
@@ -413,6 +469,14 @@ func OnStart(id, title, blockType string) error {
 		if created {
 			if b := gitBranch(); b != "" {
 				t.Branch = b
+			}
+		}
+		// Recorded when missing, and refreshed when the recorded root has
+		// gone away — a stale path silently disables every consumer, so
+		// self-healing beats keeping the first answer forever.
+		if t.RepoPath == "" || !dirExists(t.RepoPath) {
+			if root := RepoRootFor(declaredRepo); root != "" {
+				t.RepoPath = root
 			}
 		}
 		return nil

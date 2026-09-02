@@ -19,8 +19,8 @@ func syncDevboard(fn func() error) {
 	}
 }
 
-func devboardOnStart(id, title, blockType string) {
-	syncDevboard(func() error { return devboard.OnStart(id, title, blockType) })
+func devboardOnStart(id, title, blockType, declaredRepo string) {
+	syncDevboard(func() error { return devboard.OnStart(id, title, blockType, declaredRepo) })
 }
 func devboardOnDone(id string) { syncDevboard(func() error { return devboard.OnDone(id) }) }
 

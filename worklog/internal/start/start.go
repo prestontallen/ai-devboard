@@ -56,7 +56,10 @@ type Output struct {
 	// Type is the ticket's block type ("spike", "chore"); empty for an
 	// ordinary ticket. Surfaced so the CLI can mirror it to devboard
 	// without re-parsing WORK.md.
-	Type     string   `json:"type,omitempty"`
+	Type string `json:"type,omitempty"`
+	// Repo is the ticket's declared **Repo**: value. Surfaced for the same
+	// reason as Type: the CLI mirrors it to devboard without re-parsing.
+	Repo     string   `json:"repo,omitempty"`
 	Started  string   `json:"started"`
 	WorkMD   string   `json:"workMD"`
 	Warnings []string `json:"warnings"`
@@ -239,6 +242,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		title     string
 		parent    string
 		blockType string
+		repo      string
 	)
 
 	switch res.Resolution {
@@ -250,6 +254,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		if err != nil {
 			return Output{}, err
 		}
+		repo = coalesceStr(in.Repo, src.Repo)
 		// Re-parse so line numbers are accurate for AppendToSection.
 		afterDoc, err := parse.Bytes(doc.Path, []byte(strings.Join(afterRemove, "\n")))
 		if err != nil {
@@ -260,7 +265,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 			ID:         src.ID,
 			Type:       string(src.Type),
 			Parent:     src.Parent,
-			Repo:       coalesceStr(in.Repo, src.Repo),
+			Repo:       repo,
 			Tags:       coalesceTags(in.Tags, src.Tags),
 			Started:    today,
 			PR:         src.PR,
@@ -290,6 +295,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		}
 		title = res.Block.Title
 		parent = res.EpicID
+		repo = in.Repo
 		blockLines := render.FormatTicketBlock(render.BlockOptions{
 			Title:      title,
 			ID:         in.ID,
@@ -327,6 +333,7 @@ func Run(wd model.Workdir, in Inputs, today string) (Output, error) {
 		Section:  "Now",
 		Parent:   parent,
 		Type:     blockType,
+		Repo:     repo,
 		Started:  today,
 		WorkMD:   wd.WorkMD(),
 		Warnings: []string{IndexNotUpdatedWarning},
