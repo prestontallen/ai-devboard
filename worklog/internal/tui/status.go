@@ -14,12 +14,12 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/note"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/pr"
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/wait"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
 
 // blockItem implements list.Item.
@@ -148,11 +148,11 @@ type Status struct {
 	width    int
 	height   int
 
-	mode      viewMode
-	prForm    *huh.Form
-	prTarget  string // block ID currently being edited
-	prValue   string // bound value backing the huh input
-	prStatus  string // last-write status line shown below the list
+	mode     viewMode
+	prForm   *huh.Form
+	prTarget string // block ID currently being edited
+	prValue  string // bound value backing the huh input
+	prStatus string // last-write status line shown below the list
 
 	noteForm   *huh.Form
 	noteTarget string // block ID receiving the new note
@@ -190,7 +190,7 @@ func (s *Status) startNoteAdd(b *model.Block) tea.Cmd {
 	s.noteForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewText().
-				Title("New note for "+strings.ToUpper(b.ID)).
+				Title("New note for " + strings.ToUpper(b.ID)).
 				Description("Markdown body. Submit (Ctrl+D) appends; Esc cancels.").
 				Value(&s.noteValue),
 		),

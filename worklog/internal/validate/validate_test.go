@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 // writeWorkdir builds a temporary worklog dir with the given files.

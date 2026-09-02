@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/importer"
+	"github.com/prestontallen/ai-devboard/worklog/internal/importer"
 )
 
 func newImportCmd() *cobra.Command {

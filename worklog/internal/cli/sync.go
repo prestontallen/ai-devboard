@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/sync"
+	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/sync"
 )
 
 func newSyncCmd() *cobra.Command {
@@ -44,13 +46,57 @@ Modes:
 }
 
 func runSync(cmd *cobra.Command, checkMode, dryRunMode bool) error {
-	repoRoot, err := resolveRepoRoot()
-	if err != nil {
-		return errWithExit(1, "%v", err)
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return errWithExit(1, "resolve home: %v", err)
+	}
+	// When an install config exists, sync respects it: deploy only to the
+	// targets the user chose (never to a declined agent), using the repo
+	// the config records — no go.mod walk needed, so this works from the
+	// repo root and from anywhere else. The fixed-pair behavior below
+	// remains only for configless worklog-standalone use.
+	if cfg, ok, _ := installer.LoadConfig(installer.ConfPath()); ok && len(cfg.Targets) > 0 {
+		mode := installer.ModeInstall
+		if checkMode {
+			mode = installer.ModeCheck
+		}
+		if dryRunMode {
+			mode = installer.ModeDryRun
+		}
+		root := cfg.RepoRoot
+		if root == "" {
+			wl, err := resolveRepoRoot()
+			if err != nil {
+				return errWithExit(1, "config has no repo line and no checkout found: %v", err)
+			}
+			root = filepath.Dir(wl)
+		}
+		rep, err := installer.RunWorklogSkill(root, cfg.Targets, home, mode)
+		if err != nil {
+			return errWithExit(1, "%v", err)
+		}
+		w := cmd.OutOrStdout()
+		for _, a := range rep.Actions {
+			switch a.Kind {
+			case "plan":
+				fmt.Fprintln(w, "would: "+a.Text)
+			case "stale":
+				fmt.Fprintln(w, style.Bad.Render("drift: "+a.Text))
+			default:
+				fmt.Fprintln(w, a.Text)
+			}
+		}
+		if checkMode && rep.Drift {
+			return errWithExit(1, "sync: targets differ from repo")
+		}
+		if len(rep.Actions) == 0 {
+			fmt.Fprintln(w, style.Good.Render("sync: all configured targets current"))
+		}
+		return nil
+	}
+	repoRoot, err := resolveRepoRoot()
+	if err != nil {
+		return errWithExit(1, "%v", err)
 	}
 	pairs := sync.DefaultPairs(repoRoot, home)
 

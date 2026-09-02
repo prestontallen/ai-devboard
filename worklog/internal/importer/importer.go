@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/reindex"
-	"github.com/prestontallen/day2day/internal/render"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
+	"github.com/prestontallen/ai-devboard/worklog/internal/render"
 )
 
 func decodeJSON(data []byte, v any) error {

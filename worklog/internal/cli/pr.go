@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/pr"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 func newPrCmd() *cobra.Command {

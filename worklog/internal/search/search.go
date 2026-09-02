@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 // QueryMode identifies how multi-term matching is applied.
@@ -68,8 +68,8 @@ type Inputs struct {
 type Hit struct {
 	ID      string `json:"id"`
 	File    string `json:"file"`
-	Source  string `json:"source"`  // "index" or "fulltext"
-	Kind    string `json:"kind"`    // string form of Kind from snippet.go
+	Source  string `json:"source"` // "index" or "fulltext"
+	Kind    string `json:"kind"`   // string form of Kind from snippet.go
 	Title   string `json:"title"`
 	Snippet string `json:"snippet"` // joined Lines from extractSnippet
 }

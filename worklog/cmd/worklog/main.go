@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/prestontallen/day2day/internal/cli"
+	"github.com/prestontallen/ai-devboard/worklog/internal/cli"
 )
 
 // Set by GoReleaser via -ldflags -X main.version / main.commit / main.date.

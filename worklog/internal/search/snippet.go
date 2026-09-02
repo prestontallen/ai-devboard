@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 // Kind labels the source-shape of a snippet so the CLI / agent can present

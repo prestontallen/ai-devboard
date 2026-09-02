@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 // loadFixture writes a minimal WORK.md at root and returns the parsed
@@ -297,10 +297,10 @@ func TestChildAddRejectsMissingEpic(t *testing.T) {
 
 func TestSplitTags(t *testing.T) {
 	cases := map[string][]string{
-		"":                nil,
-		"  ":              nil,
-		"one":             {"one"},
-		"a, b,c":          {"a", "b", "c"},
+		"":               nil,
+		"  ":             nil,
+		"one":            {"one"},
+		"a, b,c":         {"a", "b", "c"},
 		"trim, ,empties": {"trim", "empties"},
 	}
 	for in, want := range cases {

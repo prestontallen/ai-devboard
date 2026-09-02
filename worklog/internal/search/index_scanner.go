@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 // indexHit is a single resolved INDEX.md match — an ID plus the file it
@@ -29,7 +29,7 @@ var (
 //     collect candidate IDs:
 //     - "By ticket" lines contribute their ID directly.
 //     - "By tag" / "By repo" lines contribute every ID listed after the
-//       colon (these are how tag and repo searches reach the file pointers).
+//     colon (these are how tag and repo searches reach the file pointers).
 //  3. For each candidate ID, look it up in the ID → file map and emit an
 //     indexHit. Skip candidates whose ID isn't in the map (defensive).
 //

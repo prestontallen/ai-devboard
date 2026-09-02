@@ -145,9 +145,11 @@ After editing the skill files in the repo, redeploy:
 ./scripts/sync.sh --check  # verify all deployed copies match the repo
 ```
 
-The Cursor and Claude Code copies are intentionally byte-identical; the
-repo's `skill/` dir is the single source of truth and sync.sh (also run
-by the top-level `install.sh`) deploys it everywhere.
+The repo's `skill/` dir is the single source of truth. `worklog sync`
+(and `scripts/sync.sh`) deploy it; when an install config exists
+(`~/.config/ai-devboard/targets`), sync respects it and never writes to
+a target you declined. The top-level `install.sh` → `worklog install`
+flow deploys it along with every other skill.
 
 ---
 

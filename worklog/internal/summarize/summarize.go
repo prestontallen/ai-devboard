@@ -5,16 +5,16 @@ package summarize
 import (
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/note"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 // Row is one ticket within a Group.
 type Row struct {
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`
-	Status     string   `json:"status"`     // "On Track" | "Not Started" | "DONE" | "Waiting"
+	Status     string   `json:"status"` // "On Track" | "Not Started" | "DONE" | "Waiting"
 	Started    string   `json:"started"`
 	LastUpdate string   `json:"lastUpdate"` // "" or "YYYY-MM-DD"
 	Note       string   `json:"note"`       // ≤80 chars

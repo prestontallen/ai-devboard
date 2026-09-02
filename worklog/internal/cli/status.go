@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/validate"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/validate"
 )
 
 // JSON wire types — kept local to the CLI because they translate model
@@ -147,7 +147,7 @@ func waitingAge(since string, now time.Time) int {
 	if err != nil {
 		return 0
 	}
-	days := int(now.Truncate(24 * time.Hour).Sub(t.Truncate(24 * time.Hour)).Hours() / 24)
+	days := int(now.Truncate(24*time.Hour).Sub(t.Truncate(24*time.Hour)).Hours() / 24)
 	if days < 0 {
 		return 0
 	}

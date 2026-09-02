@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/summarize"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/summarize"
 )
 
 func newSummarizeCmd() *cobra.Command {

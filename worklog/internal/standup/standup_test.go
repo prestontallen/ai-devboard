@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 func makeWD(t *testing.T, workMD string, archiveFiles map[string]string) model.Workdir {

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 // ErrBlockNotFound is returned by helpers that look up a block by ID.

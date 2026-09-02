@@ -11,9 +11,9 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/note"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 func newNoteCmd() *cobra.Command {
@@ -79,7 +79,7 @@ func runNote(cmd *cobra.Command, id, text string, hasText, edit, editor, asJSON 
 			form := huh.NewForm(
 				huh.NewGroup(
 					huh.NewText().
-						Title("New note for "+id).
+						Title("New note for " + id).
 						Description("Markdown body. Submit (Ctrl+D) appends; cancel discards.").
 						Value(&formVal),
 				),

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 const baseFixture = `## Now

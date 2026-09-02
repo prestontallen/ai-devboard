@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/render"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/render"
 )
 
 // Inputs captures the user-supplied options for a reindex call.
@@ -34,10 +34,10 @@ type EntryCounts struct {
 
 // Output is the JSON wire shape returned to the CLI.
 type Output struct {
-	Status    string      `json:"status"`             // "regenerated" or "would-regenerate"
+	Status    string      `json:"status"` // "regenerated" or "would-regenerate"
 	IndexPath string      `json:"indexPath"`
 	Entries   EntryCounts `json:"entries"`
-	Content   string      `json:"content,omitempty"`  // populated on --dry-run only
+	Content   string      `json:"content,omitempty"` // populated on --dry-run only
 }
 
 // Record is the internal representation of a single ticket discovered

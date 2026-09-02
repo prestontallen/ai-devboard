@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 // global state populated by root persistent flags.
@@ -17,13 +17,28 @@ var (
 	logger     *log.Logger
 	rootCmd    *cobra.Command
 	versionStr string // set by main via SetVersion
+
+	// raw build-stamp parts, exposed for the installer's staleness check
+	// (comparing the joined display string is how drift bugs happen).
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
 )
 
 // SetVersion wires the build-time version string (injected via ldflags) into
 // the root command before Execute is called.
 func SetVersion(version, commit, date string) {
+	buildVersion, buildCommit, buildDate = version, commit, date
 	versionStr = version + " (" + commit + ", " + date + ")"
 }
+
+// BuildCommit returns the raw commit stamp (e.g. "8f6deba" or
+// "8f6deba-dirty"), for rev comparison against a repo checkout.
+func BuildCommit() string { return buildCommit }
+
+// BuildVersion returns the raw version stamp (e.g. "0.2.0-dev" or a
+// release tag like "v0.3.0").
+func BuildVersion() string { return buildVersion }
 
 // resolveWorkdir reads the --dir flag, falling back to $WORKLOG_DIR, then to
 // model.NewWorkdir's default.
@@ -81,6 +96,8 @@ scripts that handled validation, sync, and lint.`,
 		newSyncCmd(),
 		newLintSpecsCmd(),
 		newTaskCmd(),
+		newInstallCmd(),
+		newPingCmd(),
 	)
 	return cmd
 }
@@ -116,8 +133,8 @@ type codedError struct {
 	msg  string
 }
 
-func (e *codedError) Error() string  { return e.msg }
-func (e *codedError) ExitCode() int  { return e.code }
+func (e *codedError) Error() string { return e.msg }
+func (e *codedError) ExitCode() int { return e.code }
 func errWithExit(code int, format string, a ...any) *codedError {
 	return &codedError{code: code, msg: fmt.Sprintf(format, a...)}
 }

@@ -9,7 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/prestontallen/day2day/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
 
 // runTask executes `worklog task <args...>` against a fresh root command,

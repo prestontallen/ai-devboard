@@ -23,8 +23,8 @@ type Mode int
 
 const (
 	ModeDefault Mode = iota // copy and verify
-	ModeCheck                // diff only, no writes
-	ModeDryRun               // print intent, no writes
+	ModeCheck               // diff only, no writes
+	ModeDryRun              // print intent, no writes
 )
 
 // Status enumerates per-pair outcomes for reporting.
@@ -40,9 +40,9 @@ const (
 
 // Errors returned by package-level functions.
 var (
-	ErrSrcMissing    = errors.New("source file missing")
-	ErrTargetIsDir   = errors.New("target exists as a directory")
-	ErrPostCopyDiff  = errors.New("post-copy diff failed")
+	ErrSrcMissing   = errors.New("source file missing")
+	ErrTargetIsDir  = errors.New("target exists as a directory")
+	ErrPostCopyDiff = errors.New("post-copy diff failed")
 )
 
 // DefaultPairs returns the canonical worklog skill deployment pairs for a

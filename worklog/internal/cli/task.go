@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/devboard"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 // validPhases mirrors the dev-context skill's phase names plus "done".

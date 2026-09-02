@@ -8,9 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/search"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/search"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 type searchScope int
@@ -166,13 +166,13 @@ func filterBlocks(blocks []model.Block, q string) []searchResult {
 
 var (
 	overlayBorder = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Padding(0, 1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("62")).
+			Padding(0, 1)
 
 	selectedRow = lipgloss.NewStyle().
-		Background(lipgloss.Color("62")).
-		Foreground(lipgloss.Color("230"))
+			Background(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("230"))
 )
 
 func (o *searchOverlay) view() string {
@@ -182,7 +182,7 @@ func (o *searchOverlay) view() string {
 	if o.scope == scopeCorpus {
 		scopeLabel = "corpus (Enter to search)"
 	}
-	sb.WriteString(style.SubHeading.Render("Search ["+scopeLabel+"]"))
+	sb.WriteString(style.SubHeading.Render("Search [" + scopeLabel + "]"))
 	sb.WriteString("\n")
 	sb.WriteString(o.input.View())
 	sb.WriteString("\n")

@@ -12,11 +12,11 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/reindex"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/render"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
+	"github.com/prestontallen/ai-devboard/worklog/internal/render"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 // addInputs is the collected user intent for a new ticket — populated either

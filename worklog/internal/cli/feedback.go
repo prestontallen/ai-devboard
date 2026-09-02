@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/feedback"
+	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
 )
 
 func newFeedbackCmd() *cobra.Command {

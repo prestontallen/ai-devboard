@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
 
 func waitingTaskFile(t *testing.T, dir, worklogID string) string {

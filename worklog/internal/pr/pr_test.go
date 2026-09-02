@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 func fixtureWorkdir(t *testing.T, work string) model.Workdir {

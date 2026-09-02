@@ -11,9 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/reindex"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 )
 
 // CheckID is a stable identifier for each rule. CLI output prints
@@ -209,7 +209,7 @@ func checkThreePlaceConsistency(res *Result, wd model.Workdir, doc *model.WorkDo
 			})
 		case err != nil:
 			res.Violations = append(res.Violations, Violation{
-				Check: CheckThreePlaceConsistency,
+				Check:   CheckThreePlaceConsistency,
 				Message: fmt.Sprintf("%s: read failed: %v", notesPath, err),
 			})
 		case !matched:

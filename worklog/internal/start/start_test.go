@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
 const today = "2026-05-19"
@@ -138,8 +138,8 @@ Children:
 - [ ] child-2: second child task
 `
 	wd := fixtureWorkdir(t, map[string]string{
-		"WORK.md":          work,
-		"notes/epic-a.md":  notes,
+		"WORK.md":         work,
+		"notes/epic-a.md": notes,
 	})
 
 	out, err := Run(wd, Inputs{

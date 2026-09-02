@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/standup"
+	"github.com/prestontallen/ai-devboard/worklog/internal/standup"
 )
 
 func newStandupCmd() *cobra.Command {

@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/start"
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/wait"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/start"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
 
 func newStartCmd() *cobra.Command {

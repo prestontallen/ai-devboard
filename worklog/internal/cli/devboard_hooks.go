@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/prestontallen/day2day/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
 
 // syncDevboard runs a devboard side effect and warns on failure. Devboard
@@ -13,6 +13,8 @@ func syncDevboard(fn func() error) {
 	}
 }
 
-func devboardOnStart(id, title string) { syncDevboard(func() error { return devboard.OnStart(id, title) }) }
-func devboardOnDone(id string)         { syncDevboard(func() error { return devboard.OnDone(id) }) }
-func devboardOnPR(id, url string)      { syncDevboard(func() error { return devboard.OnPR(id, url) }) }
+func devboardOnStart(id, title string) {
+	syncDevboard(func() error { return devboard.OnStart(id, title) })
+}
+func devboardOnDone(id string)    { syncDevboard(func() error { return devboard.OnDone(id) }) }
+func devboardOnPR(id, url string) { syncDevboard(func() error { return devboard.OnPR(id, url) }) }

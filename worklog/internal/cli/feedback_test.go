@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prestontallen/day2day/internal/feedback"
+	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
 )
 
 // invokeFeedback drives the feedback cobra subcommand and captures stdout.

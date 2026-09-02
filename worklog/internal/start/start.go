@@ -11,10 +11,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/prestontallen/day2day/internal/model"
-	"github.com/prestontallen/day2day/internal/parse"
-	"github.com/prestontallen/day2day/internal/reindex"
-	"github.com/prestontallen/day2day/internal/render"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
+	"github.com/prestontallen/ai-devboard/worklog/internal/render"
 )
 
 // Resolution identifies what kind of ID was passed to start.

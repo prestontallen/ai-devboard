@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/devboard"
-	"github.com/prestontallen/day2day/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/note"
 )
 
 // newTaskWaitingOnCmd manages the external-answer queue: questions blocked

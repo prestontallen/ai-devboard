@@ -1,4 +1,4 @@
-module github.com/prestontallen/day2day
+module github.com/prestontallen/ai-devboard/worklog
 
 go 1.26.3
 

@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/style"
-	"github.com/prestontallen/day2day/internal/wait"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
 
 func newWaitCmd() *cobra.Command {

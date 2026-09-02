@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/day2day/internal/search"
-	"github.com/prestontallen/day2day/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/search"
+	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
 func newSearchCmd() *cobra.Command {
