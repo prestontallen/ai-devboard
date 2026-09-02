@@ -71,7 +71,8 @@ fi
 if [[ "$mode" != "install" ]]; then
   flag="--check"; [[ "$mode" == "dryrun" ]] && flag="--dry-run"
   if ! $current; then
-    echo "drift: worklog binary ($BIN): have '${have:-absent}', want ${latest:+release v$latest}${latest:-commit $rev}"
+    want="commit $rev"; [[ -n "$latest" ]] && want="release v$latest"
+    echo "drift: worklog binary ($BIN): have '${have:-absent}', want $want"
     if [[ -x "$BIN" ]]; then
       "$BIN" install --repo "$REPO_ROOT" "$flag" || exit 1
     else
