@@ -39,6 +39,12 @@ This is the load-bearing section. Rules:
    criteria, not afterthoughts.
 5. **Few and sharp beats many and mushy.** If a criterion doesn't change
    what you'd build or test, cut it.
+6. **Guard the seams.** Every **Out** item that shares data, a namespace, or
+   a code path with In-scope work — or whose other side is another ticket —
+   gets one criterion asserting the boundary holds. "X is out of scope" and
+   "X's data is unreachable from the new code" are different claims. Patterns
+   that work: named-tests-pass-unmodified, checksum / byte-identical,
+   unreachable-by-construction (no flag exists, name reserved).
 
 ## Contract by tier
 
@@ -69,9 +75,9 @@ outside the repo on purpose: they're working documents about how a change
 got built, not part of the product, and they'd otherwise accumulate in
 every repo that adopts this process. Use the template in
 [references/contract-template.md](references/contract-template.md).
-Sections: Intent · Scope (In/Out) · Deliverables · Acceptance criteria ·
-Definition of done · Constraints & assumptions · Risks & open questions ·
-Amendments log.
+Sections: Intent · Scope (In/Out) · Deliverables · Decisions ·
+Acceptance criteria · Definition of done · Constraints & assumptions ·
+Risks & open questions · Amendments log.
 
 ### Tier 3 — Major
 Full contract plus a **Milestones** section. Each milestone is independently

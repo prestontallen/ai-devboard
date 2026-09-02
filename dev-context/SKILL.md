@@ -35,8 +35,9 @@ cheap, discovering missing process isn't.
 A task whose deliverable is an **answer, not a change** — worklog `Type:
 spike`, or any "research X" request — skips the feature pipeline:
 **intake → research → present → done**. Gate it with the contract skill's
-spike form, run it per the fan-out skill's research reference, close it
-with `worklog done <id> --summary`.
+spike form, run it per the fan-out skill's research reference, record each
+fork with `worklog task decision`, and close it with `worklog done <id>
+--summary`.
 
 **No implementation code on a spike, ever** — a fix the research reveals is
 a proposed ticket, not a diff.
@@ -89,6 +90,12 @@ Derive the implementation plan from the contract: ordered steps, files
 touched, test strategy. Tier 2: state the plan briefly and proceed. Tier 3:
 the plan is its own checkpoint — get approval, and break work into
 milestones, each with its own mini-contract.
+
+**Test strategy (required):** name how the hardest-to-test behavior gets
+proven — automated test, extracted pure function, or a recorded manual
+procedure. "Unit tests" is not an answer.
+
+**Risk order:** the step that could kill the design runs early, not last.
 
 For high-complexity work, consider a **blind alternatives panel** (fan-out
 skill) before committing to an approach: N unled agents each design a

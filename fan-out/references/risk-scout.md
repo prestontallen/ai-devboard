@@ -14,8 +14,9 @@ one lens:
 
 1. **Blockers** — missing deps, environment constraints, auth/permissions,
    rate limits, anything that stops the work mid-flight.
-2. **Side effects** — shared state, config, migrations, concurrency;
-   what else changes when this changes.
+2. **Side effects** — shared state, config, migrations, concurrency, and
+   shared namespaces (labels, ids, index positions); what else changes when
+   this changes, including cross-ticket seams another ticket owns.
 3. **Downstream consumers** — who imports/calls the touched surface;
    blast radius; which tests and callers break.
 4. **Prior art & coupling** — past attempts, TODOs, workarounds this
@@ -54,3 +55,7 @@ Then the gate: any `severity: blocker` finding must be resolved — answered,
 scoped out, or explicitly accepted by the human — before presenting the
 contract for approval. Name the scout findings in the contract's risks
 section so the human can see what the sweep surfaced.
+
+Every `severity: risk` finding is dispositioned too — mitigated-by-criterion,
+accepted-by-human, or scoped-out — before the contract is presented. Naming a
+risk is not discharging it.

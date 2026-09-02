@@ -23,6 +23,14 @@ section alone.⟩
 
 - ⟨concrete artifacts: code paths, migrations, docs, scripts⟩
 
+## Decisions
+
+One row per fork that changed the shape of the work.
+
+| # | Fork | Considered | Chose | Because |
+|---|------|-----------|-------|---------|
+| 1 | ⟨the question⟩ | ⟨A and B⟩ | ⟨B⟩ | ⟨why B won⟩ |
+
 ## Acceptance criteria
 
 Each criterion is observable and carries its verification. At review time
@@ -59,5 +67,7 @@ this table becomes the scorecard.
 
 ## Amendments
 
-| Date | Change | Why | Approved |
-|------|--------|-----|----------|
+Every entry re-rates complexity explicitly, or records `unchanged`.
+
+| Date | Change | Why | Complexity | Approved |
+|------|--------|-----|------------|----------|

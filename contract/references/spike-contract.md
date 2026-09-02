@@ -11,8 +11,9 @@ research starts.
   ground it — file:line, command output, doc reference⟩)
 - Answered when: ⟨finding⟩ (verify: ⟨how⟩)
 - Not answering: ⟨adjacent question deliberately left alone⟩
-- Plus standing spike DoD: findings persisted to `worklog note`,
-  recommendation presented, follow-up tickets proposed.
+- Plus standing spike DoD: findings persisted to `worklog note`, forks
+  recorded via `worklog task decision`, recommendation presented, follow-up
+  tickets proposed.
 ```
 
 Rules that differ from a change contract:
