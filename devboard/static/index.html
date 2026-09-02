@@ -109,6 +109,25 @@
   .head .chip { margin-left: auto; }
   .flag { flex: none; font: 600 .66rem var(--mono); color: #14100a; background: var(--hold);
           border-radius: 5px; padding: .14rem .45rem; white-space: nowrap; }
+  .chip.epicbadge { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border));
+                     font-weight: 600; }
+
+  /* ---------- epic children ---------- */
+  .childroster { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .childchip { font: .68rem var(--mono); border: 1px solid var(--border); border-radius: 999px;
+               padding: .14rem .6rem; color: var(--dim); max-width: 100%; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
+  .childchip.active { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 55%, var(--border));
+                       box-shadow: 0 0 0 1px color-mix(in srgb, var(--signal) 25%, transparent) inset; }
+  .childchip.done { color: var(--go); border-style: dashed; opacity: .8; }
+  .childrenempty { padding: .3rem 0; }
+  .sec.childsec { border-color: color-mix(in srgb, var(--border) 80%, transparent); }
+  .sec.childsec h3 { text-transform: none; letter-spacing: 0; font-size: .85rem; color: var(--ink); }
+  .count.child-active { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border)); }
+  .count.child-done { color: var(--go); border-color: color-mix(in srgb, var(--go) 45%, var(--border)); }
+  .count.child-pending { color: var(--faint); }
+  .cols.childcols { grid-template-columns: 1fr 1fr; gap: .7rem; margin-top: .5rem; }
+  @media (max-width: 620px) { .cols.childcols { grid-template-columns: 1fr; } }
 
   .track { display: flex; gap: 3px; }
   .track i { flex: 1; height: 5px; border-radius: 3px; background: var(--panel2); }
@@ -240,7 +259,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 
 const PHASES = ["intake","clarify","contract","plan","implementing","verify","present","ship","done"];
 const phaseIdx = p => PHASES.indexOf(String(p ?? ""));
-const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity"]);
+const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children"]);
 
 /* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
 const KW = /\b(def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|yield|async|await|const|let|var|function|new|typeof|export|default|fn|pub|impl|struct|enum|match|use|mod|go|func|type|interface|package|nil|null|None|true|false|True|False|self|this)\b/g;
@@ -295,8 +314,18 @@ const ago = t => {
 const isStale = t => t && (Date.now() / 1000 - t) > 2 * 3600;
 const MARKS = { done: "✓", pass: "✓", in_progress: "▶", blocked: "✕", fail: "✕", pending: "○" };
 const mark = st => MARKS[st] || "○";
-const needsCount = t => (t.task && Array.isArray(t.task.needs_you)) ? t.task.needs_you.length : 0;
-const waitCount = t => (t.task && Array.isArray(t.task.waiting_on)) ? t.task.waiting_on.length : 0;
+/* An epic's own needs_you/waiting_on are unused (see devboard/schema.md's
+   "Epic files") — the real queues live per child, so counts/bands flatten
+   across k.children instead of reading the top-level field. */
+const isEpic = t => !!(t.task && t.task.type === "epic");
+const allNeedsYou = t => isEpic(t)
+  ? (t.task.children || []).flatMap(c => (c.needs_you || []).map(n => ({ ...n, childTitle: c.title || c.id })))
+  : (t.task && Array.isArray(t.task.needs_you)) ? t.task.needs_you : [];
+const allWaitingOn = t => isEpic(t)
+  ? (t.task.children || []).flatMap(c => (c.waiting_on || []).map(w => ({ ...w, childTitle: c.title || c.id })))
+  : (t.task && Array.isArray(t.task.waiting_on)) ? t.task.waiting_on : [];
+const needsCount = t => allNeedsYou(t).length;
+const waitCount = t => allWaitingOn(t).length;
 /* waiting_on `asked` is an ISO date string (NOT epoch seconds — ago() would
    yield NaN on it). Age in whole days, or null when missing/unparseable. */
 const ageDays = d => {
@@ -463,18 +492,47 @@ function statsHTML() {
 
 const isDone = t => !t.error && (t.task.phase || "") === "done";
 
+/* compact per-card roster: one chip per child, active first, state-colored */
+const CHILD_ORDER = { active: 0, pending: 1, done: 2 };
+const CHILD_MARK = { active: "▶ ", pending: "○ ", done: "✓ " };
+function childrenRosterHTML(children) {
+  if (!children.length) return `<div class="calm childrenempty">no children started yet</div>`;
+  const sorted = children.slice().sort((a, b) => (CHILD_ORDER[a.state] ?? 1) - (CHILD_ORDER[b.state] ?? 1));
+  return `<div class="childroster">` + sorted.map(c => {
+    const st = c.state || "pending";
+    return `<span class="childchip ${st}" title="${esc(c.title || c.id)} · ${esc(st)}">` +
+      (CHILD_MARK[st] || "") + esc(c.title || c.id) + `</span>`;
+  }).join("") + `</div>`;
+}
+
 function cardHTML({ repo, t }) {
   if (t.error) {
     return `<div class="card errcard"><div class="head"><span class="t">${esc(t.file)}</span></div>` +
            `<span class="badge-err">parse error</span><div class="msg">${esc(t.error)}</div></div>`;
   }
   const k = t.task, n = needsCount(t), wn = waitCount(t);
+  const stale = isStale(t.mtime) && !isDone(t);
+  if (k.type === "epic") {
+    const children = k.children || [];
+    const activeN = children.filter(c => c.state === "active").length;
+    return `<a class="card${n ? " attn" : ""}" href="#${esc(repo)}/${esc(t.id)}">` +
+      `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
+      (n ? `<span class="flag">needs you · ${n}</span>` : "") +
+      (wn ? `<span class="chip waitchip">⧖ ${wn}</span>` : "") +
+      `<span class="chip epicbadge">◆ epic</span>` +
+      `<span class="chip">${esc(repo)}</span></div>` +
+      childrenRosterHTML(children) +
+      `<div class="foot">` +
+      `<span>${children.length} ${children.length === 1 ? "child" : "children"}` +
+      (activeN ? ` · ${activeN} active` : "") + `</span>` +
+      `<span class="sp"></span>${k.worklog ? "☰ " + esc(k.worklog) : ""}` +
+      ((isDone(t) || isArchived(t)) ? " " + moveBtn(repo, t) : "") + `</div></a>`;
+  }
   const meta = [
     k.tier !== undefined ? `tier ${esc(k.tier)}` : "",
     k.complexity ? `cx ${esc(k.complexity)}` : "",
     k.worklog ? `☰ ${esc(k.worklog)}` : "",
   ].filter(Boolean).join(" · ");
-  const stale = isStale(t.mtime) && !isDone(t);
   return `<a class="card${n ? " attn" : ""}${stale ? " stale" : ""}" href="#${esc(repo)}/${esc(t.id)}">` +
     `<div class="head"><span class="t">${esc(k.title || t.id)}</span>` +
     (n ? `<span class="flag">needs you · ${n}</span>` : "") +
@@ -494,7 +552,7 @@ function viewBoard() {
   const done = all.filter(x => isDone(x.t) && !isArchived(x.t));
   const archived = all.filter(x => isArchived(x.t));
   const attn = [];
-  live.forEach(({ repo, t }) => (t.task?.needs_you || []).forEach(n => attn.push({ repo, t, n })));
+  live.forEach(({ repo, t }) => allNeedsYou(t).forEach(n => attn.push({ repo, t, n })));
   let html = "";
   if (attn.length) {
     html += `<section class="bandfold attn">` + fold("board|needsyou", `Needs you · ${attn.length}`,
@@ -502,12 +560,12 @@ function viewBoard() {
         const type = esc(n.type || "item");
         return `<div class="need"><span class="kind ${type}">${type}</span>` +
           `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
-          `<small>${esc(n.text || "")}</small></div>` +
+          `<small>${esc(n.text || "")}${n.childTitle ? " · " + esc(n.childTitle) : ""}</small></div>` +
           `<span class="go">${resumeBtn(t.task, "⧉ resume")}</span></div>`;
       }).join("")) + `</section>`;
   }
   const waits = [];
-  live.forEach(({ repo, t }) => (t.task?.waiting_on || []).forEach(w => waits.push({ repo, t, w })));
+  live.forEach(({ repo, t }) => allWaitingOn(t).forEach(w => waits.push({ repo, t, w })));
   if (!attn.length) {
     // three-state calm line: stays honest when external questions are open
     html += `<div class="calm">nothing needs you${waits.length ? ` · ${waits.length} waiting on others` : ""}</div>`;
@@ -518,7 +576,7 @@ function viewBoard() {
       waits.map(({ repo, t, w }) => {
         return `<div class="need"><span class="kind wait">${esc(w.who || "?")}</span>` +
           `<div class="what"><a href="#${esc(repo)}/${esc(t.id)}">${esc(t.task?.title || t.id)}</a>` +
-          `<small>${esc(w.text || "")}</small></div>` +
+          `<small>${esc(w.text || "")}${w.childTitle ? " · " + esc(w.childTitle) : ""}</small></div>` +
           `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>`;
       }).join("")) + `</section>`;
   }
@@ -544,26 +602,11 @@ function viewBoard() {
 }
 
 /* ---------- detail ---------- */
-function viewDetail(hash) {
-  const [repo, id] = hash.split("/");
-  const r = DB.repos.find(x => x.repo === repo);
-  const t = r?.tasks.find(x => x.id === id);
-  const crumb = `<a class="crumb" href="#">← all tasks</a>`;
-  if (!t) return `${crumb}<div class="empty">Task <code>${esc(hash)}</code> not found (removed?).</div>`;
-  if (t.error) return `${crumb}<div class="sec errcard"><h3>parse error</h3><div class="msg">${esc(t.error)}</div></div>`;
-  const k = t.task, fk = s => `${hash}|${s}`;
-
-  let html = crumb + `<div class="hero"><h1>${esc(k.title || t.id)}</h1><div class="metarow">` +
-    `<span class="chip">${esc(repo)}</span>` +
-    (k.branch ? `<span class="chip">⎇ ${esc(k.branch)}</span>` : "") +
-    (k.tier !== undefined ? `<span class="chip">tier ${esc(k.tier)}${k.complexity ? " · cx " + esc(k.complexity) : ""}</span>` : (k.complexity ? `<span class="chip">cx ${esc(k.complexity)}</span>` : "")) +
-    (k.worklog ? `<span class="chip">☰ ${esc(k.worklog)}</span>` : "") +
-    (t.mtime ? `<span class="chip">${ago(t.mtime)}</span>` : "") +
-    (isArchived(t) ? `<span class="chip archchip">archived</span>` : "") +
-    resumeBtn(k, "⧉ claude --resume") + " " + moveBtn(repo, t) +
-    `</div>` + stepperHTML(k.phase) + `</div>`;
-
-  /* left column: narrative */
+/* taskBodyHTML renders the narrative (left) and status-rail (right)
+   sections for one "task-like" object — a plain ticket's k, or one
+   epic child entry — parameterized by fk so fold keys never collide
+   across children. */
+function taskBodyHTML(k, fk) {
   let left = "";
   if (Array.isArray(k.needs_you) && k.needs_you.length) {
     left += `<div class="sec warn"><h3>Needs you <span class="count">${k.needs_you.length}</span></h3>` +
@@ -601,7 +644,6 @@ function viewDetail(hash) {
         (c.snippet ? fold(fk("code" + i), "snippet", `<pre>${hl(String(c.snippet))}</pre>`) : "") + `</div>`).join("") + `</div>`;
   }
 
-  /* right column: status rail */
   let right = "";
   if (Array.isArray(k.plan) && k.plan.length) {
     const { done, total } = planStats(k.plan);
@@ -626,11 +668,65 @@ function viewDetail(hash) {
       return `<li><span class="mk pending">↗</span><a href="${esc(safeHref(l.url || "#"))}" target="_blank" rel="noopener">${esc(l.label || l.url || l.text || "")}</a></li>`;
     }).join("") + `</ul></div>`;
   }
-  const extra = Object.keys(k).filter(key => !KNOWN.has(key));
-  if (extra.length) {
-    right += `<div class="sec"><h3>Other</h3><table class="kv">` + extra.map(key =>
-      `<tr><td>${esc(key)}</td><td>${esc(typeof k[key] === "object" ? JSON.stringify(k[key], null, 1) : k[key])}</td></tr>`).join("") +
-      `</table></div>`;
+  return { left, right };
+}
+
+const CHILD_BADGE = { active: "▶ active", pending: "○ pending", done: "✓ done" };
+
+/* one collapsible section per epic child, each with its own independent
+   plan/scorecard/decisions/code/needs-you/waiting-on — never the shared
+   top-level fields the plain-ticket path reads, since those are unused
+   on an epic file (see devboard/schema.md's "Epic files"). */
+function childrenDetailHTML(children, hash) {
+  if (!children.length) {
+    return `<div class="sec"><div class="calm childrenempty">no children started yet</div></div>`;
+  }
+  const sorted = children.slice().sort((a, b) => (CHILD_ORDER[a.state] ?? 1) - (CHILD_ORDER[b.state] ?? 1));
+  return sorted.map(c => {
+    const st = c.state || "pending";
+    const cfk = s => `${hash}|child|${c.id}|${s}`;
+    const { left: cl, right: cr } = taskBodyHTML(c, cfk);
+    const inner = (cl || cr)
+      ? `<div class="cols childcols">${cl ? `<div>${cl}</div>` : ""}${cr ? `<div>${cr}</div>` : ""}</div>`
+      : `<div class="calm" style="margin:0">nothing recorded yet</div>`;
+    return `<div class="sec childsec"><h3>${esc(c.title || c.id)} ` +
+      `<span class="count child-${st}">${CHILD_BADGE[st] || st}</span></h3>` +
+      (c.branch || c.phase ? `<div class="fnote">${c.branch ? "⎇ " + esc(c.branch) : ""}${c.branch && c.phase ? " · " : ""}${c.phase ? esc(c.phase) : ""}</div>` : "") +
+      inner + `</div>`;
+  }).join("");
+}
+
+function viewDetail(hash) {
+  const [repo, id] = hash.split("/");
+  const r = DB.repos.find(x => x.repo === repo);
+  const t = r?.tasks.find(x => x.id === id);
+  const crumb = `<a class="crumb" href="#">← all tasks</a>`;
+  if (!t) return `${crumb}<div class="empty">Task <code>${esc(hash)}</code> not found (removed?).</div>`;
+  if (t.error) return `${crumb}<div class="sec errcard"><h3>parse error</h3><div class="msg">${esc(t.error)}</div></div>`;
+  const k = t.task, fk = s => `${hash}|${s}`, epic = k.type === "epic";
+
+  let html = crumb + `<div class="hero"><h1>${esc(k.title || t.id)}</h1><div class="metarow">` +
+    `<span class="chip">${esc(repo)}</span>` +
+    (epic ? `<span class="chip epicbadge">◆ epic</span>` : "") +
+    (!epic && k.branch ? `<span class="chip">⎇ ${esc(k.branch)}</span>` : "") +
+    (!epic && k.tier !== undefined ? `<span class="chip">tier ${esc(k.tier)}${k.complexity ? " · cx " + esc(k.complexity) : ""}</span>` : (!epic && k.complexity ? `<span class="chip">cx ${esc(k.complexity)}</span>` : "")) +
+    (k.worklog ? `<span class="chip">☰ ${esc(k.worklog)}</span>` : "") +
+    (t.mtime ? `<span class="chip">${ago(t.mtime)}</span>` : "") +
+    (isArchived(t) ? `<span class="chip archchip">archived</span>` : "") +
+    resumeBtn(k, "⧉ claude --resume") + " " + moveBtn(repo, t) +
+    `</div>` + (epic ? "" : stepperHTML(k.phase)) + `</div>`;
+
+  let left = "", right = "";
+  if (epic) {
+    left = childrenDetailHTML(k.children || [], hash);
+  } else {
+    ({ left, right } = taskBodyHTML(k, fk));
+    const extra = Object.keys(k).filter(key => !KNOWN.has(key));
+    if (extra.length) {
+      right += `<div class="sec"><h3>Other</h3><table class="kv">` + extra.map(key =>
+        `<tr><td>${esc(key)}</td><td>${esc(typeof k[key] === "object" ? JSON.stringify(k[key], null, 1) : k[key])}</td></tr>`).join("") +
+        `</table></div>`;
+    }
   }
 
   html += (left && right) ? `<div class="cols"><div>${left}</div><div>${right}</div></div>` : (left || right);

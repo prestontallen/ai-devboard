@@ -183,6 +183,141 @@ func TestFindAcrossRepos(t *testing.T) {
 	}
 }
 
+func TestSyncEpicRosterCreatesFile(t *testing.T) {
+	dir := withDataDir(t)
+	roster := []ChildIdentity{
+		{ID: "child-a", Title: "Child A", State: ChildActive},
+		{ID: "child-b", Title: "Child B", State: ChildPending},
+	}
+	if err := SyncEpicRoster("epic-1", "The Epic", roster); err != nil {
+		t.Fatal(err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "*", "epic-1.yaml"))
+	if len(matches) != 1 {
+		t.Fatalf("expected one epic file, got %v", matches)
+	}
+	var task Task
+	raw, _ := os.ReadFile(matches[0])
+	yaml.Unmarshal(raw, &task)
+	if task.Type != "epic" || task.Title != "The Epic" || task.Worklog != "epic-1" {
+		t.Fatalf("bad epic identity: %+v", task)
+	}
+	if len(task.Children) != 2 || task.Children[0].State != ChildActive || task.Children[1].State != ChildPending {
+		t.Fatalf("bad roster: %+v", task.Children)
+	}
+}
+
+func TestSyncEpicRosterBackfillsTitleWithoutDisturbingChildren(t *testing.T) {
+	dir := withDataDir(t)
+	seed(t, dir, "repo-a", "epic-2", `schema: 1
+worklog: epic-2
+children:
+  - id: child-a
+    state: active
+    phase: implementing
+    plan:
+      - text: do the thing
+        state: in_progress
+`)
+	if err := SyncEpicRoster("epic-2", "Now Titled", []ChildIdentity{{ID: "child-a", Title: "Child A", State: ChildActive}}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Find("epic-2")
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	if task.Type != "epic" || task.Title != "Now Titled" {
+		t.Fatalf("title/type not backfilled: %+v", task)
+	}
+	if len(task.Children) != 1 || task.Children[0].Phase != "implementing" || len(task.Children[0].Plan) != 1 {
+		t.Fatalf("existing child in-flight detail disturbed: %+v", task.Children)
+	}
+}
+
+func TestSyncEpicRosterLeavesUnlistedChildrenAlone(t *testing.T) {
+	dir := withDataDir(t)
+	seed(t, dir, "repo-a", "epic-3", `schema: 1
+type: epic
+title: T
+children:
+  - id: child-old
+    state: done
+`)
+	if err := SyncEpicRoster("epic-3", "T", []ChildIdentity{{ID: "child-new", Title: "New", State: ChildActive}}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Find("epic-3")
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	if len(task.Children) != 2 {
+		t.Fatalf("expected roster to grow, not replace: %+v", task.Children)
+	}
+}
+
+func TestMutateChildAppendsAndTargetsCorrectEntry(t *testing.T) {
+	dir := withDataDir(t)
+	p := seed(t, dir, "repo-a", "epic-4", `schema: 1
+type: epic
+title: T
+children:
+  - id: child-a
+    state: active
+  - id: child-b
+    state: active
+`)
+	_ = dir
+	if err := MutateChild(p, "child-b", func(c *ChildEntry) error {
+		c.Phase = "verify"
+		c.Plan = append(c.Plan, PlanItem{Text: "step", State: "done"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	var a, b *ChildEntry
+	for i := range task.Children {
+		switch task.Children[i].ID {
+		case "child-a":
+			a = &task.Children[i]
+		case "child-b":
+			b = &task.Children[i]
+		}
+	}
+	if a == nil || b == nil {
+		t.Fatalf("children missing: %+v", task.Children)
+	}
+	if a.Phase != "" || len(a.Plan) != 0 {
+		t.Fatalf("mutation leaked into sibling child: %+v", a)
+	}
+	if b.Phase != "verify" || len(b.Plan) != 1 {
+		t.Fatalf("target child not mutated: %+v", b)
+	}
+}
+
+func TestMutateChildAppendsUnknownChildAsPending(t *testing.T) {
+	dir := withDataDir(t)
+	p := seed(t, dir, "repo-a", "epic-5", "schema: 1\ntype: epic\ntitle: T\n")
+	_ = dir
+	if err := MutateChild(p, "child-new", func(c *ChildEntry) error {
+		c.Phase = "intake"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var task Task
+	raw, _ := os.ReadFile(p)
+	yaml.Unmarshal(raw, &task)
+	if len(task.Children) != 1 || task.Children[0].ID != "child-new" || task.Children[0].State != ChildPending {
+		t.Fatalf("unknown child not appended as pending: %+v", task.Children)
+	}
+	if task.Children[0].Phase != "intake" {
+		t.Fatalf("mutation not applied: %+v", task.Children[0])
+	}
+}
+
 func TestOnDoneClosesWaitingOn(t *testing.T) {
 	dir := withDataDir(t)
 	p := seed(t, dir, "repo-a", "tkt-9", `schema: 1

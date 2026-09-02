@@ -120,7 +120,11 @@ func runPR(cmd *cobra.Command, id, url string, clear, edit, asJSON bool) error {
 	if err != nil {
 		return mapPRError(cmd, asJSON, err)
 	}
-	devboardOnPR(id, value)
+	if res.Parent != "" {
+		devboardOnPRChild(res.Parent, id, value)
+	} else {
+		devboardOnPR(id, value)
+	}
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

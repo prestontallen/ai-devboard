@@ -209,10 +209,19 @@ the list before addressing an item by index afterward. `worklog pr <id>
 — draft it in the Tone hook's voice (§8 above) before writing, not after.
 
 **Epic children:** when working a milestone that's a child ticket of an
-epic, do NOT keep a per-child task file — the epic's task file is the
-dashboard surface. Pass the epic's slug via `--id`, and remove any stray
-per-child file with `worklog task untrack --id <child-slug>` (deletes only
-the task file; worklog data is untouched).
+epic, the epic's task file is the dashboard surface — `worklog start`/
+`done`/`pr` on a child automatically sync that child's entry there and
+never create a per-child file. Every `task` subcommand (`plan`,
+`scorecard`, `decisions`, `code`, `needs-you`, `waiting-on`, `complexity`,
+`phase`) needs BOTH `--id <epic-slug>` AND `--child <child-slug>` — the
+epic's own top-level fields are unused, so each child keeps its own
+independent phase/plan/scorecard/branch/session (this is what lets more
+than one child of the same epic be in flight at once without one child's
+detail clobbering another's). Passing the child's own slug as `--id`
+is refused outright, pointing at the correct `--id`/`--child` pair — so
+there's no stray file left to clean up in the first place; `worklog task
+untrack` remains available only as an escape hatch for a hand-authored or
+pre-existing stray file.
 
 Tier 0 tasks skip devboard entirely. Never create the data dir unprompted.
 

@@ -90,6 +90,9 @@ func runDone(
 		return mapDoneError(cmd, asJSON, err)
 	}
 	devboardOnDone(out.ID)
+	if out.Parent != "" {
+		devboardSyncEpic(wd, out.Parent)
+	}
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)

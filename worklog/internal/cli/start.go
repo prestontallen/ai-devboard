@@ -66,7 +66,11 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 			if err != nil {
 				return mapResumeError(cmd, asJSON, err)
 			}
-			devboardOnStart(out.ID, "")
+			if b.Parent != "" {
+				devboardSyncEpic(wd, b.Parent)
+			} else {
+				devboardOnStart(out.ID, "")
+			}
 			if asJSON {
 				return emitJSON(cmd.OutOrStdout(), out)
 			}
@@ -93,7 +97,11 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	if group := devboard.PendingNewGroup(); group != "" {
 		out.Warnings = append(out.Warnings, newDevboardGroupWarning(group))
 	}
-	devboardOnStart(out.ID, out.Title)
+	if out.Parent != "" {
+		devboardSyncEpic(wd, out.Parent)
+	} else {
+		devboardOnStart(out.ID, out.Title)
+	}
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)

@@ -23,6 +23,8 @@ supported.
 | Field | Author | Notes |
 |-------|--------|-------|
 | `worklog`, `title` | worklog (when ticket exists) | mirrored from the ticket; agent-authored on bare tasks |
+| `type` | worklog | `epic` marks this file as an epic container; absent for an ordinary ticket |
+| `children` | worklog (roster identity), agent (per-child in-flight detail) | see "Epic files" below |
 | `links` (PR) | worklog (`worklog pr`) | other links agent-authored |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
 | `tier`, `complexity`, `branch`, `session` | agent | identity/telemetry |
@@ -98,4 +100,49 @@ needs_you:                # attention queue — questions & pending checkpoints
 links:
   - label: PR #42
     url: https://github.com/prestontallen/nole/pull/42
+```
+
+## Epic files
+
+An epic ticket's file is the single dashboard surface for all of its
+children's work — no child of an epic gets its own task file. `type: epic`
+marks it; `children` carries one entry per child, in notes-file document
+order. An epic file's own `branch`/`session`/`tier`/`complexity`/`phase`/
+`plan`/`scorecard`/`decisions`/`code`/`needs_you`/`waiting_on`/`links`
+fields are unused — every child can be independently active, so that
+in-flight detail lives per child under `children[]` instead of shared at
+the top level, using the exact same shape (`plan`, `scorecard`, etc.) a
+standalone ticket file uses.
+
+`children[].state` is `pending` | `active` | `done`. `id`/`title`/`state`
+are worklog-authored (mirrored from `notes/<epic-id>.md`'s checkbox roster
+and WORK.md's `**Active children**:`); everything else on a child entry is
+agent-authored via `worklog task <subcommand> --id <epic-id> --child
+<child-id>`.
+
+```yaml
+schema: 1
+type: epic
+title: Slim the skills library
+worklog: skill-slim
+children:
+  - id: slim-session-hook
+    title: SessionStart hook injects worklog status
+    state: active
+    branch: feat/slim-hook
+    phase: implementing
+    plan:
+      - text: emit compact orient block as SessionStart JSON
+        state: done
+    scorecard:
+      - text: hook never exits 2
+        verify: go test ./internal/hook/...
+        status: pass
+  - id: slim-eval-harness
+    title: Three-way skill eval harness
+    state: active
+    phase: plan
+  - id: slim-dedupe
+    title: Cut duplicated devboard-sync and tone content
+    state: done
 ```

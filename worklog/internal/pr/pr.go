@@ -18,6 +18,7 @@ type Result struct {
 	ID       string `json:"id"`
 	PR       string `json:"pr"`
 	Previous string `json:"previous"`
+	Parent   string `json:"parent,omitempty"` // non-empty when id is a child of an epic
 }
 
 // ErrIDNotFound is returned when blockID does not resolve to a ticket in
@@ -34,7 +35,7 @@ func Get(wd model.Workdir, blockID string) (Result, error) {
 	if b == nil {
 		return Result{}, fmt.Errorf("%w: %q", ErrIDNotFound, blockID)
 	}
-	return Result{ID: b.ID, PR: b.PR, Previous: b.PR}, nil
+	return Result{ID: b.ID, PR: b.PR, Previous: b.PR, Parent: b.Parent}, nil
 }
 
 // SetPR writes value as the new PR on blockID's ticket block and returns the
@@ -59,5 +60,5 @@ func SetPR(wd model.Workdir, blockID, value string) (Result, error) {
 	if err := render.WriteAtomic(wd.WorkMD(), newLines); err != nil {
 		return Result{}, fmt.Errorf("write WORK.md: %w", err)
 	}
-	return Result{ID: b.ID, PR: value, Previous: previous}, nil
+	return Result{ID: b.ID, PR: value, Previous: previous, Parent: b.Parent}, nil
 }

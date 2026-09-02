@@ -26,22 +26,68 @@ import (
 // top-level fields across read-modify-write cycles (comments are not
 // preserved — documented limitation).
 type Task struct {
-	Schema     int            `yaml:"schema"`
-	Title      string         `yaml:"title,omitempty"`
-	Branch     string         `yaml:"branch,omitempty"`
-	Session    string         `yaml:"session,omitempty"`
-	Worklog    string         `yaml:"worklog,omitempty"`
-	Tier       *int           `yaml:"tier,omitempty"`
-	Complexity string         `yaml:"complexity,omitempty"` // low|medium|high; throttles fan-out
-	Phase      string         `yaml:"phase,omitempty"`
-	Plan       []PlanItem     `yaml:"plan,omitempty"`
-	Score      []ScoreItem    `yaml:"scorecard,omitempty"`
-	Decision   []Decision     `yaml:"decisions,omitempty"`
-	Code       []CodeRef      `yaml:"code,omitempty"`
-	NeedsYou   []NeedsItem    `yaml:"needs_you,omitempty"`
-	WaitingOn  []WaitingItem  `yaml:"waiting_on,omitempty"`
-	Links      []Link         `yaml:"links,omitempty"`
-	Extra      map[string]any `yaml:",inline"`
+	Schema     int           `yaml:"schema"`
+	Title      string        `yaml:"title,omitempty"`
+	Type       string        `yaml:"type,omitempty"` // "epic" marks this file as an epic container
+	Branch     string        `yaml:"branch,omitempty"`
+	Session    string        `yaml:"session,omitempty"`
+	Worklog    string        `yaml:"worklog,omitempty"`
+	Tier       *int          `yaml:"tier,omitempty"`
+	Complexity string        `yaml:"complexity,omitempty"` // low|medium|high; throttles fan-out
+	Phase      string        `yaml:"phase,omitempty"`
+	Plan       []PlanItem    `yaml:"plan,omitempty"`
+	Score      []ScoreItem   `yaml:"scorecard,omitempty"`
+	Decision   []Decision    `yaml:"decisions,omitempty"`
+	Code       []CodeRef     `yaml:"code,omitempty"`
+	NeedsYou   []NeedsItem   `yaml:"needs_you,omitempty"`
+	WaitingOn  []WaitingItem `yaml:"waiting_on,omitempty"`
+	Links      []Link        `yaml:"links,omitempty"`
+	// Children carries one entry per child ticket when Type == "epic". An
+	// epic file's own Branch/Session/Phase/Plan/Score/Decision/Code/
+	// NeedsYou/WaitingOn/Links are unused — that in-flight detail lives
+	// per child here instead, since more than one child can be active in
+	// ## Now at once and a single shared surface would let them overwrite
+	// each other.
+	Children []ChildEntry   `yaml:"children,omitempty"`
+	Extra    map[string]any `yaml:",inline"`
+}
+
+// Child state values for ChildEntry.State.
+const (
+	ChildPending = "pending"
+	ChildActive  = "active"
+	ChildDone    = "done"
+)
+
+// ChildEntry is one child ticket's roster row plus its own in-flight detail
+// — the same shape a standalone ticket file carries, nested instead of
+// shared, so concurrently active children never collide.
+type ChildEntry struct {
+	ID         string        `yaml:"id"`
+	Title      string        `yaml:"title,omitempty"`
+	State      string        `yaml:"state"` // pending|active|done
+	Branch     string        `yaml:"branch,omitempty"`
+	Session    string        `yaml:"session,omitempty"`
+	Tier       *int          `yaml:"tier,omitempty"`
+	Complexity string        `yaml:"complexity,omitempty"`
+	Phase      string        `yaml:"phase,omitempty"`
+	Plan       []PlanItem    `yaml:"plan,omitempty"`
+	Score      []ScoreItem   `yaml:"scorecard,omitempty"`
+	Decision   []Decision    `yaml:"decisions,omitempty"`
+	Code       []CodeRef     `yaml:"code,omitempty"`
+	NeedsYou   []NeedsItem   `yaml:"needs_you,omitempty"`
+	WaitingOn  []WaitingItem `yaml:"waiting_on,omitempty"`
+	Links      []Link        `yaml:"links,omitempty"`
+}
+
+// ChildIdentity is the roster input to SyncEpicRoster: just enough to
+// place a child on the epic card, sourced from notes/<epicID>.md and
+// WORK.md's Active children — never the child's in-flight detail, which
+// SyncEpicRoster must not disturb.
+type ChildIdentity struct {
+	ID    string
+	Title string
+	State string // pending|active|done
 }
 
 type PlanItem struct {
@@ -379,6 +425,70 @@ func OnDone(id string) error {
 		CloseWaitingOn(t, today())
 		return nil
 	})
+}
+
+// SyncEpicRoster ensures an epic's task file carries Type "epic", its
+// title, and an up-to-date roster: every entry in roster is upserted by
+// ID, updating only Title/State (identity) — an existing child's
+// in-flight detail (Branch/Phase/Plan/Score/... , set separately via
+// MutateChild) is never touched. Children not present in roster are left
+// as-is rather than pruned, since the notes-file scan this is sourced
+// from is expected to be append-only. Silent no-op when devboard is
+// disabled, same contract as OnStart/OnDone.
+func SyncEpicRoster(epicID, epicTitle string, roster []ChildIdentity) error {
+	if !Enabled() {
+		return nil
+	}
+	path, err := pathFor(epicID)
+	if err != nil {
+		return err
+	}
+	return Mutate(path, func(t *Task) error {
+		t.Type = "epic"
+		if epicTitle != "" {
+			t.Title = epicTitle
+		}
+		t.Worklog = epicID
+		for _, ci := range roster {
+			if idx := indexOfChild(t.Children, ci.ID); idx >= 0 {
+				if ci.Title != "" {
+					t.Children[idx].Title = ci.Title
+				}
+				t.Children[idx].State = ci.State
+			} else {
+				t.Children = append(t.Children, ChildEntry{ID: ci.ID, Title: ci.Title, State: ci.State})
+			}
+		}
+		return nil
+	})
+}
+
+// MutateChild performs a locked, atomic read-modify-write of one child's
+// entry within an epic's task file at path, identified by childID. A
+// child not yet on the roster is appended with State ChildPending before
+// fn runs — the roster sync from a real ticket start will correct its
+// identity later. Callers gate Enabled()/taskDisabled themselves, matching
+// Mutate's contract.
+func MutateChild(path, childID string, fn func(*ChildEntry) error) error {
+	return Mutate(path, func(t *Task) error {
+		idx := indexOfChild(t.Children, childID)
+		if idx < 0 {
+			t.Children = append(t.Children, ChildEntry{ID: childID, State: ChildPending})
+			idx = len(t.Children) - 1
+		}
+		return fn(&t.Children[idx])
+	})
+}
+
+// indexOfChild returns the index of the child with the given ID
+// (case-insensitive, matching worklog's ID normalization elsewhere), or -1.
+func indexOfChild(children []ChildEntry, id string) int {
+	for i, c := range children {
+		if strings.EqualFold(c.ID, id) {
+			return i
+		}
+	}
+	return -1
 }
 
 // OnPR sets (or clears, url=="") the PR link on the ticket's task file.
