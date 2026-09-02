@@ -24,6 +24,7 @@ func fakeRepo(t *testing.T) string {
 	}
 	writeFile(t, filepath.Join(repo, "fan-out", "references", "risk-scout.md"), "ref\n")
 	writeFile(t, filepath.Join(repo, "worklog", "skill", "SKILL.md"), "# worklog\n")
+	writeFile(t, filepath.Join(repo, "worklog", "skill", "references", "cli.md"), "# cli\n")
 	writeFile(t, filepath.Join(repo, "worklog", "skill", "claude", "command.md"), "# cmd\n")
 	return repo
 }
@@ -78,6 +79,41 @@ func TestVerifyRepoRefusesMissingSource(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(target, "fan-out", "SKILL.md")); err != nil {
 		t.Fatal("deployed copy was deleted despite missing source")
+	}
+}
+
+// A checkout whose worklog skill has no references/ is refused outright:
+// half-deploying would leave SKILL.md pointing at files that never arrive.
+func TestVerifyRepoRefusesMissingWorklogReferences(t *testing.T) {
+	repo := fakeRepo(t)
+	if err := os.RemoveAll(filepath.Join(repo, "worklog", "skill", "references")); err != nil {
+		t.Fatal(err)
+	}
+	err := VerifyRepo(repo)
+	if err == nil || !strings.Contains(err.Error(), "references") {
+		t.Fatalf("expected a references refusal, got %v", err)
+	}
+	target := t.TempDir()
+	if _, err := Run(repo, []string{target}, t.TempDir(), ModeInstall); err == nil {
+		t.Fatal("Run accepted a repo with no worklog references")
+	}
+	if _, err := os.Stat(filepath.Join(target, "worklog")); !os.IsNotExist(err) {
+		t.Fatal("Run deployed despite the refusal")
+	}
+}
+
+// A references file present in the target but gone from the repo is drift,
+// not something check silently tolerates.
+func TestCheckFlagsExtraWorklogReference(t *testing.T) {
+	repo, home := fakeRepo(t), t.TempDir()
+	claude := filepath.Join(home, ".claude", "skills")
+	if _, err := Run(repo, []string{claude}, home, ModeInstall); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(claude, "worklog", "references", "stray.md"), "orphan\n")
+	rep, _ := Run(repo, []string{claude}, home, ModeCheck)
+	if !rep.Drift {
+		t.Fatal("check missed an extra file under worklog/references")
 	}
 }
 
@@ -193,9 +229,19 @@ func TestRunDeploysToEveryTarget(t *testing.T) {
 			}
 		}
 	}
-	// References travel with their skill dir.
+	// References travel with their skill dir. worklog's live beside its
+	// SKILL.md even though the two are separate deploy steps.
 	if _, err := os.Stat(filepath.Join(cursor, "fan-out", "references", "risk-scout.md")); err != nil {
 		t.Errorf("fan-out references not deployed to cursor: %v", err)
+	}
+	for _, target := range []string{claude, cursor} {
+		if _, err := os.Stat(filepath.Join(target, "worklog", "references", "cli.md")); err != nil {
+			t.Errorf("worklog references not deployed to %s: %v", target, err)
+		}
+	}
+	// The command file goes to ~/.claude/commands, never into the skill dir.
+	if _, err := os.Stat(filepath.Join(claude, "worklog", "claude", "command.md")); err == nil {
+		t.Error("command file leaked into the worklog skill dir")
 	}
 	// The command file is Claude-only, keyed off the claude skills target.
 	if _, err := os.Stat(filepath.Join(home, ".claude", "commands", "worklog.md")); err != nil {

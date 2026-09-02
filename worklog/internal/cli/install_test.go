@@ -31,7 +31,9 @@ func installSandbox(t *testing.T) (home, repo string) {
 		os.WriteFile(filepath.Join(repo, d, "SKILL.md"), []byte("# "+d+"\n"), 0o644)
 	}
 	os.MkdirAll(filepath.Join(repo, "worklog", "skill", "claude"), 0o755)
+	os.MkdirAll(filepath.Join(repo, "worklog", "skill", "references"), 0o755)
 	os.WriteFile(filepath.Join(repo, "worklog", "skill", "SKILL.md"), []byte("# w\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, "worklog", "skill", "references", "cli.md"), []byte("# r\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, "worklog", "skill", "claude", "command.md"), []byte("# c\n"), 0o644)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

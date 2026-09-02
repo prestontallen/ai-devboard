@@ -44,11 +44,15 @@ func (r *Report) stale(f string, a ...any) {
 }
 
 // RepoSkills describes what a checkout deploys: three whole skill dirs,
-// plus worklog's SKILL.md, plus the claude-only command file.
+// plus worklog's SKILL.md and its references/ dir, plus the claude-only
+// command file. worklog is the odd one out because its source dir also
+// holds claude/command.md, which deploys somewhere else entirely — so it
+// gets explicit file and dir steps instead of one whole-dir copy.
 var skillDirs = []string{"dev-context", "contract", "fan-out"}
 
 const (
 	worklogSkillRel   = "worklog/skill/SKILL.md"
+	worklogRefsRel    = "worklog/skill/references"
 	claudeCommandRel  = "worklog/skill/claude/command.md"
 	claudeCommandsDir = ".claude/commands"
 )
@@ -71,6 +75,9 @@ func VerifyRepo(repoRoot string) error {
 		if fi, err := os.Stat(filepath.Join(repoRoot, f)); err != nil || !fi.Mode().IsRegular() {
 			missing = append(missing, f)
 		}
+	}
+	if fi, err := os.Stat(filepath.Join(repoRoot, worklogRefsRel)); err != nil || !fi.IsDir() {
+		missing = append(missing, worklogRefsRel)
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("repo at %s is missing skill sources (%v); refusing to deploy", repoRoot, missing)
@@ -98,6 +105,9 @@ func Run(repoRoot string, targets []string, home string, mode Mode) (Report, err
 		deployFile(&rep, filepath.Join(repoRoot, worklogSkillRel),
 			filepath.Join(target, "worklog", "SKILL.md"),
 			fmt.Sprintf("skill worklog -> %s", target), mode)
+		deployDir(&rep, filepath.Join(repoRoot, worklogRefsRel),
+			filepath.Join(target, "worklog", "references"),
+			fmt.Sprintf("skill worklog references -> %s", target), mode)
 		if target == filepath.Join(home, ".claude", "skills") {
 			deployFile(&rep, filepath.Join(repoRoot, claudeCommandRel),
 				filepath.Join(home, claudeCommandsDir, "worklog.md"),
