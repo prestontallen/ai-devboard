@@ -14,6 +14,8 @@ Tasks with a `worklog:` join key also render the ticket's
 rendered, never copied, and note edits hot-reload too. That mount also
 carries `FEEDBACK.md`, rendered as the global Friction panel (see below).
 
+![Devboard grid showing two task cards, one in-flight with a needs-you badge and one in planning](docs/board.png)
+
 The intended writer is the `worklog` CLI (`start`/`done`/`pr` side
 effects plus the `worklog task` family, including `untrack` to stop
 tracking a task by deleting only its YAML) — but a hand-dropped
