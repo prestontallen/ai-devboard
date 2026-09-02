@@ -250,10 +250,27 @@ an agent that isn't auto-detected just gets a line added.
 |---|---|
 | The skill, once per configured target | `<target>/worklog/SKILL.md` |
 | The `/worklog` slash command (Claude Code only) | `~/.claude/commands/worklog.md` |
+| The SessionStart hook entry, opt-in (Claude Code only) | `~/.claude/settings.json` |
 
 Every other agent relies on skill auto-invocation instead of a slash
 command. There is no Cursor `.mdc` rule file today — `internal/sync` keeps
 the hook for one if reinforcement ever proves necessary.
+
+An interactive `worklog install` offers to register a `SessionStart` hook
+that runs `worklog hook session-start`, which injects a short orientation
+block — what's in `## Now`, which epics have live children, how long
+anything has been waiting — at the top of every Claude Code session. It
+exists because prose is advisory and hooks are not: the skill's "orient at
+session start" rule measurably did not fire in sessions about other
+projects. Declining the prompt is a supported state and is never reported
+as drift; a hook entry naming a binary that isn't the installed one is.
+Non-Claude agents keep the one-line prose fallback in SKILL.md.
+
+On a machine with no TTY — a remote session, CI — the prompt can't run, so
+`worklog install --with-session-hook` is the headless way to opt in: typing
+the flag is the same act of consent as answering the form. It pairs with
+`--dry-run`; combining it with `--check` is a usage error, since `--check`
+never writes.
 
 The skill description is loud and includes trigger phrases ("what am I working
 on", "log this", "have we hit X before") so semantic discovery fires reliably.

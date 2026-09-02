@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
 )
 
 // runInstallCmd executes `worklog install <args...>` with captured streams.
@@ -125,6 +127,70 @@ func TestInstallRepoGoneIsDistinctError(t *testing.T) {
 	_, _, err := runInstallCmd(t, "", "--check")
 	if err == nil || !strings.Contains(err.Error(), "repo not found at /nonexistent/checkout") {
 		t.Fatalf("expected repo-not-found error, got %v", err)
+	}
+}
+
+// Criterion 13: --with-session-hook is the headless consent path. It must
+// install the hook with no TTY and no prompt — the case a remote session
+// hits, where promptAllowed() is false and the opt-in is otherwise
+// unreachable.
+func TestInstallWithSessionHookHeadless(t *testing.T) {
+	home, repo := installSandbox(t)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	settings := installer.SettingsPath(home)
+	if err := os.WriteFile(settings, []byte(`{"tui": "fullscreen"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := runInstallCmd(t, "", "--repo", repo, "--with-session-hook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "SessionStart hook: added") {
+		t.Fatalf("expected the hook to be added, got %q", out)
+	}
+
+	want := installer.HookCommand(installer.HookBinPath(home))
+	state, _, err := installer.InspectHook(settings, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != installer.HookCurrent {
+		t.Errorf("state = %v, want HookCurrent", state)
+	}
+	raw, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"tui"`) {
+		t.Errorf("the pre-existing key was dropped:\n%s", raw)
+	}
+}
+
+// Without the flag and without a TTY, nothing is written — the prompt is the
+// only other consent path and it never runs headless.
+func TestInstallWithoutFlagLeavesSettingsAlone(t *testing.T) {
+	home, repo := installSandbox(t)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+	if _, _, err := runInstallCmd(t, "", "--repo", repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(installer.SettingsPath(home)); !os.IsNotExist(err) {
+		t.Error("a headless install without the flag wrote settings.json")
+	}
+}
+
+// --check never writes, so pairing it with --with-session-hook is a usage
+// error rather than a silently ignored flag.
+func TestInstallCheckWithHookFlagIsUsageError(t *testing.T) {
+	_, repo := installSandbox(t)
+	_, _, err := runInstallCmd(t, "", "--repo", repo, "--check", "--with-session-hook")
+	if err == nil {
+		t.Fatal("expected a usage error")
+	}
+	ec, ok := err.(exitCoder)
+	if !ok || ec.ExitCode() != 64 {
+		t.Fatalf("expected exit 64, got %v (%T)", err, err)
 	}
 }
 

@@ -94,13 +94,9 @@ tell you.
 
 ## Required behavior
 
-**1. On every session start.** Run `worklog status --json` and orient before
-asking what the user wants, unless they've opened with something specific.
-Summarize what's in `## Now` in a line or two, and call out any epic in
-`## Next` whose `activeChildren` is non-empty. A `WORK.md not found` error
-means the data dir is missing or uninitialized — say so and ask whether to
-recreate it. If the binary is unavailable, read `WORK.md` directly, but
-prefer the CLI so the cap and schema can't drift.
+**1. On every session start.** Orient from the injected `worklog:` block — or
+run `worklog status --json` yourself if none appeared, since only Claude Code
+runs the SessionStart hook that injects it.
 
 **2. Adding work.** Prefer the user's own ticket key as the ID, lowercased
 (`ENT-3794` → `ent-3794`); failing that, a 2–4 word lowercase-kebab slug from

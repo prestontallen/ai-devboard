@@ -95,6 +95,7 @@ scripts that handled validation and skill deployment.`,
 		newNoteCmd(),
 		newWaitCmd(),
 		newTaskCmd(),
+		newHookCmd(),
 		newInstallCmd(),
 	)
 	return cmd

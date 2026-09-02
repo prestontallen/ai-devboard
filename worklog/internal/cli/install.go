@@ -18,9 +18,10 @@ import (
 
 func newInstallCmd() *cobra.Command {
 	var (
-		flagRepo   string
-		flagCheck  bool
-		flagDryRun bool
+		flagRepo     string
+		flagCheck    bool
+		flagDryRun   bool
+		flagWithHook bool
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -41,6 +42,9 @@ prompt, never build.`,
 			if flagCheck && flagDryRun {
 				return errWithExit(64, "cannot combine --check and --dry-run")
 			}
+			if flagCheck && flagWithHook {
+				return errWithExit(64, "cannot combine --check and --with-session-hook (--check never writes)")
+			}
 			mode := installer.ModeInstall
 			if flagCheck {
 				mode = installer.ModeCheck
@@ -48,12 +52,14 @@ prompt, never build.`,
 			if flagDryRun {
 				mode = installer.ModeDryRun
 			}
-			return runInstall(cmd, flagRepo, mode)
+			return runInstall(cmd, flagRepo, mode, flagWithHook)
 		},
 	}
 	cmd.Flags().StringVar(&flagRepo, "repo", "", "path to the ai-devboard checkout (persisted; usually passed by install.sh)")
 	cmd.Flags().BoolVar(&flagCheck, "check", false, "report drift; exit 1 if anything differs")
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "print what would happen; change nothing")
+	cmd.Flags().BoolVar(&flagWithHook, "with-session-hook", false,
+		"install the Claude Code SessionStart hook without prompting (the headless way to opt in)")
 	return cmd
 }
 
@@ -76,7 +82,7 @@ func promptAllowed() bool {
 	return stdinIsTTY() || os.Getenv("INSTALL_PROMPT_FORCE") != ""
 }
 
-func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode) error {
+func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, withHook bool) error {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 	home, err := os.UserHomeDir()
@@ -196,7 +202,7 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode) error 
 		}
 	}
 
-	installExtras(cmd, home, repoRoot, mode, &rep)
+	installExtras(cmd, home, repoRoot, mode, &rep, withHook)
 
 	if mode == installer.ModeCheck {
 		if rep.Drift {
@@ -247,7 +253,7 @@ func promptForTargets(home string) ([]string, error) {
 }
 
 // installExtras: PATH warning, tone check, devboard dir, opt-in prompts.
-func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report) {
+func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, withHook bool) {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 
@@ -283,13 +289,16 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 		}
 	}
 
+	reportHookState(cmd, home, mode, rep, withHook)
+
 	// Opt-in extras: interactive install mode only.
 	if mode != installer.ModeInstall || !promptAllowed() {
 		if mode == installer.ModeInstall {
-			fmt.Fprintln(out, style.Dim.Render("hint: rerun interactively to opt into the CLAUDE.md directive / devboard container"))
+			fmt.Fprintln(out, style.Dim.Render("hint: rerun interactively to opt into the SessionStart hook / CLAUDE.md directive / devboard container"))
 		}
 		return
 	}
+	offerSessionStartHook(cmd, home)
 	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
 	if data, _ := os.ReadFile(claudeMD); !strings.Contains(string(data), "dev-context") {
 		var yes bool
@@ -322,6 +331,89 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 			}
 		}
 	}
+}
+
+// reportHookState describes the SessionStart hook in every mode. Absence is
+// a note, never drift: the hook is opt-in, and a human who declined it must
+// still get a clean `install --check`. A stale entry — one naming a binary
+// that is not the installed one — IS drift, because it silently stops
+// working. Check and dry-run never open settings.json for writing.
+//
+// withHook is the headless consent path: typing --with-session-hook is the
+// same act as answering the prompt, so it installs an absent hook without a
+// TTY. Without it, an absent hook is left to offerSessionStartHook, which
+// only runs interactively.
+func reportHookState(cmd *cobra.Command, home string, mode installer.Mode, rep *installer.Report, withHook bool) {
+	out := cmd.OutOrStdout()
+	settings := installer.SettingsPath(home)
+	want := installer.HookCommand(installer.HookBinPath(home))
+
+	state, found, err := installer.InspectHook(settings, want)
+	if err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("WARN: SessionStart hook: "+err.Error()+"; leaving it alone"))
+		return
+	}
+	switch state {
+	case installer.HookCurrent:
+		if mode == installer.ModeInstall {
+			fmt.Fprintln(out, style.Dim.Render("SessionStart hook: installed"))
+		}
+	case installer.HookStale:
+		msg := fmt.Sprintf("SessionStart hook in %s names %q, want %q", settings, found, want)
+		switch mode {
+		case installer.ModeCheck:
+			fmt.Fprintln(out, style.Bad.Render("drift: "+msg))
+			rep.Drift = true
+		case installer.ModeDryRun:
+			fmt.Fprintln(out, "would: repair "+msg)
+		case installer.ModeInstall:
+			if err := installer.InstallHook(settings, want); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("WARN: SessionStart hook: "+err.Error()))
+			} else {
+				fmt.Fprintln(out, "SessionStart hook: repaired to "+want)
+			}
+		}
+	case installer.HookAbsent:
+		switch {
+		case mode == installer.ModeDryRun && withHook:
+			fmt.Fprintln(out, "would: add the SessionStart hook to "+settings)
+		case mode == installer.ModeInstall && withHook:
+			if err := installer.InstallHook(settings, want); err != nil {
+				fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("WARN: SessionStart hook: "+err.Error()))
+			} else {
+				fmt.Fprintln(out, "SessionStart hook: added to "+settings)
+			}
+		case mode != installer.ModeInstall:
+			fmt.Fprintln(out, style.Dim.Render(
+				"note: SessionStart hook not installed (opt-in; add it with --with-session-hook or an interactive run)"))
+		}
+	}
+}
+
+// offerSessionStartHook prompts once, on an interactive install, before
+// writing to a file the human owns. Declining is remembered only in the
+// sense that nothing is written — re-running install asks again.
+func offerSessionStartHook(cmd *cobra.Command, home string) {
+	out := cmd.OutOrStdout()
+	settings := installer.SettingsPath(home)
+	want := installer.HookCommand(installer.HookBinPath(home))
+
+	state, _, err := installer.InspectHook(settings, want)
+	if err != nil || state != installer.HookAbsent {
+		return // malformed (already warned), current, or repaired above
+	}
+	var yes bool
+	if huh.NewForm(huh.NewGroup(huh.NewConfirm().
+		Title("Add the worklog SessionStart hook to ~/.claude/settings.json?").
+		Description("Injects a short orientation block at the start of every Claude Code session.").
+		Value(&yes))).Run() != nil || !yes {
+		return
+	}
+	if err := installer.InstallHook(settings, want); err != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), style.Warn.Render("WARN: SessionStart hook: "+err.Error()))
+		return
+	}
+	fmt.Fprintln(out, "SessionStart hook: added to "+settings)
 }
 
 // rebuildSelf builds the worklog binary at rev into selfPath, stamped with
