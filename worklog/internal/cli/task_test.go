@@ -27,7 +27,7 @@ func runTask(t *testing.T, args ...string) (stdout, stderr string, err error) {
 
 func taskFile(t *testing.T, dir string) string {
 	t.Helper()
-	p := filepath.Join(dir, "repo-x", "tkt.yaml")
+	p := filepath.Join(dir, devboard.RepoName(), "tkt.yaml")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -177,10 +177,116 @@ func TestTaskUntrackRemovesOnlyTaskFile(t *testing.T) {
 	}
 }
 
+// otherRepoTaskFile creates a task file under a repo-group directory
+// guaranteed to differ from devboard.RepoName() — simulating a task file
+// that belongs to a different, unrelated repo checkout.
+func otherRepoTaskFile(t *testing.T, dir, id string) string {
+	t.Helper()
+	other := "other-repo"
+	if other == devboard.RepoName() {
+		other = "other-repo-2" // paranoia: never collide with the real repo name
+	}
+	p := filepath.Join(dir, other, id+".yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("schema: 1\ntitle: Other repo's task\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestTaskCrossRepoIDCollisionRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	otherPath := otherRepoTaskFile(t, dir, "shared-id")
+	before, err := os.ReadFile(otherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = runTask(t, "phase", "verify", "--id", "shared-id")
+	if err == nil {
+		t.Fatal("expected refusal, got success")
+	}
+	if !strings.Contains(err.Error(), "different repo") || !strings.Contains(err.Error(), "shared-id") {
+		t.Fatalf("expected cross-repo collision error, got %v", err)
+	}
+	after, err := os.ReadFile(otherPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("other repo's task file was mutated by a refused cross-repo id")
+	}
+	// no new file was created under the current repo's group either
+	if _, statErr := os.Stat(filepath.Join(dir, devboard.RepoName(), "shared-id.yaml")); !os.IsNotExist(statErr) {
+		t.Fatal("a new task file was created despite the refusal")
+	}
+}
+
+func TestTaskCrossRepoIDCollisionJSONShape(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	otherRepoTaskFile(t, dir, "shared-id")
+
+	stdout, _, err := runTask(t, "phase", "verify", "--id", "shared-id", "--json")
+	if err == nil {
+		t.Fatal("expected refusal")
+	}
+	if !strings.Contains(stdout, `"error"`) || !strings.Contains(stdout, "different repo") {
+		t.Fatalf("expected {\"error\": ...} JSON body, got stdout=%q err=%v", stdout, err)
+	}
+}
+
+func TestTaskForceBypassesCrossRepoCollision(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	otherPath := otherRepoTaskFile(t, dir, "shared-id")
+
+	if _, _, err := runTask(t, "phase", "verify", "--id", "shared-id", "--force"); err != nil {
+		t.Fatalf("expected --force to succeed, got %v", err)
+	}
+	task := loadTask(t, otherPath)
+	if task.Phase != "verify" {
+		t.Fatalf("expected the other repo's file to be adopted and mutated, got phase=%q", task.Phase)
+	}
+}
+
+func TestTaskSameRepoReEntryNeedsNoForce(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	p := taskFile(t, dir) // lives under devboard.RepoName() — the "current repo"
+
+	for _, phase := range []string{"clarify", "contract", "plan"} {
+		if _, _, err := runTask(t, "phase", phase, "--id", "tkt"); err != nil {
+			t.Fatalf("re-entry to the same repo's file should not require --force: %v", err)
+		}
+	}
+	task := loadTask(t, p)
+	if task.Phase != "plan" {
+		t.Fatalf("expected final phase 'plan', got %q", task.Phase)
+	}
+}
+
+func TestTaskUntrackRefusesCrossRepoID(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	otherPath := otherRepoTaskFile(t, dir, "shared-id") // allowCreate=false path
+
+	_, _, err := runTask(t, "untrack", "--id", "shared-id")
+	if err == nil || !strings.Contains(err.Error(), "different repo") {
+		t.Fatalf("expected cross-repo refusal on untrack (allowCreate=false), got %v", err)
+	}
+	if _, statErr := os.Stat(otherPath); statErr != nil {
+		t.Fatalf("other repo's file must survive a refused untrack: %v", statErr)
+	}
+}
+
 func TestTaskMalformedFileFailsCleanly(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DEVBOARD_DATA", dir)
-	p := filepath.Join(dir, "repo-x", "bad.yaml")
+	p := filepath.Join(dir, devboard.RepoName(), "bad.yaml")
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	garbage := []byte("title: broken\n  bad: [unclosed\n")
 	os.WriteFile(p, garbage, 0o644)

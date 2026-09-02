@@ -485,6 +485,9 @@ collect Summary, Feedback (multi-line, one bullet per line), and Time.
 When `--summary` is missing AND stdin is NOT a TTY (e.g. piped), `done`
 exits 64 with `done requires --summary when stdin is not a TTY`.
 
+`--summary`/`--feedback` land permanently in the archive, human-facing —
+follow the tone convention (see Note-taking above) when drafting them.
+
 #### JSON success shape
 
     {
@@ -949,6 +952,15 @@ If a note needs to quote one, indent it or use a different heading level
 (`### …`).
 
 In the TUI, press `n` on a selected ticket to open the same input.
+
+**Tone.** Note bodies (and the devboard-side `decision`/`needs-you`/
+`waiting-on`/archive `--summary`/`--feedback` text — see dev-context's
+Devboard sync section) are human-facing: rendered on the devboard and in
+`notes/<id>.md`/archive for Preston to read later, not internal
+bookkeeping. Draft them in his installed tone convention (any skill whose
+name contains "tone" — see dev-context's Tone hook for the mechanics and
+fallback voice), including when writing a note outside a dev-context-driven
+task, e.g. a plain "log this."
 
 ## Summary view
 

@@ -110,6 +110,13 @@ default to: lead with the point, flat declarative voice, no openers,
 hedges, or ceremony. Either way, draft in that voice *before* presenting
 at a checkpoint, so what the human approves is what ships.
 
+This is the canonical statement of the convention — the same rule applies
+to every other human-facing string an agent writes during a task, not just
+Ship-phase text. The Devboard sync section below points back here for
+`worklog note`/`task decision`/`task needs-you`/`task waiting-on`/`done
+--summary` text, since that's all rendered straight onto the human's
+dashboard and into WORK.md/archive.
+
 ## Hard checkpoints — the human MUST be involved
 
 Unlike the phase checkpoints, these do not scale with tier. They apply to
@@ -193,6 +200,15 @@ Mandatory sync points:
    open external questions to "unanswered at close" decisions), then
    `worklog task phase done` and `worklog task needs-you resolve all`.
    Deleting the file is the human's call.
+
+**Tone applies here too.** Every string in steps 4–7 above — `decision`,
+`needs-you`, `waiting-on`, and `done`'s `--summary`/`--feedback` — renders
+straight onto the devboard and into WORK.md/archive; it's human-facing
+text, not internal bookkeeping. Draft it in the same voice as Ship-phase
+text (the Tone hook above): the installed tone skill if one exists, else
+flat and declarative, no hedging or ceremony. Draft *before* writing, not
+after — these fields don't get a separate review pass the way a commit
+message does.
 
 **Epic children:** when working a milestone that's a child ticket of an
 epic, do NOT keep a per-child task file — the epic's task file is the

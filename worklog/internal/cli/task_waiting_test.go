@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/prestontallen/day2day/internal/devboard"
 )
 
 func waitingTaskFile(t *testing.T, dir, worklogID string) string {
 	t.Helper()
-	p := filepath.Join(dir, "repo-x", "tkt.yaml")
+	p := filepath.Join(dir, devboard.RepoName(), "tkt.yaml")
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	content := "schema: 1\ntitle: T\n"
 	if worklogID != "" {
@@ -19,6 +21,31 @@ func waitingTaskFile(t *testing.T, dir, worklogID string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestWaitingOnResolveRefusesCrossRepoID covers the guard on the direct
+// resolveTaskPath call in runWaitingOnResolve (allowCreate=false) — a
+// second allowCreate=false exercise alongside untrack's, per contract
+// criterion 4.
+func TestWaitingOnResolveRefusesCrossRepoID(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DEVBOARD_DATA", dir)
+	other := "other-repo"
+	if other == devboard.RepoName() {
+		other = "other-repo-2"
+	}
+	p := filepath.Join(dir, other, "shared-id.yaml")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte("schema: 1\ntitle: T\nwaiting_on:\n  - text: q\n    who: platform\n    asked: \"2026-01-01\"\n"), 0o644)
+
+	_, _, err := runTask(t, "waiting-on", "resolve", "1", "--id", "shared-id")
+	if err == nil || !strings.Contains(err.Error(), "different repo") {
+		t.Fatalf("expected cross-repo refusal, got %v", err)
+	}
+	task := loadTask(t, p)
+	if len(task.WaitingOn) != 1 {
+		t.Fatal("other repo's waiting_on entry must survive a refused resolve")
+	}
 }
 
 func TestWaitingOnAddRequiresWho(t *testing.T) {
@@ -35,7 +62,7 @@ func TestWaitingOnAddRequiresWho(t *testing.T) {
 	if _, _, err := runTask(t, "waiting-on", "add", "question?", "--who", "platform", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task := loadTask(t, filepath.Join(dir, "repo-x", "tkt.yaml"))
+	task := loadTask(t, filepath.Join(dir, devboard.RepoName(), "tkt.yaml"))
 	w := task.WaitingOn[0]
 	if w.Who != "platform" || w.Asked == "" || w.Text != "question?" {
 		t.Fatalf("entry = %+v", w)

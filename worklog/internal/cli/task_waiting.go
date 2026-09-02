@@ -17,7 +17,7 @@ import (
 // newTaskWaitingOnCmd manages the external-answer queue: questions blocked
 // on other teams/people, expected to sit for days (vs needs-you, blocked on
 // the task's own human). See devboard/schema.md.
-func newTaskWaitingOnCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskWaitingOnCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagWho, flagLink, flagDetail, flagAsked, flagAnswer string
 	cmd := &cobra.Command{
 		Use:   "waiting-on <add <text> | resolve <n|all>>",
@@ -49,7 +49,7 @@ sanctioned devboard→worklog write. resolve without --answer records a
 				if asked == "" {
 					asked = time.Now().Format("2006-01-02")
 				}
-				return mutateTask(cmd, *id, *asJSON, true, "waiting-on added", arg+" → "+who,
+				return mutateTask(cmd, *id, *asJSON, true, *force, "waiting-on added", arg+" → "+who,
 					func(t *devboard.Task) error {
 						t.WaitingOn = append(t.WaitingOn, devboard.WaitingItem{
 							Text: arg, Who: who, Asked: asked,
@@ -57,7 +57,7 @@ sanctioned devboard→worklog write. resolve without --answer records a
 						return nil
 					})
 			case "resolve":
-				return runWaitingOnResolve(cmd, *id, *asJSON, arg, strings.TrimSpace(flagAnswer))
+				return runWaitingOnResolve(cmd, *id, *asJSON, *force, arg, strings.TrimSpace(flagAnswer))
 			default:
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task waiting-on: unknown verb %q (add|resolve)", verb)
@@ -76,11 +76,11 @@ sanctioned devboard→worklog write. resolve without --answer records a
 // the decision recording the outcome is written inside the SAME atomic
 // Mutate that removes the entry — an entry is never deleted without a
 // record. The worklog-notes append runs afterward, best-effort, warn-only.
-func runWaitingOnResolve(cmd *cobra.Command, id string, asJSON bool, arg, answer string) error {
+func runWaitingOnResolve(cmd *cobra.Command, id string, asJSON, force bool, arg, answer string) error {
 	if taskDisabled(cmd) {
 		return nil
 	}
-	path, err := resolveTaskPath(id, false)
+	path, err := resolveTaskPath(id, false, force)
 	if err != nil {
 		if ec, ok := err.(exitCoder); ok {
 			return jsonOrTextError(cmd, asJSON, ec.ExitCode(), "%v", err)

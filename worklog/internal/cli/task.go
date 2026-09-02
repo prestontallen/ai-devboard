@@ -25,6 +25,7 @@ var validPhases = map[string]bool{
 func newTaskCmd() *cobra.Command {
 	var flagID string
 	var flagJSON bool
+	var flagForce bool
 
 	cmd := &cobra.Command{
 		Use:   "task",
@@ -36,7 +37,10 @@ attention queue.
 
 Target resolution: --id names the task file slug (searched across all repo
 groups). Without --id, the task file whose group matches the current git
-repo is used when exactly one exists.
+repo is used when exactly one exists. An --id that resolves to a file in a
+DIFFERENT repo than the current one is refused (the file likely belongs to
+an unrelated task that happens to share the slug) — pass --force to adopt
+it anyway.
 
 All subcommands are silent no-ops (exit 0, notice on stderr) when the
 devboard data dir does not exist. See devboard/schema.md for the file
@@ -44,17 +48,19 @@ format and field-ownership rules.`,
 	}
 	cmd.PersistentFlags().StringVar(&flagID, "id", "", "task file slug (default: the current repo's only task)")
 	cmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "emit a JSON result object instead of styled text")
+	cmd.PersistentFlags().BoolVar(&flagForce, "force", false,
+		"reuse an --id that already names a task file in a different repo")
 
 	cmd.AddCommand(
-		newTaskComplexityCmd(&flagID, &flagJSON),
-		newTaskPhaseCmd(&flagID, &flagJSON),
-		newTaskPlanCmd(&flagID, &flagJSON),
-		newTaskScorecardCmd(&flagID, &flagJSON),
-		newTaskDecisionCmd(&flagID, &flagJSON),
-		newTaskNeedsYouCmd(&flagID, &flagJSON),
-		newTaskWaitingOnCmd(&flagID, &flagJSON),
-		newTaskCodeCmd(&flagID, &flagJSON),
-		newTaskUntrackCmd(&flagID, &flagJSON),
+		newTaskComplexityCmd(&flagID, &flagForce, &flagJSON),
+		newTaskPhaseCmd(&flagID, &flagForce, &flagJSON),
+		newTaskPlanCmd(&flagID, &flagForce, &flagJSON),
+		newTaskScorecardCmd(&flagID, &flagForce, &flagJSON),
+		newTaskDecisionCmd(&flagID, &flagForce, &flagJSON),
+		newTaskNeedsYouCmd(&flagID, &flagForce, &flagJSON),
+		newTaskWaitingOnCmd(&flagID, &flagForce, &flagJSON),
+		newTaskCodeCmd(&flagID, &flagForce, &flagJSON),
+		newTaskUntrackCmd(&flagID, &flagForce, &flagJSON),
 	)
 	return cmd
 }
@@ -72,13 +78,28 @@ func taskDisabled(cmd *cobra.Command) bool {
 
 // resolveTaskPath maps --id (or the cwd repo's single task) to a file path.
 // allowCreate controls whether a missing --id target may be created.
-func resolveTaskPath(id string, allowCreate bool) (string, error) {
+//
+// devboard.Find searches every repo group by filename alone, so an --id
+// that collides with an unrelated task in another repo would otherwise be
+// silently adopted (or, worse, mutated). force=false refuses that case;
+// force=true is the deliberate escape hatch (e.g. the same repo checked
+// out under two different directory names).
+func resolveTaskPath(id string, allowCreate, force bool) (string, error) {
 	if id != "" {
 		p, err := devboard.Find(id)
 		if err != nil {
 			return "", err
 		}
 		if p != "" {
+			if !force && filepath.Base(filepath.Dir(p)) != devboard.RepoName() {
+				rel, relErr := filepath.Rel(devboard.DataDir(), p)
+				if relErr != nil {
+					rel = p
+				}
+				return "", errWithExit(1,
+					"task: id %q already used by %s (different repo); pass --force to reuse it there, or choose a different --id",
+					id, rel)
+			}
 			return p, nil
 		}
 		if allowCreate {
@@ -132,12 +153,12 @@ func emitTaskResult(cmd *cobra.Command, asJSON bool, res taskResult) error {
 }
 
 // mutateTask is the shared body of every subcommand: resolve, mutate, emit.
-func mutateTask(cmd *cobra.Command, id string, asJSON, allowCreate bool,
+func mutateTask(cmd *cobra.Command, id string, asJSON, allowCreate, force bool,
 	action, detail string, fn func(*devboard.Task) error) error {
 	if taskDisabled(cmd) {
 		return nil
 	}
-	path, err := resolveTaskPath(id, allowCreate)
+	path, err := resolveTaskPath(id, allowCreate, force)
 	if err != nil {
 		if ec, ok := err.(exitCoder); ok {
 			return jsonOrTextError(cmd, asJSON, ec.ExitCode(), "%v", err)
@@ -164,7 +185,7 @@ func index1(arg string, n int, what string) (int, error) {
 	return i - 1, nil
 }
 
-func newTaskComplexityCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskComplexityCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "complexity <low|medium|high>",
 		Args:  cobra.ExactArgs(1),
@@ -175,13 +196,13 @@ func newTaskComplexityCmd(id *string, asJSON *bool) *cobra.Command {
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task: complexity must be low|medium|high, got %q", c)
 			}
-			return mutateTask(cmd, *id, *asJSON, true, "complexity set", c,
+			return mutateTask(cmd, *id, *asJSON, true, *force, "complexity set", c,
 				func(t *devboard.Task) error { t.Complexity = c; return nil })
 		},
 	}
 }
 
-func newTaskPhaseCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskPhaseCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "phase <phase>",
 		Args:  cobra.ExactArgs(1),
@@ -192,13 +213,13 @@ func newTaskPhaseCmd(id *string, asJSON *bool) *cobra.Command {
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task: unknown phase %q (intake|clarify|contract|plan|implementing|verify|present|ship|done)", p)
 			}
-			return mutateTask(cmd, *id, *asJSON, true, "phase set", p,
+			return mutateTask(cmd, *id, *asJSON, true, *force, "phase set", p,
 				func(t *devboard.Task) error { t.Phase = p; return nil })
 		},
 	}
 }
 
-func newTaskPlanCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskPlanCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan <add <text> | start|done|block|pending <n>>",
 		Args:  cobra.ExactArgs(2),
@@ -211,13 +232,13 @@ func newTaskPlanCmd(id *string, asJSON *bool) *cobra.Command {
 			}
 			switch {
 			case verb == "add":
-				return mutateTask(cmd, *id, *asJSON, true, "plan item added", arg,
+				return mutateTask(cmd, *id, *asJSON, true, *force, "plan item added", arg,
 					func(t *devboard.Task) error {
 						t.Plan = append(t.Plan, devboard.PlanItem{Text: arg, State: "pending"})
 						return nil
 					})
 			case states[verb] != "":
-				return mutateTask(cmd, *id, *asJSON, false, "plan item "+states[verb], "#"+arg,
+				return mutateTask(cmd, *id, *asJSON, false, *force, "plan item "+states[verb], "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Plan), "plan")
 						if err != nil {
@@ -235,7 +256,7 @@ func newTaskPlanCmd(id *string, asJSON *bool) *cobra.Command {
 	return cmd
 }
 
-func newTaskScorecardCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskScorecardCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagVerify string
 	cmd := &cobra.Command{
 		Use:   "scorecard <add <text> | pass|fail|pending <n>>",
@@ -245,14 +266,14 @@ func newTaskScorecardCmd(id *string, asJSON *bool) *cobra.Command {
 			verb, arg := args[0], args[1]
 			switch verb {
 			case "add":
-				return mutateTask(cmd, *id, *asJSON, true, "criterion added", arg,
+				return mutateTask(cmd, *id, *asJSON, true, *force, "criterion added", arg,
 					func(t *devboard.Task) error {
 						t.Score = append(t.Score, devboard.ScoreItem{
 							Text: arg, Verify: flagVerify, Status: "pending"})
 						return nil
 					})
 			case "pass", "fail", "pending":
-				return mutateTask(cmd, *id, *asJSON, false, "criterion "+verb, "#"+arg,
+				return mutateTask(cmd, *id, *asJSON, false, *force, "criterion "+verb, "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Score), "scorecard")
 						if err != nil {
@@ -271,14 +292,14 @@ func newTaskScorecardCmd(id *string, asJSON *bool) *cobra.Command {
 	return cmd
 }
 
-func newTaskDecisionCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskDecisionCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagWhy string
 	cmd := &cobra.Command{
 		Use:   "decision <what>",
 		Args:  cobra.ExactArgs(1),
 		Short: "Record an implementation decision (or contract amendment)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return mutateTask(cmd, *id, *asJSON, true, "decision recorded", args[0],
+			return mutateTask(cmd, *id, *asJSON, true, *force, "decision recorded", args[0],
 				func(t *devboard.Task) error {
 					t.Decision = append(t.Decision, devboard.Decision{
 						What: args[0], Why: flagWhy,
@@ -291,7 +312,7 @@ func newTaskDecisionCmd(id *string, asJSON *bool) *cobra.Command {
 	return cmd
 }
 
-func newTaskNeedsYouCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskNeedsYouCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagType, flagDetail string
 	cmd := &cobra.Command{
 		Use:   "needs-you <add <text> | resolve <n|all>>",
@@ -304,14 +325,14 @@ does — stale entries poison the queue.`,
 			verb, arg := args[0], args[1]
 			switch verb {
 			case "add":
-				return mutateTask(cmd, *id, *asJSON, true, "needs-you added", arg,
+				return mutateTask(cmd, *id, *asJSON, true, *force, "needs-you added", arg,
 					func(t *devboard.Task) error {
 						t.NeedsYou = append(t.NeedsYou, devboard.NeedsItem{
 							Type: flagType, Text: arg, Detail: flagDetail})
 						return nil
 					})
 			case "resolve":
-				return mutateTask(cmd, *id, *asJSON, false, "needs-you resolved", arg,
+				return mutateTask(cmd, *id, *asJSON, false, *force, "needs-you resolved", arg,
 					func(t *devboard.Task) error {
 						if arg == "all" {
 							t.NeedsYou = nil
@@ -335,7 +356,7 @@ does — stale entries poison the queue.`,
 	return cmd
 }
 
-func newTaskCodeCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskCodeCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	var flagLines, flagLang, flagNote, flagSnippet string
 	cmd := &cobra.Command{
 		Use:   "code <file>",
@@ -350,7 +371,7 @@ func newTaskCodeCmd(id *string, asJSON *bool) *cobra.Command {
 				}
 				snippet = raw
 			}
-			return mutateTask(cmd, *id, *asJSON, true, "code entry added", args[0],
+			return mutateTask(cmd, *id, *asJSON, true, *force, "code entry added", args[0],
 				func(t *devboard.Task) error {
 					t.Code = append(t.Code, devboard.CodeRef{
 						File: args[0], Lines: flagLines, Lang: flagLang,
@@ -366,7 +387,7 @@ func newTaskCodeCmd(id *string, asJSON *bool) *cobra.Command {
 	return cmd
 }
 
-func newTaskUntrackCmd(id *string, asJSON *bool) *cobra.Command {
+func newTaskUntrackCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "untrack",
 		Args:  cobra.NoArgs,
@@ -378,7 +399,7 @@ notes, and archive entries all remain.`,
 			if taskDisabled(cmd) {
 				return nil
 			}
-			path, err := resolveTaskPath(*id, false)
+			path, err := resolveTaskPath(*id, false, *force)
 			if err != nil {
 				if ec, ok := err.(exitCoder); ok {
 					return jsonOrTextError(cmd, *asJSON, ec.ExitCode(), "%v", err)
