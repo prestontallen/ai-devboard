@@ -24,6 +24,11 @@ var phaseOrder = []string{
 	"implementing", "verify", "present", "ship", "done",
 }
 
+// phaseAliases accepts the spelling the dev-context skill actually prescribes
+// where it differs from the stored name. The stored value stays canonical, so
+// existing task files and the board render unchanged.
+var phaseAliases = map[string]string{"implement": "implementing"}
+
 var validPhases = func() map[string]bool {
 	m := make(map[string]bool, len(phaseOrder))
 	for _, p := range phaseOrder {
@@ -236,6 +241,9 @@ func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Comman
 		Short: "Set the task's workflow phase",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := strings.ToLower(args[0])
+			if canonical, ok := phaseAliases[p]; ok {
+				p = canonical
+			}
 			if !validPhases[p] {
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task: unknown phase %q (%s)", p, strings.Join(phaseOrder, "|"))
