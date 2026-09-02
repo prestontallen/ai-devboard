@@ -48,6 +48,10 @@ have="$("$BIN" --version 2>/dev/null | sed 's/^worklog version //' || true)"
 # release stamps compare against the latest published tag.
 dev_stamped=false; [[ "$have" == *-dev* || "$have" == *-snapshot* ]] && dev_stamped=true
 current=false
+# Only the release branch below fetches a tag, but the drift report reads this
+# on every path — including a dev stamp that no longer matches the checkout,
+# and an absent binary. Empty is what makes that report say "commit <rev>".
+latest=""
 if $dev_stamped; then
   [[ "$have" == *"($rev,"* ]] && current=true
   # a -dirty stamp matches ANY dirty state; install mode always rebuilds
