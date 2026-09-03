@@ -13,15 +13,16 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
-// storeWriteEnv gates the store-backed write path (adb-cutover M3c).
-// Off, every task subcommand runs exactly as it does today. The default
-// flips in M3d, at the freeze, because the flip has to be atomic across
-// every verb that shares an entity — a ported `task` reading the store
-// while `add` still only writes markdown would make a just-created ticket
-// invisible.
+// storeWriteEnv gates the store-backed write path (adb-cutover M3c/M3d).
+// Defaults on as of the M3d cutover flip: every write verb is
+// store-backed unless explicitly overridden with WORKLOG_STORE_WRITE=0,
+// an emergency rollback lever that doesn't require swapping the binary.
+// The flip is atomic across every verb that shares an entity on purpose
+// — a ported `task` reading the store while `add` still only wrote
+// markdown would make a just-created ticket invisible.
 const storeWriteEnv = "WORKLOG_STORE_WRITE"
 
-func storeWriteEnabled() bool { return os.Getenv(storeWriteEnv) == "1" }
+func storeWriteEnabled() bool { return os.Getenv(storeWriteEnv) != "0" }
 
 // storeMutateTaskOrChild is the store-backed twin of mutateTaskOrChild:
 // same dispatch, same closures, different system of record. The ticket is
