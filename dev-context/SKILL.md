@@ -245,7 +245,7 @@ the list before addressing an item by index afterward. `worklog pr <id>
 epic, the epic's task file is the dashboard surface — `worklog start`/
 `done`/`pr` on a child automatically sync that child's entry there and
 never create a per-child file. Every `task` subcommand (`plan`,
-`scorecard`, `decisions`, `amend`, `code`, `needs-you`, `waiting-on`, `complexity`,
+`scorecard`, `decisions`, `amend`, `scout`, `code`, `needs-you`, `waiting-on`, `complexity`,
 `phase`) needs BOTH `--id <epic-slug>` AND `--child <child-slug>` — the
 epic's own top-level fields are unused, so each child keeps its own
 independent phase/plan/scorecard/branch/session (this is what lets more

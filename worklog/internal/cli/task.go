@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
@@ -82,6 +83,7 @@ format and field-ownership rules.`,
 		newTaskPlanCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskScorecardCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskAmendCmd(&flagID, &flagChild, &flagForce, &flagJSON),
+		newTaskScoutCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskDecisionCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskNeedsYouCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskWaitingOnCmd(&flagID, &flagChild, &flagForce, &flagJSON),
@@ -248,7 +250,8 @@ func newTaskComplexityCmd(id, child *string, force *bool, asJSON *bool) *cobra.C
 					"task: complexity must be low|medium|high, got %q", c)
 			}
 			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "complexity set", c,
-				func(t *devboard.Task) error { t.Complexity = c; return nil })
+				func(t *devboard.Task) error { t.Complexity = c; return nil },
+				scoutGateHook(*child, "", true))
 		},
 	}
 }
@@ -331,6 +334,11 @@ stays a single document.`,
 						transition = old + " → " + next
 					}
 					t.Complexity = next
+					// An amendment means the scope moved, so a scout run against
+					// the old scope no longer attests the new one.
+					if next == "medium" || next == "high" {
+						t.Scout = nil
+					}
 					t.Decision = append(t.Decision, devboard.Decision{
 						What:       args[0],
 						Why:        flagWhy,
@@ -339,6 +347,7 @@ stays a single document.`,
 					})
 					return nil
 				},
+				scoutGateHook(*child, "", true),
 				func(string) []string { return resyncChecklist(*child) })
 		},
 	}
@@ -346,6 +355,107 @@ stays a single document.`,
 	cmd.Flags().StringVar(&flagComplexity, "complexity", "",
 		"required: unchanged|low|medium|high — the re-rate this amendment forces")
 	return cmd
+}
+
+var scoutModes = map[string]bool{"ran": true, "inline": true, "skipped": true}
+
+// phasesPastContract are the phases by which the scout should already have
+// happened. Reaching one without an attestation is what the gate reports.
+var phasesPastContract = map[string]bool{"plan": true, "implementing": true, "verify": true}
+
+func newTaskScoutCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command {
+	var flagWhy string
+	cmd := &cobra.Command{
+		Use:   "scout <ran|inline|skipped>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Attest what happened to the contract-phase risk scout",
+		Long: `scout records whether the risk scout ran, so that afterwards you can
+tell "ran" from "skipped" from "could not".
+
+  worklog task scout ran     --why "4 lenses over the draft scope"
+  worklog task scout inline  --why "subagents unavailable; walked the lenses single-pass"
+  worklog task scout skipped --why "<why>"
+
+The mode is self-reported, so this is an audit record, not enforcement.
+What it makes visible is the case where nothing was recorded at all: the
+gate on phase/complexity/amend warns when medium or high complexity work
+has no attestation.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mode := strings.ToLower(strings.TrimSpace(args[0]))
+			if !scoutModes[mode] {
+				return jsonOrTextError(cmd, *asJSON, 64,
+					"task scout: mode must be ran|inline|skipped, got %q", args[0])
+			}
+			if strings.TrimSpace(flagWhy) == "" {
+				return jsonOrTextError(cmd, *asJSON, 64,
+					"task scout: --why is required; the value is in the answer, not the record")
+			}
+			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "scout attested", mode,
+				func(t *devboard.Task) error {
+					t.Scout = &devboard.Scout{
+						Mode: mode, Why: flagWhy,
+						When: time.Now().Format("2006-01-02"),
+					}
+					return nil
+				})
+		},
+	}
+	cmd.Flags().StringVar(&flagWhy, "why", "", "required: what actually happened")
+	return cmd
+}
+
+// scoutGateHook warns when medium/high work has reached a phase past the
+// contract without an attestation. Pure-read by construction: it re-reads the
+// file the mutation just wrote and does nothing else. `phase` is the most
+// frequently run subcommand, so a hook that shelled out would be felt.
+//
+// requirePastContract distinguishes the two callers: `phase` already knows the
+// phase it just set, while `complexity` and `amend` must only fire once the
+// work is past the point where the scout should have run — complexity is rated
+// at intake, before any scout could have happened.
+func scoutGateHook(child string, phaseJustSet string, requirePastContract bool) func(string) []string {
+	return func(taskPath string) []string {
+		raw, err := os.ReadFile(taskPath)
+		if err != nil {
+			return nil
+		}
+		var t devboard.Task
+		if err := yaml.Unmarshal(raw, &t); err != nil {
+			return nil
+		}
+		complexity, phase, scout := t.Complexity, t.Phase, t.Scout
+		if child != "" {
+			var found bool
+			for _, c := range t.Children {
+				// EqualFold, matching findOrAppendChild: a differently-cased
+				// --child must not make the warning vanish.
+				if strings.EqualFold(c.ID, child) {
+					complexity, phase, scout, found = c.Complexity, c.Phase, c.Scout, true
+					break
+				}
+			}
+			if !found {
+				return nil
+			}
+		}
+		if scout != nil {
+			return nil
+		}
+		if c := strings.ToLower(complexity); c != "medium" && c != "high" {
+			return nil
+		}
+		if phaseJustSet != "" && !phasesPastContract[phaseJustSet] {
+			return nil
+		}
+		if requirePastContract && !phasesPastContract[strings.ToLower(phase)] {
+			return nil
+		}
+		// Leads with the command: warnings are untyped strings shared with the
+		// verify lint, so the text is what makes this one recognisable.
+		return []string{"`worklog task scout ran|inline|skipped --why \"<why>\"` — " +
+			complexity + "-complexity work with no scout attestation. " +
+			"Run the scout, or record why it did not run."}
+	}
 }
 
 func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command {
@@ -363,7 +473,8 @@ func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Comman
 					"task: unknown phase %q (%s)", p, strings.Join(phaseOrder, "|"))
 			}
 			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "phase set", p,
-				func(t *devboard.Task) error { t.Phase = p; return nil })
+				func(t *devboard.Task) error { t.Phase = p; return nil },
+				scoutGateHook(*child, p, false))
 		},
 	}
 }

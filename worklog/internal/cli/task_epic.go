@@ -81,6 +81,7 @@ func childWorkView(c *devboard.ChildEntry) *devboard.Task {
 		Branch: c.Branch, Session: c.Session, Tier: c.Tier, Complexity: c.Complexity,
 		Phase: c.Phase, Plan: c.Plan, Score: c.Score, Decision: c.Decision,
 		Code: c.Code, NeedsYou: c.NeedsYou, WaitingOn: c.WaitingOn, Links: c.Links,
+		Scout: c.Scout,
 	}
 }
 
@@ -90,6 +91,7 @@ func applyChildWorkView(c *devboard.ChildEntry, t *devboard.Task) {
 	c.Branch, c.Session, c.Tier, c.Complexity = t.Branch, t.Session, t.Tier, t.Complexity
 	c.Phase, c.Plan, c.Score, c.Decision = t.Phase, t.Plan, t.Score, t.Decision
 	c.Code, c.NeedsYou, c.WaitingOn, c.Links = t.Code, t.NeedsYou, t.WaitingOn, t.Links
+	c.Scout = t.Scout
 }
 
 // childOfEpicParent reports the parent epic id when id names a ticket

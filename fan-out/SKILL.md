@@ -97,7 +97,11 @@ Hard cap: 4 parallel agents per fan-out unless the human raises it.
 Proven instances live in references/ — read the one that fits before
 spawning:
 
-- **Risk scout** (contract phase) → [references/risk-scout.md](references/risk-scout.md)
+- **Risk scout** (contract phase) → [references/risk-scout.md](references/risk-scout.md).
+  When subagents are unavailable, do not skip it: walk the lenses single-pass
+  yourself, treating each as a separate read-only pass, and record
+  `worklog task scout inline --why "<why>"`. The lenses are the value; the
+  parallelism is only speed.
 - **Research sweep** (research phase, every spike) →
   [references/research.md](references/research.md) — the whole
   choreography, not just the fan-out step.

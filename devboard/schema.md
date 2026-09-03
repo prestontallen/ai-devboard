@@ -27,7 +27,7 @@ supported.
 | `children` | worklog (roster identity), agent (per-child in-flight detail) | see "Epic files" below |
 | `links` (PR) | worklog (`worklog pr`) | other entries worklog too (`worklog link <id> <name> [url]`, e.g. Jira/Slack/docs — any name, not just PR) |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
-| `tier`, `complexity`, `branch`, `session`, `repo_path` | agent | identity/telemetry |
+| `tier`, `complexity`, `branch`, `session`, `repo_path`, `scout` | agent | identity/telemetry |
 | `plan`, `scorecard`, `decisions`, `code`, `needs_you`, `waiting_on` | agent | in-flight detail; deliberately NOT stored in worklog |
 | notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
 
@@ -86,6 +86,12 @@ decisions:                # implementation decisions + amendments
                           # which requires a re-rate. "low (unchanged)" when
                           # the rating was reconsidered and kept. A plain
                           # `worklog task decision` entry omits it.
+
+scout:                    # optional; risk-scout attestation, written by
+  mode: ran               # `worklog task scout ran|inline|skipped --why`.
+  why: 4 lenses over the draft scope
+  when: 2026-09-02        # Absence on medium/high work is the state the
+                          # gate reports on phase/complexity/amend.
 
 code:                     # code the human should be aware of
   - file: nole/indexer.py

@@ -292,31 +292,8 @@ func TestTaskComplexityRejectsUnchanged(t *testing.T) {
 }
 
 // ---- criterion 10 ----
-
-// adb-scout-gate will add an attestation key to this file. Amend must not
-// eat a key it does not know about before that ticket lands.
-func TestTaskAmendPreservesUnknownKeys(t *testing.T) {
-	data := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", data)
-	group := filepath.Join(data, devboard.RepoName())
-	if err := os.MkdirAll(group, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(group, "tkt.yaml")
-	if err := os.WriteFile(path, []byte(
-		"schema: 1\ntitle: T\ncomplexity: low\nscout: {mode: ran, why: because}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := runTask(t, "amend", "x", "--why", "w",
-		"--complexity", "medium", "--id", "tkt"); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), "scout:") {
-		t.Errorf("amend dropped an unknown key:\n%s", raw)
-	}
-}
+//
+// Superseded by TestTaskAmendClearsScoutAndKeepsOtherUnknownKeys in
+// task_scout_test.go: adb-scout-gate made `scout:` a typed field that amend
+// must CLEAR on a medium/high outcome, which is the opposite of what this
+// asserted. The unknown-key invariant it guarded lives on in the replacement.

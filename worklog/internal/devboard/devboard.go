@@ -49,6 +49,9 @@ type Task struct {
 	NeedsYou   []NeedsItem   `yaml:"needs_you,omitempty"`
 	WaitingOn  []WaitingItem `yaml:"waiting_on,omitempty"`
 	Links      []Link        `yaml:"links,omitempty"`
+	// Scout records whether the contract-phase risk scout ran. Absence is
+	// itself the state the gate reports on.
+	Scout *Scout `yaml:"scout,omitempty"`
 	// Children carries one entry per child ticket when Type == "epic". An
 	// epic file's own Branch/Session/Phase/Plan/Score/Decision/Code/
 	// NeedsYou/WaitingOn/Links are unused — that in-flight detail lives
@@ -85,6 +88,7 @@ type ChildEntry struct {
 	NeedsYou   []NeedsItem   `yaml:"needs_you,omitempty"`
 	WaitingOn  []WaitingItem `yaml:"waiting_on,omitempty"`
 	Links      []Link        `yaml:"links,omitempty"`
+	Scout      *Scout        `yaml:"scout,omitempty"`
 }
 
 // ChildIdentity is the roster input to SyncEpicRoster: just enough to
@@ -106,6 +110,15 @@ type ScoreItem struct {
 	Text   string `yaml:"text"`
 	Verify string `yaml:"verify,omitempty"`
 	Status string `yaml:"status"` // pending|pass|fail
+}
+
+// Scout attests what happened to the contract-phase risk scout. Mode is
+// self-reported, so this is an audit record rather than an enforcement
+// mechanism: what it makes visible is the case where nothing was recorded.
+type Scout struct {
+	Mode string `yaml:"mode"` // ran|inline|skipped
+	Why  string `yaml:"why,omitempty"`
+	When string `yaml:"when,omitempty"`
 }
 
 type Decision struct {

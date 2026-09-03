@@ -280,7 +280,7 @@ const phaseIdx = p => PHASES.indexOf(String(p ?? ""));
 // full track rather than as an unknown phase.
 const phasesFor = (type, phase) =>
   type === "spike" && (!phase || SPIKE_PHASES.includes(String(phase))) ? SPIKE_PHASES : PHASES;
-const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children","repo_path"]);
+const KNOWN = new Set(["schema","title","branch","tier","phase","plan","scorecard","decisions","code","needs_you","waiting_on","links","session","worklog","complexity","type","children","repo_path","scout"]);
 
 /* ---------- minimal syntax highlighting (strings, comments, keywords, numbers) ---------- */
 const KW = /\b(def|class|return|if|elif|else|for|while|import|from|as|with|try|except|finally|raise|lambda|yield|async|await|const|let|var|function|new|typeof|export|default|fn|pub|impl|struct|enum|match|use|mod|go|func|type|interface|package|nil|null|None|true|false|True|False|self|this)\b/g;
@@ -658,6 +658,23 @@ function taskBodyHTML(k, fk) {
         `<span class="go">${w.link ? `<a class="asklink" href="${esc(safeHref(w.link))}" target="_blank" rel="noopener">↗ asked</a> ` : ""}${ageChip(w.asked)}</span></div>` +
         (w.detail ? fold(fk("wait" + i), "detail", `<pre>${hl(String(w.detail))}</pre>`) : "")
       ).join("") + `</div>`;
+  }
+  {
+    const gateOwed = ["medium","high"].includes(String(k.complexity||"").toLowerCase());
+    if (k.scout && k.scout.mode) {
+      left += `<div class="sec"><h3>Risk scout</h3><div class="tl">` +
+        `<div class="ev"><b>${esc(k.scout.mode)}</b>` +
+        (k.scout.why ? `<small>${esc(k.scout.why)}</small>` : "") +
+        (k.scout.when ? `<span class="when">${esc(k.scout.when)}</span>` : "") +
+        `</div></div></div>`;
+    } else if (gateOwed) {
+      // The absence is the finding; no other section renders one.
+      left += `<div class="sec"><h3>Risk scout</h3><div class="tl">` +
+        `<div class="ev"><b>not attested</b>` +
+        `<small>${esc(String(k.complexity))}-complexity work with no scout record` +
+        ` — worklog task scout ran|inline|skipped --why "&lt;why&gt;"</small></div>` +
+        `</div></div>`;
+    }
   }
   if (Array.isArray(k.decisions) && k.decisions.length) {
     left += `<div class="sec"><h3>Decisions <span class="count">${k.decisions.length}</span></h3><div class="tl">` +

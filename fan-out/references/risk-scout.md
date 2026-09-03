@@ -41,6 +41,14 @@ suggested:  the contract change this implies (out-scope line, criterion,
             risk entry, or open question)
 ```
 
+## When subagents are unavailable
+
+Environment, not choice, blocked this in 4 of 23 corpus contracts. The
+fallback is inline: walk the lenses yourself in one pass each, in the same
+order, withholding nothing (you already hold the scope). Findings fold in
+identically. Record `worklog task scout inline --why "<why>"` so the record
+distinguishes it from a skip.
+
 ## Folding findings into the contract
 
 Union the lists, dedup, then every surviving finding lands as exactly one

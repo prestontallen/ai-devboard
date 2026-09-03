@@ -111,6 +111,10 @@ Scoped by a question, not a change; tier-1 weight, inline. Form and rules:
    BEFORE presenting it; a blocker-severity finding must be resolved or
    explicitly accepted by the human first. The human reviews one
    pre-vetted document, never a contract plus a separate report.
+   Then attest what happened: `worklog task scout ran|inline|skipped --why
+   "<why>"`. Unavailable subagents are `inline` (walk the lenses single-pass
+   yourself, per the fan-out skill), not a silent skip — this step failed in
+   three different ways in the corpus and none of them left a trace.
 7. **Surface open questions** instead of silently resolving them — each one
    is either answered at contract review or logged as an assumption.
 8. **Present for approval** (per dev-context). The contract isn't real
