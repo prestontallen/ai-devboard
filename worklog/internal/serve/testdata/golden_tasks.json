@@ -1,0 +1,173 @@
+{
+ "feedback": [
+  {
+   "context": "worklog session",
+   "excerpt": "user: can we move tickets\nagent: no verb exists",
+   "resolved": 0,
+   "signal": "missing-feature",
+   "timestamp": 1756800000,
+   "trigger": "wanted a move verb"
+  },
+  {
+   "context": "tui",
+   "excerpt": "stack trace here",
+   "resolved": 1756810000,
+   "signal": "tui-error",
+   "timestamp": 1756803600,
+   "trigger": "tui crashed on empty list"
+  }
+ ],
+ "generated": 0,
+ "repos": [
+  {
+   "repo": "alpha",
+   "tasks": [
+    {
+     "file": "alpha/basic.yaml",
+     "id": "basic",
+     "mtime": 0,
+     "task": {
+      "branch": "feat/basic",
+      "complexity": "medium",
+      "decisions": [
+       {
+        "what": "chose A over B",
+        "when": "2026-09-01",
+        "why": "simpler"
+       }
+      ],
+      "links": [
+       {
+        "label": "PR",
+        "url": "https://example.com/pr/1"
+       }
+      ],
+      "needs_you": [],
+      "phase": "implementing",
+      "plan": [
+       {
+        "state": "done",
+        "text": "first step"
+       },
+       {
+        "state": "doing",
+        "text": "second step"
+       }
+      ],
+      "scorecard": [
+       {
+        "status": "pass",
+        "text": "it works",
+        "verify": "go test -run TestIt"
+       }
+      ],
+      "tier": 2,
+      "title": "A basic task",
+      "type": "ticket",
+      "worklog": "basic-task"
+     }
+    },
+    {
+     "error": "<any>",
+     "file": "alpha/broken.yaml",
+     "id": "broken"
+    },
+    {
+     "file": "alpha/dates.yaml",
+     "id": "dates",
+     "mtime": 0,
+     "task": {
+      "scout": {
+       "mode": "ran",
+       "when": "2026-08-15",
+       "why": "because"
+      },
+      "stamps": [
+       "2026-01-02"
+      ],
+      "title": "Unquoted dates",
+      "type": "ticket",
+      "when": "2026-09-01"
+     }
+    },
+    {
+     "file": "alpha/extra.yaml",
+     "id": "extra",
+     "mtime": 0,
+     "task": {
+      "another_unknown": {
+       "list": [
+        1,
+        2,
+        3
+       ],
+       "nested": true
+      },
+      "custom_top_level": "hello",
+      "title": "Unknown keys ride through",
+      "type": "chore"
+     }
+    },
+    {
+     "file": "alpha/notes.yaml",
+     "id": "notes",
+     "mtime": 0,
+     "notes": "# Has notes\n\n## 2026-09-01 10:00\nBody of the note.\n",
+     "task": {
+      "title": "Has notes",
+      "type": "spike",
+      "worklog": "some-id"
+     }
+    },
+    {
+     "file": "alpha/task.json",
+     "id": "task",
+     "mtime": 0,
+     "task": {
+      "b": true,
+      "f": 1.5,
+      "n": 3,
+      "phase": "done",
+      "title": "A JSON task",
+      "type": "ticket",
+      "z": null
+     }
+    },
+    {
+     "archived": true,
+     "file": "alpha/_archive/old.yaml",
+     "id": "old",
+     "mtime": 0,
+     "task": {
+      "phase": "done",
+      "title": "Archived thing",
+      "type": "ticket"
+     }
+    }
+   ]
+  },
+  {
+   "repo": "beta",
+   "tasks": [
+    {
+     "file": "beta/solo.yaml",
+     "id": "solo",
+     "mtime": 0,
+     "task": {
+      "children": [
+       {
+        "id": "kid-1",
+        "phase": "contract",
+        "state": "active",
+        "title": "First child"
+       }
+      ],
+      "title": "Beta solo",
+      "type": "epic"
+     }
+    }
+   ]
+  }
+ ],
+ "version": 0
+}

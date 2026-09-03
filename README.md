@@ -9,7 +9,7 @@ Skills for structured software development with Claude Code.
 | [fan-out](fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. Instances: the contract-phase risk scout and the research sweep. |
 | *tone hook* | Not a repo component: dev-context's ship phase drafts all outbound text (commits, PR text, replies, messages) using whatever personal `*tone*` skill is installed on the machine, falling back to a lead-with-the-point default. Personal tone skills are gitignored here; install.sh checks for one and reports. |
 | [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics — archivable via `done` once all children complete — a cap-exempt `## Waiting` section, archives, notes, search, standup, and `edit` for fixing fields in place). Also devboard's privileged writer: `start`/`done`/`pr` mirror automatically, and the `worklog task` family edits in-flight dashboard state. Imported from `day2day` with history; skill files deploy via `install.sh`, or `worklog install` once a binary exists. |
-| [devboard](devboard/README.md) | Live telemetry: dockerized dashboard rendering per-task state (plan, scorecard, decisions, code-to-know, needs-you, waiting-on) plus live worklog notes. Two mounts: the devboard data dir read-write (archive/un-archive is the board's one write action), the worklog dir read-only. |
+| [devboard](devboard/README.md) | Live telemetry: dashboard served by `worklog serve` (frontend embedded in the Go binary; systemd user unit via `worklog install`, Docker as fallback) rendering per-task state (plan, scorecard, decisions, code-to-know, needs-you, waiting-on) plus live worklog notes. The devboard data dir is read-write (archive/un-archive is the board's one write action); the worklog dir is only ever read. |
 
 Ownership model: worklog is the durable system of record, devboard is
 disposable live telemetry; every shared field has exactly one author, and
@@ -48,8 +48,8 @@ writer, never a required one).
 
 ## Devboard
 
-[devboard/](devboard/README.md) is the human's live dashboard: a Docker
-container renders task files from `~/.local/share/devboard/<repo>/` —
+[devboard/](devboard/README.md) is the human's live dashboard:
+`worklog serve` renders task files from `~/.local/share/devboard/<repo>/` —
 plan, contract scorecard, decisions, code-to-know, a "needs you" attention
 queue, a "waiting on" queue for questions out with other people,
 tier/complexity/worklog badges, a copy-`claude --resume` button per task,
@@ -81,7 +81,8 @@ and field-ownership rules: [devboard/schema.md](devboard/schema.md).
 Linux/macOS (Windows → WSL). Go is OPTIONAL: the bootstrap downloads the
 latest release binary for your platform (sha256-verified) and falls back
 to a local `go build` when the download isn't possible; dev machines with
-a dev-stamped binary stay on the build path. Docker optional (devboard).
+a dev-stamped binary stay on the build path. Docker optional (devboard's
+fallback deployment; the primary is a systemd user unit).
 
 **Skill targets**: the first interactive run detects local AI agent dirs
 (`~/.claude`, `~/.cursor`, `~/.windsurf`, `~/.codex`), prompts per target,

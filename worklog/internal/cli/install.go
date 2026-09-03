@@ -294,7 +294,7 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 	// Opt-in extras: interactive install mode only.
 	if mode != installer.ModeInstall || !promptAllowed() {
 		if mode == installer.ModeInstall {
-			fmt.Fprintln(out, style.Dim.Render("hint: rerun interactively to opt into the SessionStart hook / CLAUDE.md directive / devboard container"))
+			fmt.Fprintln(out, style.Dim.Render("hint: rerun interactively to opt into the SessionStart hook / CLAUDE.md directive / devboard service"))
 		}
 		return
 	}
@@ -315,22 +315,75 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 			}
 		}
 	}
-	if _, err := exec.LookPath("docker"); err == nil {
-		ps, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
-		if !strings.Contains(string(ps), "devboard") {
-			var yes bool
-			if huh.NewForm(huh.NewGroup(huh.NewConfirm().
-				Title("Build and start the devboard container now?").
-				Value(&yes))).Run() == nil && yes {
-				up := exec.Command("docker", "compose", "up", "--build", "-d")
-				up.Dir = filepath.Join(repoRoot, "devboard")
-				up.Stdout, up.Stderr = out, errw
-				if up.Run() == nil {
-					fmt.Fprintln(out, "devboard: running at http://localhost:8484")
-				}
+	if !devboardRunning() {
+		var yes bool
+		if huh.NewForm(huh.NewGroup(huh.NewConfirm().
+			Title("Install and start the devboard service (systemd user unit running `worklog serve`)?").
+			Value(&yes))).Run() == nil && yes {
+			if err := installDevboardUnit(); err != nil {
+				fmt.Fprintln(errw, "devboard service:", err)
+			} else {
+				fmt.Fprintln(out, "devboard: running at http://localhost:8484")
 			}
 		}
 	}
+}
+
+// devboardRunning reports whether something already serves the board: the
+// systemd user unit, or a container (the compose fallback, or the retired
+// Python deployment still supervising itself).
+func devboardRunning() bool {
+	if state, err := exec.Command("systemctl", "--user", "is-active", "devboard.service").Output(); err == nil &&
+		strings.TrimSpace(string(state)) == "active" {
+		return true
+	}
+	if _, err := exec.LookPath("docker"); err == nil {
+		ps, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+		if strings.Contains(string(ps), "devboard") {
+			return true
+		}
+	}
+	return false
+}
+
+const devboardUnit = `[Unit]
+Description=Devboard dashboard (worklog serve)
+
+[Service]
+ExecStart=%s serve
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+`
+
+// installDevboardUnit writes a systemd user unit pointing at this binary
+// and enables it now. Pointing at the installed path (not a copied
+// binary) means upgrades take effect on the unit's next restart.
+func installDevboardUnit() error {
+	bin, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	unitDir := filepath.Join(home, ".config", "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		return err
+	}
+	unitPath := filepath.Join(unitDir, "devboard.service")
+	if err := os.WriteFile(unitPath, []byte(fmt.Sprintf(devboardUnit, bin)), 0o644); err != nil {
+		return err
+	}
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("daemon-reload: %w", err)
+	}
+	if err := exec.Command("systemctl", "--user", "enable", "--now", "devboard.service").Run(); err != nil {
+		return fmt.Errorf("enable --now: %w", err)
+	}
+	return nil
 }
 
 // reportHookState describes the SessionStart hook in every mode. Absence is

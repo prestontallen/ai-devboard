@@ -1,6 +1,9 @@
+# Fallback deployment — the primary is the systemd user unit (README).
 services:
   devboard:
-    build: .
+    build:
+      context: ..
+      dockerfile: devboard/Dockerfile
     ports:
       - "${DEVBOARD_PORT:-8484}:8484"
     volumes:

@@ -23,22 +23,36 @@ schema-valid file is fully supported.
 
 ## Run
 
+The server lives in the `worklog` binary — frontend embedded, no other
+dependencies:
+
 ```sh
-cd devboard
-mkdir -p ~/.local/share/devboard
-docker compose up --build -d
+worklog serve
 # open http://localhost:8484
 ```
 
-Defaults: data dir `~/.local/share/devboard`, port `8484`, worklog dir
-`~/.local/share/worklog` (for notes rendering). Override with
-`DEVBOARD_DATA=/path WORKLOG_DATA=/path DEVBOARD_PORT=9000 docker compose
-up -d`. The worklog mount is read-only — the dashboard can never modify
-worklog state. The data mount is writable for exactly one operation:
-archiving (see below).
+For supervision (start on boot, restart on crash), `worklog install`
+offers a systemd user unit running exactly that; accept it, or manage it
+directly:
 
-Without Docker: `DEVBOARD_DATA=~/.local/share/devboard python3 server.py`
-(needs `pyyaml`).
+```sh
+systemctl --user status devboard   # the unit installed by `worklog install`
+```
+
+Defaults: data dir `~/.local/share/devboard`, port `8484`, worklog dir
+`~/.local/share/worklog` (for notes rendering). Override with the
+environment: `DEVBOARD_DATA`, `DEVBOARD_WORKLOG`, `DEVBOARD_PORT`,
+`DEVBOARD_SCAN_INTERVAL`. The server reads the worklog dir and never
+writes under it; the data dir is written for exactly one operation:
+archiving (see below). The response shape is frozen as the frontend
+contract — see [API.md](API.md).
+
+Fallback: a Docker deployment (multi-stage build of the same binary) for
+setups that prefer container supervision:
+
+```sh
+docker compose -f devboard/compose.yaml up --build -d   # from the repo root
+```
 
 ## Directory layout
 
@@ -88,15 +102,14 @@ each entry offers a button that copies `worklog feedback resolve <timestamp>`
 rather than writing anything. Running it adds a `**Resolved**: <unix-ts>`
 line to that entry, and the board updates over SSE within ~2s.
 
-The entry format is owned by the Go side
-(`worklog/internal/feedback/feedback.go`); `server.py` parses it a second
-time because the container ships no `worklog` binary. The reader skips
-unknown `**Field**:` lines rather than failing, so the two can be extended
-independently. `devboard/test_server.py` (stdlib `unittest`, no extra
-dependency) pins the reader:
+The entry format is owned by `worklog/internal/feedback/feedback.go`, and
+the server reads it through that same package — one parser, so board and
+CLI cannot drift. The reader skips unknown `**Field**:` lines rather than
+failing. Its parity pins (migrated from the retired Python suite) run
+with the normal Go tests:
 
 ```sh
-cd devboard && python3 -m unittest test_server
+cd worklog && go test ./internal/feedback/ ./internal/serve/
 ```
 
 ## Behavior notes
@@ -107,5 +120,8 @@ cd devboard && python3 -m unittest test_server
 - Tasks untouched for >2h render dimmed (likely-stale signal).
 - A missing or malformed `FEEDBACK.md` simply means no friction panel —
   it never takes down the page.
-- Server: Python stdlib + PyYAML; a 1s mtime scan drives the SSE stream
-  (no inotify — works identically under Docker volume mounts).
+- Server: Go, in the `worklog` binary (`worklog/internal/serve`, stdlib
+  net/http + yaml.v3); a 1s mtime scan drives the SSE stream (no inotify —
+  works identically under container volume mounts). Bare `yes/no/on/off`
+  in hand-written YAML are strings (YAML 1.2), not booleans — write
+  `true`/`false`; see API.md for the full frozen contract.

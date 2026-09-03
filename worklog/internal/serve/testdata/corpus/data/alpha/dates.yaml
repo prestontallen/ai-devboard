@@ -1,0 +1,9 @@
+title: Unquoted dates
+type: ticket
+when: 2026-09-01
+scout:
+  mode: ran
+  why: because
+  when: 2026-08-15
+stamps:
+  - 2026-01-02

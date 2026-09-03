@@ -1,0 +1,24 @@
+worklog: basic-task
+title: A basic task
+type: ticket
+phase: implementing
+tier: 2
+complexity: medium
+branch: feat/basic
+plan:
+  - state: done
+    text: first step
+  - state: doing
+    text: second step
+scorecard:
+  - status: pass
+    text: it works
+    verify: go test -run TestIt
+decisions:
+  - what: chose A over B
+    why: simpler
+    when: "2026-09-01"
+links:
+  - label: PR
+    url: https://example.com/pr/1
+needs_you: []

@@ -1,0 +1,7 @@
+title: Beta solo
+type: epic
+children:
+  - id: kid-1
+    title: First child
+    state: active
+    phase: contract

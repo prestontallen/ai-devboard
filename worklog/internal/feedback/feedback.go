@@ -126,6 +126,12 @@ func Parse(path string) ([]Entry, error) {
 			inExcerpt = false
 			continue
 		}
+		if strings.HasPrefix(line, "**") {
+			// Unknown field: skip the line, keep the entry — and end any
+			// excerpt, so a future field never leaks into excerpt text.
+			inExcerpt = false
+			continue
+		}
 
 		if inExcerpt {
 			quotedLine := strings.TrimPrefix(line, "> ")
