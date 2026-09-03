@@ -32,9 +32,14 @@ type SQLite struct {
 // Open opens (creating if needed) the store at path and migrates it to
 // the current user_version. The concurrency contract: WAL so readers
 // never block on the writer, busy_timeout so a second writer waits
-// instead of erroring, foreign keys enforced.
+// instead of erroring, foreign keys enforced, _txlock=immediate so a
+// writer acquires the write lock at BEGIN rather than deferring it to
+// the first write statement — deferred transactions race each other on
+// the upgrade and surface as an immediate SQLITE_BUSY instead of
+// blocking for busy_timeout (confirmed by adb-cutover's M1 load test:
+// without this, 7 of 8 concurrent writers failed within 10ms).
 func Open(path string) (*SQLite, error) {
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
