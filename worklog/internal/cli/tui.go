@@ -2,11 +2,13 @@ package cli
 
 import (
 	"errors"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
+	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
 	"github.com/prestontallen/ai-devboard/worklog/internal/tui"
 )
 
@@ -30,7 +32,23 @@ quit, ? for full help).`,
 				}
 				return err
 			}
-			return tui.Run(wd, doc)
+			writePR := func(id, value string) (pr.Result, error) {
+				return runStorePR(wd, id, value)
+			}
+			appendNote := func(id, body string) error {
+				ss, err := openStoreForWrite(wd)
+				if err != nil {
+					return err
+				}
+				defer ss.close()
+				_, err = runStoreNoteAppend(ss, id, body, time.Now())
+				return err
+			}
+			moveToWait := func(id string) error {
+				_, err := runStoreWait(wd, id, time.Now().Format("2006-01-02"))
+				return err
+			}
+			return tui.Run(wd, doc, writePR, appendNote, moveToWait)
 		},
 	}
 }

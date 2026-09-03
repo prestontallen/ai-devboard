@@ -4,7 +4,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -15,11 +14,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
-	"github.com/prestontallen/ai-devboard/worklog/internal/note"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
-	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
 
 // blockItem implements list.Item.
@@ -174,14 +171,6 @@ type sectionView struct {
 	list list.Model
 }
 
-// NewStatus builds the model from a parsed doc. The writer is the function
-// called on PR-edit submit; default is the real on-disk writer.
-func NewStatus(wd model.Workdir, doc *model.WorkDoc) *Status {
-	return newStatusWithWriter(wd, doc, func(id, value string) (pr.Result, error) {
-		return pr.SetPR(wd, id, value)
-	})
-}
-
 // startNoteAdd transitions into modeAddNote with a fresh Huh multi-line form.
 func (s *Status) startNoteAdd(b *model.Block) tea.Cmd {
 	s.mode = modeAddNote
@@ -245,15 +234,6 @@ func newStatusWithWriter(wd model.Workdir, doc *model.WorkDoc, w prWriter) *Stat
 		keys:    keys,
 		help:    help.New(),
 		writePR: w,
-	}
-	s.appendNote = func(id, body string) error {
-		_, err := note.Append(wd, id, body, time.Now())
-		return err
-	}
-	s.moveToWait = func(id string) error {
-		today := time.Now().Format("2006-01-02")
-		_, err := wait.Wait(wd, id, today)
-		return err
 	}
 	return s
 }
@@ -561,9 +541,15 @@ func (s *Status) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, detail, footer)
 }
 
-// Run launches the Bubble Tea program in alt-screen mode.
-func Run(wd model.Workdir, doc *model.WorkDoc) error {
-	p := tea.NewProgram(NewStatus(wd, doc), tea.WithAltScreen())
+// Run launches the Bubble Tea program in alt-screen mode. writePR,
+// appendNote and moveToWait are injected by the caller (cli/tui.go wires
+// the store-backed write path) so this package carries no write logic
+// of its own.
+func Run(wd model.Workdir, doc *model.WorkDoc, writePR prWriter, appendNote noteAppender, moveToWait waitMover) error {
+	s := newStatusWithWriter(wd, doc, writePR)
+	s.appendNote = appendNote
+	s.moveToWait = moveToWait
+	p := tea.NewProgram(s, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
