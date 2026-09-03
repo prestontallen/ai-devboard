@@ -2,10 +2,13 @@
 // copies Preston's live worklog + devboard data, converts the copy into a
 // persisted SQLite database via copy-forward, and reports whether entity
 // identity held steady across the run. It never writes the live dirs —
-// see Stage — and it is the only package outside internal/convert's own
-// tests that opens a store.Store implementation directly, acting as the
+// see Stage, which internal/verify (adb-projection-render) also reuses
+// for its own read-only staged snapshot. migrate opens a store.Store
+// implementation (sqlitestore) directly in migrate.go, acting as a
 // composition root the boundary test (internal/store/boundary_test.go)
-// exempts by not listing it as a consumer.
+// exempts by not listing it as a consumer — internal/cli/verify.go is a
+// second such composition root (memstore), so this is no longer unique to
+// migrate; see docs/store-design.md's "Verify command" section.
 package migrate
 
 import (

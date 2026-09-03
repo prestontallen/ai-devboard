@@ -160,8 +160,34 @@ entries), and feedback entries had no re-run identity at all, so
 copy-forward would have duplicated every friction entry on every run. Both
 are fixed in `internal/convert`; see the Identity section above.
 
-Still not done here: wiring any CLI verb or the server to actually *read*
-from the store for real use (`adb-projection-render`); the production
-cutover — freeze, rename binary, retire old write paths (`adb-cutover`);
-skill text updates for the projection world (`adb-skill-projection-update`);
-JSONL export (deferred, D9).
+Still not done here: the production cutover — freeze, rename binary, retire
+old write paths (`adb-cutover`); skill text updates for the projection
+world (`adb-skill-projection-update`); JSONL export (deferred, D9).
+
+## Verify command (internal/verify, internal/cli/verify.go)
+
+`worklog verify` (`adb-projection-render`) is the store/projection design's
+first production caller: it stages a read-only snapshot of the live
+worklog + devboard dirs (reusing `internal/migrate`'s `Stage`), converts it
+into an in-memory store, renders that store's projections into a second
+scratch dir via `RenderAll`, and reports field-level drift between the
+staged snapshot and the render — surface by surface (WORK.md, notes,
+archive, INDEX.md, FEEDBACK.md, devboard feed). It never writes to the
+live worklog or devboard directories, under any outcome; that write-back
+is deferred to `adb-cutover` (contract:
+`contracts/ai-devboard/2026-09-03-adb-projection-render.md`).
+
+`worklog verify` is unrelated to the pre-existing `worklog validate`:
+`validate` checks structural invariants over live data as it stands today
+(e.g. three-place epic/child consistency); `verify` checks live data
+against what the rewrite's projections would render from it. The two can
+disagree without either being wrong — `validate` was written against the
+legacy format's own rules, `verify` against the store/projection design.
+
+Composition roots that open a concrete `store.Store` implementation
+directly are no longer unique to `internal/migrate`: `internal/cli/verify.go`
+also constructs one (`memstore.New()`), by design (contract Decision #4) —
+`internal/verify` itself stays interface-only, so the CLI layer is the
+composition root for this command, consistent with "the eventual CLI verbs
+... wire an implementation at their composition root and nowhere else"
+above.

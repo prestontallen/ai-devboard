@@ -100,6 +100,7 @@ scripts that handled validation and skill deployment.`,
 		newHookCmd(),
 		newInstallCmd(),
 		newMigrateCmd(),
+		newVerifyCmd(),
 	)
 	return cmd
 }
