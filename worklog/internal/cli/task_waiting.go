@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -11,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/note"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
@@ -136,9 +133,19 @@ func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON, force boo
 // appendAnswerToWorklog writes the answer into the ticket's notes file —
 // the one sanctioned devboard→worklog write (see devboard/schema.md). It
 // returns a short human status and warns (never errors) when the system of
-// record is unreachable: no worklog id, no worklog dir, or an archived
-// ticket with no notes file. In every such case the task-file decision
-// already holds the answer.
+// record is unreachable: no worklog id, no worklog dir, or the append
+// itself fails. In every such case the task-file decision already holds
+// the answer.
+//
+// Store-backed lookup covers live and archived tickets uniformly — no
+// separate archived-ticket fallback needed, unlike the retired legacy
+// path (note.Append only ever resolved live WORK.md blocks). It also
+// makes note.ErrUnknownID structurally unreachable here: worklogID comes
+// from resolveStoreTarget's own t.Slug, so a task mutation only ever
+// gets this far once --id has already resolved to a real store ticket —
+// under the store model a devboard task's identity IS its worklog
+// identity, unlike legacy's separate worklog: cross-reference field that
+// could dangle.
 func appendAnswerToWorklog(cmd *cobra.Command, worklogID string, w devboard.WaitingItem, answer string) string {
 	if worklogID == "" {
 		return "answer recorded as decision (no worklog ticket)"
@@ -151,33 +158,17 @@ func appendAnswerToWorklog(cmd *cobra.Command, worklogID string, w devboard.Wait
 	}
 	body := fmt.Sprintf("**%s answered** (asked %s: %s)\n\n%s", w.Who, w.Asked, w.Text, answer)
 
-	// Live ticket: note.Append handles file creation + WORK.md linking.
-	if _, err := note.Append(wd, worklogID, body, time.Now()); err == nil {
-		return "answer recorded: decision + notes/" + worklogID + ".md"
-	} else if !errors.Is(err, note.ErrUnknownID) {
+	ss, err := openStoreForWrite(wd)
+	if err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"waiting-on: notes append failed (%v); answer kept as task decision only\n", err)
 		return "answer recorded as decision (notes append failed)"
 	}
-
-	// Archived ticket: append directly when its notes file already exists.
-	notesPath := wd.NotesFile(worklogID)
-	if fi, statErr := os.Stat(notesPath); statErr == nil && fi.Mode().IsRegular() {
-		entry := fmt.Sprintf("\n## %s\n\n%s\n", time.Now().Format("2006-01-02 15:04"), body)
-		f, err := os.OpenFile(notesPath, os.O_APPEND|os.O_WRONLY, 0o644)
-		if err == nil {
-			_, werr := f.WriteString(entry)
-			cerr := f.Close()
-			if werr == nil && cerr == nil {
-				return "answer recorded: decision + notes/" + worklogID + ".md (archived ticket)"
-			}
-		}
+	defer ss.close()
+	if _, err := runStoreNoteAppend(ss, worklogID, body, time.Now()); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(),
-			"waiting-on: notes append failed; answer kept as task decision only\n")
+			"waiting-on: notes append failed (%v); answer kept as task decision only\n", err)
 		return "answer recorded as decision (notes append failed)"
 	}
-
-	fmt.Fprintf(cmd.ErrOrStderr(),
-		"waiting-on: ticket %s not in WORK.md and no notes file; answer kept as task decision only\n", worklogID)
-	return "answer recorded as decision (ticket archived, no notes file)"
+	return "answer recorded: decision + notes/" + worklogID + ".md"
 }

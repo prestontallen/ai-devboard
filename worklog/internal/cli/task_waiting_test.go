@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
 func waitingTaskFile(t *testing.T, dir, worklogID string) string {
@@ -21,6 +24,62 @@ func waitingTaskFile(t *testing.T, dir, worklogID string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// waitingOnStoreFixture builds a canonical (render-fixpoint) worklog dir
+// from workMD/archiveMD — going through convert+RenderAll first, same as
+// canonicalWorklogFixture, rather than writing hand-authored markdown
+// directly, so openStoreForWrite's hand-edit guard doesn't refuse the
+// very first write on a title/banner difference that was never really a
+// hand edit. No devboard task file is pre-created: worklogID has no
+// board entry yet, and task_store.go's create-on-first-use path (the
+// same one a genuinely new ticket goes through) is what the first
+// `task waiting-on add` exercises. Migrates into a fresh store and turns
+// on store-backed writes — appendAnswerToWorklog is unconditionally
+// store-backed, so the task-file mutation must agree with it on one
+// system of record or the two writes would silently diverge.
+func waitingOnStoreFixture(t *testing.T, workMD, archiveMD string) (devboardDir, worklogDir string) {
+	t.Helper()
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "WORK.md"), []byte(workMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if archiveMD != "" {
+		if err := os.MkdirAll(filepath.Join(src, "archive"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, "archive", "2026-09.md"), []byte(archiveMD), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := memstore.New()
+	c, err := convert.ReadCorpusDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convert.Load(s, c); err != nil {
+		t.Fatal(err)
+	}
+
+	worklogDir = t.TempDir()
+	if err := projection.RenderAll(s, worklogDir); err != nil {
+		t.Fatal(err)
+	}
+	devboardDir = filepath.Join(worklogDir, "devboard")
+	if err := os.MkdirAll(devboardDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DEVBOARD_DATA", devboardDir)
+	t.Setenv("WORKLOG_DIR", worklogDir)
+	dataDir := filepath.Join(t.TempDir(), "migration")
+	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+
+	if _, stderr := runCLI(t, "migrate", "--dir", worklogDir, "--out", dataDir); strings.Contains(stderr, "error") {
+		t.Fatalf("migrate: %s", stderr)
+	}
+	t.Setenv("WORKLOG_STORE_WRITE", "1")
+	return devboardDir, worklogDir
 }
 
 // TestWaitingOnResolveRefusesCrossRepoID covers the guard on the direct
@@ -70,10 +129,7 @@ func TestWaitingOnAddRequiresWho(t *testing.T) {
 }
 
 func TestWaitingOnResolveWithAnswerLiveTicket(t *testing.T) {
-	dir, wl := t.TempDir(), t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	t.Setenv("WORKLOG_DIR", wl)
-	os.WriteFile(filepath.Join(wl, "WORK.md"), []byte(`## Now
+	_, wl := waitingOnStoreFixture(t, `## Now
 - [~] **TKT-1** — Live ticket
   - **ID**: tkt-1
   - **Started**: 2026-09-01
@@ -81,12 +137,12 @@ func TestWaitingOnResolveWithAnswerLiveTicket(t *testing.T) {
 ## Next
 
 ## Someday
-`), 0o644)
-	p := waitingTaskFile(t, dir, "tkt-1")
+`, "")
+	p := filepath.Join(devboard.DataDir(), "unknown", "tkt-1.yaml")
 
 	mustRunT := func(args ...string) {
 		t.Helper()
-		if _, _, err := runTask(t, append(args, "--id", "tkt")...); err != nil {
+		if _, _, err := runTask(t, append(args, "--id", "tkt-1")...); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,55 +164,37 @@ func TestWaitingOnResolveWithAnswerLiveTicket(t *testing.T) {
 	}
 }
 
-func TestWaitingOnResolveAnswerArchivedWithNotes(t *testing.T) {
-	dir, wl := t.TempDir(), t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	t.Setenv("WORKLOG_DIR", wl)
-	// WORK.md exists but the ticket is archived (not in it); notes file remains.
-	os.WriteFile(filepath.Join(wl, "WORK.md"), []byte("## Now\n\n## Next\n\n## Someday\n"), 0o644)
-	os.MkdirAll(filepath.Join(wl, "notes"), 0o755)
-	os.WriteFile(filepath.Join(wl, "notes", "tkt-2.md"), []byte("# Notes — tkt-2\n"), 0o644)
-	p := waitingTaskFile(t, dir, "tkt-2")
+// TestWaitingOnResolveAnswerArchivedTicket: an archived ticket (present
+// only in archive/, not WORK.md) is still resolvable by slug through the
+// store — no separate "notes file already exists" fallback needed, unlike
+// the retired legacy path, since write-through creates notes/<id>.md the
+// first time any ticket gets note content, archived or not.
+func TestWaitingOnResolveAnswerArchivedTicket(t *testing.T) {
+	_, wl := waitingOnStoreFixture(t, "## Now\n\n## Next\n\n## Someday\n", `# Archive — 2026-09
 
-	if _, _, err := runTask(t, "waiting-on", "add", "q", "--who", "sec-team", "--id", "tkt"); err != nil {
+## 2026-09-01
+
+### tkt-2 — Archived ticket
+- **Completed**: 2026-09-01
+`)
+
+	if _, _, err := runTask(t, "waiting-on", "add", "q", "--who", "sec-team", "--id", "tkt-2"); err != nil {
 		t.Fatal(err)
 	}
-	stdout, _, err := runTask(t, "waiting-on", "resolve", "1", "--answer", "approved", "--id", "tkt")
+	stdout, _, err := runTask(t, "waiting-on", "resolve", "1", "--answer", "approved", "--id", "tkt-2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, "archived ticket") {
-		t.Fatalf("expected archived-ticket path, got %q", stdout)
+	if !strings.Contains(stdout, "answer recorded") {
+		t.Fatalf("expected a recorded-answer status, got %q", stdout)
 	}
-	notes, _ := os.ReadFile(filepath.Join(wl, "notes", "tkt-2.md"))
-	if !strings.Contains(string(notes), "sec-team answered") {
-		t.Fatalf("notes not appended:\n%s", notes)
+	notes, err := os.ReadFile(filepath.Join(wl, "notes", "tkt-2.md"))
+	if err != nil || !strings.Contains(string(notes), "sec-team answered") {
+		t.Fatalf("notes not appended: %v\n%s", err, notes)
 	}
+	p := filepath.Join(devboard.DataDir(), "unknown", "tkt-2.yaml")
 	if task := loadTask(t, p); len(task.Decision) == 0 {
 		t.Fatal("decision missing")
-	}
-}
-
-func TestWaitingOnResolveAnswerArchivedNoNotes(t *testing.T) {
-	dir, wl := t.TempDir(), t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	t.Setenv("WORKLOG_DIR", wl)
-	os.WriteFile(filepath.Join(wl, "WORK.md"), []byte("## Now\n\n## Next\n\n## Someday\n"), 0o644)
-	p := waitingTaskFile(t, dir, "gone-1")
-
-	if _, _, err := runTask(t, "waiting-on", "add", "q", "--who", "x", "--id", "tkt"); err != nil {
-		t.Fatal(err)
-	}
-	stdout, stderr, err := runTask(t, "waiting-on", "resolve", "1", "--answer", "yes", "--id", "tkt")
-	if err != nil {
-		t.Fatalf("must never hard-fail: %v", err)
-	}
-	if !strings.Contains(stdout, "no notes file") || !strings.Contains(stderr, "task decision only") {
-		t.Fatalf("expected decision-only fallback, out=%q err=%q", stdout, stderr)
-	}
-	task := loadTask(t, p)
-	if len(task.WaitingOn) != 0 || !strings.Contains(task.Decision[len(task.Decision)-1].What, "x answered: yes") {
-		t.Fatalf("task = %+v", task)
 	}
 }
 
