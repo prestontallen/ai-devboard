@@ -105,7 +105,19 @@ type ChildIdentity struct {
 	State string // pending|active|done
 }
 
+// Ident carries a sub-item's store identity through a mutation without
+// ever reaching the file. The yaml:"-" is load-bearing: these values are
+// the store's, and a task subcommand's closure must be able to reorder,
+// edit or delete items without the identity following the wrong one.
+// Zero on an item the closure just appended, which is how PutTicket knows
+// to mint a fresh ULID for it.
+type Ident struct {
+	ID   string
+	Rank int
+}
+
 type PlanItem struct {
+	Ident `yaml:"-"`
 	Text  string `yaml:"text"`
 	State string `yaml:"state"` // pending|in_progress|done|blocked
 	// Extra keeps keys this struct does not model, so a producer's own
@@ -114,6 +126,7 @@ type PlanItem struct {
 }
 
 type ScoreItem struct {
+	Ident  `yaml:"-"`
 	Text   string         `yaml:"text"`
 	Verify string         `yaml:"verify,omitempty"`
 	Status string         `yaml:"status"` // pending|pass|fail
@@ -130,9 +143,10 @@ type Scout struct {
 }
 
 type Decision struct {
-	What string `yaml:"what"`
-	Why  string `yaml:"why,omitempty"`
-	When string `yaml:"when,omitempty"`
+	Ident `yaml:"-"`
+	What  string `yaml:"what"`
+	Why   string `yaml:"why,omitempty"`
+	When  string `yaml:"when,omitempty"`
 	// Complexity records a re-rate that came with a contract amendment, as
 	// "medium → high" or "low (unchanged)". Set only by `task amend`; a plain
 	// decision leaves it empty. It lives here rather than on a separate
@@ -143,6 +157,7 @@ type Decision struct {
 }
 
 type CodeRef struct {
+	Ident   `yaml:"-"`
 	File    string         `yaml:"file"`
 	Lines   string         `yaml:"lines,omitempty"`
 	Lang    string         `yaml:"lang,omitempty"`
@@ -152,6 +167,7 @@ type CodeRef struct {
 }
 
 type NeedsItem struct {
+	Ident  `yaml:"-"`
 	Type   string         `yaml:"type,omitempty"` // question|checkpoint
 	Text   string         `yaml:"text"`
 	Detail string         `yaml:"detail,omitempty"`
@@ -159,6 +175,7 @@ type NeedsItem struct {
 }
 
 type Link struct {
+	Ident `yaml:"-"`
 	Label string         `yaml:"label,omitempty"`
 	URL   string         `yaml:"url"`
 	Extra map[string]any `yaml:",inline"`
@@ -168,6 +185,7 @@ type Link struct {
 // person, expected to sit for days. Distinct from NeedsItem (blocked on the
 // task's own human, resolvable in minutes).
 type WaitingItem struct {
+	Ident  `yaml:"-"`
 	Text   string         `yaml:"text"`
 	Who    string         `yaml:"who"`             // who owes the answer; required
 	Asked  string         `yaml:"asked,omitempty"` // YYYY-MM-DD; age renders from this

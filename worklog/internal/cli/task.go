@@ -205,14 +205,8 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 	if taskDisabled(cmd) {
 		return nil
 	}
-	path, err := resolveTaskPath(id, allowCreate, force)
+	path, _, err := runTaskMutation(id, child, allowCreate, force, fn)
 	if err != nil {
-		if ec, ok := err.(exitCoder); ok {
-			return jsonOrTextError(cmd, asJSON, ec.ExitCode(), "%v", err)
-		}
-		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-	}
-	if _, err := mutateTaskOrChild(path, child, fn); err != nil {
 		code := 1
 		if ec, ok := err.(exitCoder); ok { // e.g. bad index, or missing/invalid --child
 			code = ec.ExitCode()
@@ -221,7 +215,10 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 	}
 	// Outside devboard.Mutate's flock, same as the warn hooks below — a
 	// shared choke point for the whole task<sub> family (adb-cutover M2).
-	if wd, err := resolveWorkdir(); err == nil {
+	// Skipped on the store-backed path: shadow-sync exists to check that a
+	// legacy write and the derived store agree, and once the store IS the
+	// writer there is nothing left for it to compare.
+	if wd, err := resolveWorkdir(); err == nil && !storeWriteEnabled() {
 		storesync.WarnAfterWrite(wd)
 	}
 	var warnings []string
@@ -233,6 +230,23 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 	rel, _ := filepath.Rel(devboard.DataDir(), path)
 	return emitTaskResult(cmd, asJSON,
 		taskResult{File: rel, Action: action, Detail: detail, Warnings: warnings})
+}
+
+// runTaskMutation is the one place the two systems of record diverge for
+// the whole task<sub> family: same closure, same dispatch rules, either
+// spliced into a YAML file or committed to the store and rendered back
+// out. Returns the board file the mutation landed in.
+func runTaskMutation(id, child string, allowCreate, force bool,
+	fn func(*devboard.Task) error) (path, worklogID string, err error) {
+	if storeWriteEnabled() {
+		return storeMutateTaskOrChild(id, child, fn)
+	}
+	path, err = resolveTaskPath(id, allowCreate, force)
+	if err != nil {
+		return "", "", err
+	}
+	worklogID, err = mutateTaskOrChild(path, child, fn)
+	return path, worklogID, err
 }
 
 // index1 parses a 1-based list index against a length.

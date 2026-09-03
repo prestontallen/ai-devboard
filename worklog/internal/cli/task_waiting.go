@@ -81,17 +81,9 @@ func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON, force boo
 	if taskDisabled(cmd) {
 		return nil
 	}
-	path, err := resolveTaskPath(id, false, force)
-	if err != nil {
-		if ec, ok := err.(exitCoder); ok {
-			return jsonOrTextError(cmd, asJSON, ec.ExitCode(), "%v", err)
-		}
-		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-	}
-
 	today := time.Now().Format("2006-01-02")
 	var resolved []devboard.WaitingItem // captured for the notes append
-	worklogID, mutErr := mutateTaskOrChild(path, child, func(t *devboard.Task) error {
+	path, worklogID, mutErr := runTaskMutation(id, child, false, force, func(t *devboard.Task) error {
 		if arg == "all" {
 			resolved = nil // "all" is the close-out path: decisions say unanswered
 			devboard.CloseWaitingOn(t, today)

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
@@ -98,19 +99,45 @@ func Render(s store.Store) (map[string][]byte, error) {
 	return out, nil
 }
 
-// RenderAll writes every projection of s under root.
-func RenderAll(s store.Store, root string) error {
+// Layout locates the two directories the projections actually split
+// across in a live install: the worklog dir (WORK.md, notes/, archive/,
+// FEEDBACK.md) and the devboard dir, which is a sibling rather than a
+// subdirectory. Render's map is rooted at a single tree, so this is where
+// the "devboard/" prefix gets redirected.
+type Layout struct {
+	WorklogDir  string
+	DevboardDir string
+}
+
+// SingleRoot is the layout the staged copies and tests use, where the
+// devboard tree sits under the worklog root as Render names it.
+func SingleRoot(root string) Layout {
+	return Layout{WorklogDir: root, DevboardDir: filepath.Join(root, "devboard")}
+}
+
+func (l Layout) path(rel string) string {
+	if after, ok := strings.CutPrefix(rel, "devboard/"); ok {
+		return filepath.Join(l.DevboardDir, filepath.FromSlash(after))
+	}
+	return filepath.Join(l.WorklogDir, filepath.FromSlash(rel))
+}
+
+// RenderTo writes every projection of s into the two directories l names.
+func RenderTo(s store.Store, l Layout) error {
 	files, err := Render(s)
 	if err != nil {
 		return err
 	}
 	for rel, content := range files {
-		if err := writeIfChanged(filepath.Join(root, filepath.FromSlash(rel)), content); err != nil {
+		if err := writeIfChanged(l.path(rel), content); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+
+// RenderAll writes every projection of s under a single root.
+func RenderAll(s store.Store, root string) error { return RenderTo(s, SingleRoot(root)) }
 
 // EditedFiles reports the projections under root whose bytes differ from
 // what s renders right now, newline-sorted — the files someone hand-edited
@@ -121,13 +148,18 @@ func RenderAll(s store.Store, root string) error {
 // canon), INDEX.md, and anything else living alongside. A rendered file
 // missing from disk counts as edited; it was deleted.
 func EditedFiles(s store.Store, root string) ([]string, error) {
+	return EditedIn(s, SingleRoot(root))
+}
+
+// EditedIn is EditedFiles against a two-directory live layout.
+func EditedIn(s store.Store, l Layout) ([]string, error) {
 	files, err := Render(s)
 	if err != nil {
 		return nil, err
 	}
 	var edited []string
 	for rel, want := range files {
-		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		got, err := os.ReadFile(l.path(rel))
 		if os.IsNotExist(err) {
 			edited = append(edited, rel)
 			continue

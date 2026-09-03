@@ -57,26 +57,26 @@ func fillBoard(task *devboard.Task, t *store.Ticket) {
 		task.Scout = &devboard.Scout{Mode: t.Scout.Mode, Why: t.Scout.Why, When: t.Scout.When}
 	}
 	for _, p := range t.PlanSteps {
-		task.Plan = append(task.Plan, devboard.PlanItem{Text: p.Text, State: p.State, Extra: p.Extra})
+		task.Plan = append(task.Plan, devboard.PlanItem{Ident: ident(p.ID, p.Rank), Text: p.Text, State: p.State, Extra: p.Extra})
 	}
 	for _, c := range t.Scorecard {
-		task.Score = append(task.Score, devboard.ScoreItem{
+		task.Score = append(task.Score, devboard.ScoreItem{Ident: ident(c.ID, c.Rank),
 			Text: c.Text, Verify: c.Verify, Status: c.Status, Extra: c.Extra})
 	}
 	for _, d := range t.Decisions {
-		task.Decision = append(task.Decision, devboard.Decision{
+		task.Decision = append(task.Decision, devboard.Decision{Ident: ident(d.ID, d.Rank),
 			What: d.What, Why: d.Why, When: d.When, Complexity: d.Complexity, Extra: d.Extra})
 	}
 	for _, c := range t.CodeRefs {
-		task.Code = append(task.Code, devboard.CodeRef{
+		task.Code = append(task.Code, devboard.CodeRef{Ident: ident(c.ID, c.Rank),
 			File: c.File, Lines: c.Lines, Lang: c.Lang, Note: c.Note, Snippet: c.Snippet, Extra: c.Extra})
 	}
 	for _, n := range t.NeedsYou {
-		task.NeedsYou = append(task.NeedsYou, devboard.NeedsItem{
+		task.NeedsYou = append(task.NeedsYou, devboard.NeedsItem{Ident: ident(n.ID, n.Rank),
 			Type: n.Type, Text: n.Text, Detail: n.Detail, Extra: n.Extra})
 	}
 	for _, w := range t.WaitingOn {
-		task.WaitingOn = append(task.WaitingOn, devboard.WaitingItem{
+		task.WaitingOn = append(task.WaitingOn, devboard.WaitingItem{Ident: ident(w.ID, w.Rank),
 			Text: w.Text, Who: w.Who, Asked: w.Asked, Link: w.Link, Detail: w.Detail, Extra: w.Extra})
 	}
 	for _, l := range t.Links {
@@ -84,7 +84,7 @@ func fillBoard(task *devboard.Task, t *store.Ticket) {
 		if l.Kind == store.LinkPR && label == "" {
 			label = "PR"
 		}
-		task.Links = append(task.Links, devboard.Link{Label: label, URL: l.URL, Extra: l.Extra})
+		task.Links = append(task.Links, devboard.Link{Ident: ident(l.ID, l.Rank), Label: label, URL: l.URL, Extra: l.Extra})
 	}
 	task.Extra = t.Extra
 }
@@ -98,4 +98,84 @@ func fillBoard(task *devboard.Task, t *store.Ticket) {
 func BoardYAML(t *store.Ticket, kids []*store.Ticket) []byte {
 	out, _ := yaml.Marshal(BoardTask(t, kids))
 	return out
+}
+
+func ident(id store.ID, rank int) devboard.Ident {
+	return devboard.Ident{ID: string(id), Rank: rank}
+}
+
+// ApplyBoardTask copies a mutated devboard.Task's in-flight detail back
+// onto the ticket — the reverse of BoardTask, and the second half of the
+// single correspondence. Identity fields (slug, title, type, parent,
+// section, state) are deliberately not applied: a task subcommand mutates
+// in-flight detail, never who the ticket is.
+//
+// Each sub-item's ULID and rank ride back through Ident, so editing an
+// item's text keeps its identity, reordering keeps it with the right row,
+// and only genuinely new items arrive with a zero Ident for PutTicket to
+// mint. That is what makes `plan remove` stop renumbering the survivors.
+func ApplyBoardTask(t *store.Ticket, task *devboard.Task) {
+	t.Phase = task.Phase
+	t.Tier = 0
+	if task.Tier != nil {
+		t.Tier = *task.Tier
+	}
+	t.Complexity = task.Complexity
+	t.Branch = task.Branch
+	t.Session = task.Session
+	t.RepoPath = task.RepoPath
+
+	t.Scout = nil
+	if task.Scout != nil {
+		t.Scout = &store.Scout{Mode: task.Scout.Mode, Why: task.Scout.Why, When: task.Scout.When}
+	}
+
+	t.PlanSteps = t.PlanSteps[:0]
+	for _, p := range task.Plan {
+		t.PlanSteps = append(t.PlanSteps, store.PlanStep{
+			ID: store.ID(p.ID), Rank: p.Rank, Text: p.Text, State: p.State, Extra: p.Extra})
+	}
+	t.Scorecard = t.Scorecard[:0]
+	for _, c := range task.Score {
+		t.Scorecard = append(t.Scorecard, store.ScoreItem{
+			ID: store.ID(c.ID), Rank: c.Rank, Text: c.Text, Verify: c.Verify, Status: c.Status, Extra: c.Extra})
+	}
+	t.Decisions = t.Decisions[:0]
+	for _, d := range task.Decision {
+		t.Decisions = append(t.Decisions, store.Decision{
+			ID: store.ID(d.ID), Rank: d.Rank, What: d.What, Why: d.Why, When: d.When,
+			Complexity: d.Complexity, Extra: d.Extra})
+	}
+	t.CodeRefs = t.CodeRefs[:0]
+	for _, c := range task.Code {
+		t.CodeRefs = append(t.CodeRefs, store.CodeRef{
+			ID: store.ID(c.ID), Rank: c.Rank, File: c.File, Lines: c.Lines, Lang: c.Lang,
+			Note: c.Note, Snippet: c.Snippet, Extra: c.Extra})
+	}
+	t.NeedsYou = t.NeedsYou[:0]
+	for _, n := range task.NeedsYou {
+		t.NeedsYou = append(t.NeedsYou, store.NeedsItem{
+			ID: store.ID(n.ID), Rank: n.Rank, Type: n.Type, Text: n.Text, Detail: n.Detail, Extra: n.Extra})
+	}
+	t.WaitingOn = t.WaitingOn[:0]
+	for _, w := range task.WaitingOn {
+		t.WaitingOn = append(t.WaitingOn, store.WaitingItem{
+			ID: store.ID(w.ID), Rank: w.Rank, Text: w.Text, Who: w.Who, Asked: w.Asked,
+			Link: w.Link, Detail: w.Detail, Extra: w.Extra})
+	}
+	t.Links = t.Links[:0]
+	for _, l := range task.Links {
+		kind, label := store.LinkRef, l.Label
+		// "PR" is a reserved label (adb-link-pr-label-collision), so it can
+		// only have come from the pr relation. BoardTask synthesizes it for
+		// an unlabelled PR link, and dropping it again here is what keeps
+		// the round trip exact — otherwise every write would rewrite an
+		// empty label to "PR" and the store would drift a field per pass.
+		if label == "PR" {
+			kind, label = store.LinkPR, ""
+		}
+		t.Links = append(t.Links, store.Link{
+			ID: store.ID(l.ID), Rank: l.Rank, Kind: kind, Label: label, URL: l.URL, Extra: l.Extra})
+	}
+	t.Extra = task.Extra
 }
