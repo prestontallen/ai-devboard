@@ -83,11 +83,15 @@ type Server struct {
 	ver       int64
 	notify    chan struct{}
 
-	// AfterWrite, if set, runs after a successful archive/unarchive move —
-	// adb-cutover M2's shadow-sync hook, injected by the CLI layer rather
-	// than imported directly (internal/verify already imports this package
-	// for board comparison, so a direct import here would cycle).
-	AfterWrite func()
+	// MutateBoard, if set, runs after a successful archive/unarchive move
+	// to sync the store's BoardArchived field with it — injected by the
+	// CLI layer rather than imported directly (internal/verify already
+	// imports this package for board comparison, so a direct import here
+	// would cycle). Best-effort: an error here doesn't fail the move
+	// itself, since the file (the user-visible state) already moved; the
+	// next store-backed write's hand-edit guard would surface a lasting
+	// disagreement instead of this handler silently swallowing it forever.
+	MutateBoard func(repo, id string, archived bool) error
 }
 
 func New(cfg Config) *Server {
@@ -315,8 +319,8 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 		return
 	}
 	s.bump() // wake SSE clients now; don't wait out the scan interval
-	if s.AfterWrite != nil {
-		s.AfterWrite()
+	if s.MutateBoard != nil {
+		s.MutateBoard(body.Repo, body.ID, toArchive)
 	}
 
 	status := "restored"
