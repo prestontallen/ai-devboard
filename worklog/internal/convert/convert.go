@@ -142,7 +142,7 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 		nf := Notes(c.Notes[slug])
 		t.NotesPreamble = nf.Preamble
 		t.NoteEntries = nf.Entries
-		for _, r := range nf.Roster {
+		for i, r := range nf.Roster {
 			kid, ok := frags[r.Slug]
 			if !ok {
 				kid = &store.Ticket{
@@ -155,6 +155,10 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 			if kid.Title == "" {
 				kid.Title = r.Title // pending-child titles live only here
 			}
+			// Roster position becomes data here, the same way document
+			// position does in WorkMD: this list is the only place the
+			// order children were added to the epic exists.
+			kid.RosterRank = i
 			kid.ExtraFields = addField(kid.ExtraFields, "__parent_slug", slug)
 		}
 	}
@@ -163,7 +167,7 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 	// view of it from then on).
 	for _, t := range frags {
 		if ac := t.ExtraFields["__archived_children"]; ac != "" {
-			for _, kidSlug := range splitCSV(ac) {
+			for i, kidSlug := range splitCSV(ac) {
 				kid, ok := frags[kidSlug]
 				if !ok {
 					return nil, fmt.Errorf("archived epic %s: Children names %q, which does not exist", t.Slug, kidSlug)
@@ -171,6 +175,10 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 				if kid.ExtraFields["__parent_slug"] == "" {
 					kid.ExtraFields = addField(kid.ExtraFields, "__parent_slug", t.Slug)
 				}
+				// The CSV's own order is the archived epic's roster order,
+				// and once the notes roster is gone it is the only record
+				// of it.
+				kid.RosterRank = i
 			}
 		}
 	}

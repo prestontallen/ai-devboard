@@ -54,7 +54,16 @@ func ArchiveMonth(month string, tickets, all []*store.Ticket) []byte {
 	for _, day := range days {
 		fmt.Fprintf(&b, "\n## %s\n", day)
 		ts := byDay[day]
-		sort.Slice(ts, func(i, j int) bool { return ts[i].Slug < ts[j].Slug })
+		// Rank is the entry's position in the month file it came from, so
+		// entries keep the order they were archived in. Slug is the
+		// tiebreak for anything never ranked (archived by a store-backed
+		// write, which assigns no document position).
+		sort.Slice(ts, func(i, j int) bool {
+			if ts[i].Rank != ts[j].Rank {
+				return ts[i].Rank < ts[j].Rank
+			}
+			return ts[i].Slug < ts[j].Slug
+		})
 		for _, t := range ts {
 			b.WriteString("\n")
 			renderArchiveEntry(&b, t, byID, all)
@@ -96,14 +105,25 @@ func renderArchiveEntry(b *bytes.Buffer, t *store.Ticket, byID map[store.ID]*sto
 	}
 	add("Plan", t.PlanText)
 	if t.Type == store.TypeEpic {
-		var kids []string
+		var kids []*store.Ticket
 		for _, k := range all {
 			if k.ParentID == t.ID {
-				kids = append(kids, k.Slug)
+				kids = append(kids, k)
 			}
 		}
-		sort.Strings(kids)
-		add("Children", joinCSV(kids))
+		// Roster order, not alphabetical: this CSV is the archived epic's
+		// only remaining record of the order its children were added.
+		sort.Slice(kids, func(i, j int) bool {
+			if kids[i].RosterRank != kids[j].RosterRank {
+				return kids[i].RosterRank < kids[j].RosterRank
+			}
+			return kids[i].Slug < kids[j].Slug
+		})
+		slugs := make([]string, 0, len(kids))
+		for _, k := range kids {
+			slugs = append(slugs, k.Slug)
+		}
+		add("Children", joinCSV(slugs))
 	}
 	add("Summary", t.Summary)
 	if len(t.ArchiveFeedback) > 0 {

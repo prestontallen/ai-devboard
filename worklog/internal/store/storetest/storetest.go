@@ -23,6 +23,68 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 	t.Run("FeedbackSameSecondDistinct", func(t *testing.T) { testFeedback(t, open(t)) })
 	t.Run("NotFoundSentinel", func(t *testing.T) { testNotFound(t, open(t)) })
 	t.Run("ChildrenSingleRelation", func(t *testing.T) { testChildren(t, open(t)) })
+	t.Run("TicketsOrderByRank", func(t *testing.T) { testTicketRank(t, open(t)) })
+	t.Run("ChildrenOrderByRosterRank", func(t *testing.T) { testRosterRank(t, open(t)) })
+}
+
+// testRosterRank: Children() honors RosterRank, so an epic's roster keeps
+// the order children were added in. Deliberately gives the children a
+// Rank that disagrees with their RosterRank — the two orderings are
+// independent, and Children() must follow the roster one (adb-cutover M3).
+func testRosterRank(t *testing.T, s store.Store) {
+	epic := base("epic")
+	epic.Type = store.TypeEpic
+	parent := put(t, s, epic)
+
+	for i, slug := range []string{"zulu", "yankee", "xray"} {
+		kid := base(slug)
+		kid.ParentID = parent.ID
+		kid.RosterRank = i
+		kid.Rank = 100 - i // document order, deliberately the reverse
+		put(t, s, kid)
+	}
+
+	kids, err := s.Children(parent.ID)
+	if err != nil {
+		t.Fatalf("Children: %v", err)
+	}
+	var order []string
+	for _, k := range kids {
+		order = append(order, k.Slug)
+	}
+	want := []string{"zulu", "yankee", "xray"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("Children() order = %v, want %v (roster order ignored?)", order, want)
+	}
+}
+
+// testTicketRank: Tickets() honors Rank, so the human's document order
+// survives a round trip through the store. Without it the only available
+// sort is by slug, which alphabetizes ## Next — a hand-ordered priority
+// queue — on the first render (adb-cutover M3).
+func testTicketRank(t *testing.T, s store.Store) {
+	// Deliberately reverse-alphabetical, so slug order and rank order
+	// disagree and a slug-sorted implementation cannot pass by accident.
+	for i, slug := range []string{"zulu", "yankee", "xray"} {
+		tk := base(slug)
+		tk.Rank = i
+		put(t, s, tk)
+	}
+	got, err := s.Tickets()
+	if err != nil {
+		t.Fatalf("Tickets: %v", err)
+	}
+	var order []string
+	for _, tk := range got {
+		order = append(order, tk.Slug)
+	}
+	want := []string{"zulu", "yankee", "xray"}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("Tickets() order = %v, want %v (rank ignored?)", order, want)
+	}
+	if got[0].Rank != 0 || got[2].Rank != 2 {
+		t.Fatalf("Rank did not round-trip: %d, %d", got[0].Rank, got[2].Rank)
+	}
 }
 
 func base(slug string) *store.Ticket {

@@ -21,9 +21,12 @@ import (
 //go:embed schema.sql
 var migration1 string
 
+//go:embed schema2.sql
+var migration2 string
+
 // migrations are applied in order inside one transaction each; index+1 is
 // the resulting PRAGMA user_version.
-var migrations = []string{migration1}
+var migrations = []string{migration1, migration2}
 
 type SQLite struct {
 	db *sql.DB
@@ -146,16 +149,17 @@ func (s *SQLite) PutTicket(t *store.Ticket) error {
 		slugCol = slug
 	}
 	_, err = tx.Exec(`
-INSERT INTO tickets (id, slug, title, type, state, section, parent_id, repo,
+INSERT INTO tickets (id, slug, title, type, state, rank, roster_rank, section, parent_id, repo,
   tags, started, waiting_since, pr, source, files, acceptance, status,
   plan_text, archived, completed, summary, time_spent, archive_feedback,
   archive_month, board_tracked, board_archived, tier, complexity, phase,
   branch, session, repo_path, scout_mode, scout_why, scout_when,
   notes_preamble, extra, extra_fields)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   slug=excluded.slug, title=excluded.title, type=excluded.type,
-  state=excluded.state, section=excluded.section, parent_id=excluded.parent_id,
+  state=excluded.state, rank=excluded.rank, roster_rank=excluded.roster_rank,
+  section=excluded.section, parent_id=excluded.parent_id,
   repo=excluded.repo, tags=excluded.tags, started=excluded.started,
   waiting_since=excluded.waiting_since, pr=excluded.pr, source=excluded.source,
   files=excluded.files, acceptance=excluded.acceptance, status=excluded.status,
@@ -169,7 +173,7 @@ ON CONFLICT(id) DO UPDATE SET
   scout_mode=excluded.scout_mode, scout_why=excluded.scout_why,
   scout_when=excluded.scout_when, notes_preamble=excluded.notes_preamble,
   extra=excluded.extra, extra_fields=excluded.extra_fields`,
-		string(t.ID), slugCol, t.Title, t.Type, t.State, t.Section, parent, t.Repo,
+		string(t.ID), slugCol, t.Title, t.Type, t.State, t.Rank, t.RosterRank, t.Section, parent, t.Repo,
 		jstr(t.Tags), t.Started, t.WaitingSince, t.PR, t.Source, jstr(t.Files),
 		t.Acceptance, t.Status, t.PlanText, t.Archived, t.Completed, t.Summary,
 		t.TimeSpent, jstr(t.ArchiveFeedback), t.ArchiveMonth, t.BoardTracked,
@@ -293,7 +297,10 @@ func (s *SQLite) TicketBySlug(slug string) (*store.Ticket, error) {
 }
 
 func (s *SQLite) Tickets() ([]*store.Ticket, error) {
-	rows, err := s.db.Query("SELECT id FROM tickets ORDER BY slug")
+	// rank first, slug as the tiebreak: rank carries the human's document
+	// order, and slug keeps the result total and deterministic for rows
+	// that share one (quick-capture entities, anything never ranked).
+	rows, err := s.db.Query("SELECT id FROM tickets ORDER BY rank, slug")
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +312,7 @@ func (s *SQLite) Tickets() ([]*store.Ticket, error) {
 }
 
 func (s *SQLite) Children(parent store.ID) ([]*store.Ticket, error) {
-	rows, err := s.db.Query("SELECT id FROM tickets WHERE parent_id = ? ORDER BY slug", string(parent))
+	rows, err := s.db.Query("SELECT id FROM tickets WHERE parent_id = ? ORDER BY roster_rank, slug", string(parent))
 	if err != nil {
 		return nil, err
 	}
@@ -351,14 +358,14 @@ func (s *SQLite) ticketTx(q queryer, id store.ID) (*store.Ticket, error) {
 		scoutMode, scoutWhy, when string
 	)
 	err := q.QueryRow(`
-SELECT id, slug, title, type, state, section, parent_id, repo, tags,
+SELECT id, slug, title, type, state, rank, roster_rank, section, parent_id, repo, tags,
   started, waiting_since, pr, source, files, acceptance, status, plan_text,
   archived, completed, summary, time_spent, archive_feedback, archive_month,
   board_tracked, board_archived, tier, complexity, phase, branch, session,
   repo_path, scout_mode, scout_why, scout_when, notes_preamble, extra,
   extra_fields
 FROM tickets WHERE id = ?`, string(id)).Scan(
-		&idS, &slugCol, &t.Title, &t.Type, &t.State, &t.Section, &parent,
+		&idS, &slugCol, &t.Title, &t.Type, &t.State, &t.Rank, &t.RosterRank, &t.Section, &parent,
 		&t.Repo, &tags, &t.Started, &t.WaitingSince, &pr, &t.Source, &files,
 		&t.Acceptance, &t.Status, &t.PlanText, &t.Archived, &t.Completed,
 		&t.Summary, &t.TimeSpent, &afb, &t.ArchiveMonth, &t.BoardTracked,

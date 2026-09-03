@@ -114,7 +114,14 @@ func (m *Mem) Tickets() ([]*store.Ticket, error) {
 	for _, t := range m.tickets {
 		out = append(out, clone(t))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	// Matches sqlitestore's "ORDER BY rank, slug": rank carries the human's
+	// document order, slug keeps the result total for rows that share one.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Rank != out[j].Rank {
+			return out[i].Rank < out[j].Rank
+		}
+		return out[i].Slug < out[j].Slug
+	})
 	return out, nil
 }
 
@@ -129,6 +136,15 @@ func (m *Mem) Children(parent store.ID) ([]*store.Ticket, error) {
 			out = append(out, t)
 		}
 	}
+	// Roster order, matching sqlitestore's ORDER BY on this method. NOT
+	// Rank — a child's Rank is its position in WORK.md or an archive
+	// month, which says nothing about its place in the parent's roster.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].RosterRank != out[j].RosterRank {
+			return out[i].RosterRank < out[j].RosterRank
+		}
+		return out[i].Slug < out[j].Slug
+	})
 	return out, nil
 }
 

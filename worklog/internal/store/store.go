@@ -65,6 +65,23 @@ type Ticket struct {
 	Type  string // ticket|epic|spike|chore
 	State string // pending|active|done
 
+	// Rank is the ticket's position in whichever document renders it —
+	// WORK.md while live, the archive month file once Archived (a ticket is
+	// in exactly one of the two). This is the modeling rule at the top of
+	// this file applied to the ticket itself: the human's ordering is real
+	// data (## Next is a hand-ordered priority queue), so it is a field,
+	// not the position of a line in a file. Without it the only available
+	// sort is by slug, which silently alphabetizes the backlog.
+	Rank int
+
+	// RosterRank is this ticket's position in its PARENT's child roster —
+	// the order children were added to the epic, held by the epic's
+	// `## Children` list while live and by its archived `Children:` CSV
+	// after. Distinct from Rank: a child's Rank is where it sits in
+	// WORK.md or an archive month, which says nothing about its place in
+	// the roster. Meaningless when ParentID is "".
+	RosterRank int
+
 	// WORK.md-side fields.
 	Section      string // now|waiting|next|someday|blocked; "" once archived
 	ParentID     ID     // epic parent ("" = none)

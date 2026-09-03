@@ -66,6 +66,11 @@ func WorkMD(data []byte) ([]*store.Ticket, error) {
 				State:   stateChars[m[1]],
 				Section: inSection,
 				Type:    store.TypeTicket,
+				// Document position becomes data here. This is the one
+				// place WORK.md's ordering exists — ## Next is a
+				// hand-ordered priority queue — so it is captured on the
+				// way in rather than reconstructed by sorting later.
+				Rank: len(out),
 			}
 			body := strings.TrimSpace(m[2])
 			if t := titleRe.FindStringSubmatch(body); t != nil {

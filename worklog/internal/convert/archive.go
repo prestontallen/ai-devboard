@@ -45,6 +45,10 @@ func ArchiveMonth(month string, data []byte) ([]*store.Ticket, error) {
 				// they render into is the month.
 				Archived:     true,
 				ArchiveMonth: month,
+				// Position within the month file, same reasoning as
+				// WorkMD: the order entries sit in under each ## day
+				// heading is the human's, not a sort key we can recover.
+				Rank: len(out),
 			}
 			inFeedback = false
 			out = append(out, cur)
