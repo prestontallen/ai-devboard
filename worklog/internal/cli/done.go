@@ -86,6 +86,19 @@ func runDone(
 	}
 
 	today := time.Now().Format("2006-01-02")
+
+	if storeWriteEnabled() {
+		out, err := runStoreDone(wd, in, today)
+		if err != nil {
+			return mapDoneError(cmd, asJSON, err)
+		}
+		if asJSON {
+			return emitJSON(cmd.OutOrStdout(), out)
+		}
+		emitDoneText(cmd, out)
+		return nil
+	}
+
 	out, err := done.Run(wd, in, today)
 	if err != nil {
 		return mapDoneError(cmd, asJSON, err)

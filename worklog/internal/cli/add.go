@@ -202,11 +202,19 @@ func runAddStandalone(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, 
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
 
-	out, err := applyStandalone(wd, doc, inputs)
+	var out addOutput
+	var err error
+	if storeWriteEnabled() {
+		out, err = runStoreAdd(wd, inputs)
+	} else {
+		out, err = applyStandalone(wd, doc, inputs)
+		if err == nil {
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	if err != nil {
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
-	storesync.WarnAfterWrite(wd)
 
 	if flagJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
@@ -326,43 +334,52 @@ func runAddEpic(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, inputs
 			"%v: %s", ErrNotesAlreadyExists, notesPath)
 	}
 
-	// Build epic block + splice into WORK.md
-	notesRef := "notes/" + inputs.ID + ".md"
-	blockLines := render.FormatEpicBlock(render.EpicBlockOptions{
-		ID:       inputs.ID,
-		Title:    inputs.Title,
-		Repo:     inputs.Repo,
-		Tags:     inputs.Tags,
-		NotesRef: notesRef,
-	})
-	newWork, err := render.AppendToSection(doc, model.SectionName(inputs.Section), blockLines)
-	if err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
-	}
+	var out addOutput
+	if storeWriteEnabled() {
+		var err error
+		out, err = runStoreAdd(wd, inputs)
+		if err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
+		}
+	} else {
+		// Build epic block + splice into WORK.md
+		notesRef := "notes/" + inputs.ID + ".md"
+		blockLines := render.FormatEpicBlock(render.EpicBlockOptions{
+			ID:       inputs.ID,
+			Title:    inputs.Title,
+			Repo:     inputs.Repo,
+			Tags:     inputs.Tags,
+			NotesRef: notesRef,
+		})
+		newWork, err := render.AppendToSection(doc, model.SectionName(inputs.Section), blockLines)
+		if err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
+		}
 
-	// Create notes scaffold
-	scaffold := epicScaffold(inputs.Title, inputs.ID)
-	if err := os.MkdirAll(wd.NotesDir(), 0o755); err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
-	}
-	if err := os.WriteFile(notesPath, []byte(scaffold), 0o644); err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
-	}
+		// Create notes scaffold
+		scaffold := epicScaffold(inputs.Title, inputs.ID)
+		if err := os.MkdirAll(wd.NotesDir(), 0o755); err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
+		}
+		if err := os.WriteFile(notesPath, []byte(scaffold), 0o644); err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
+		}
 
-	if err := render.WriteAtomic(wd.WorkMD(), newWork); err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "write WORK.md: %v", err)
-	}
-	storesync.WarnAfterWrite(wd)
+		if err := render.WriteAtomic(wd.WorkMD(), newWork); err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "write WORK.md: %v", err)
+		}
+		storesync.WarnAfterWrite(wd)
 
-	out := addOutput{
-		Status:    "added",
-		Kind:      "epic",
-		ID:        inputs.ID,
-		Title:     inputs.Title,
-		Section:   inputs.Section,
-		WorkMD:    wd.WorkMD(),
-		NotesPath: notesPath,
-		Warnings:  []string{indexNotUpdatedWarning},
+		out = addOutput{
+			Status:    "added",
+			Kind:      "epic",
+			ID:        inputs.ID,
+			Title:     inputs.Title,
+			Section:   inputs.Section,
+			WorkMD:    wd.WorkMD(),
+			NotesPath: notesPath,
+			Warnings:  []string{indexNotUpdatedWarning},
+		}
 	}
 
 	if flagJSON {
@@ -418,32 +435,41 @@ func runAddChild(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, input
 			"%v: %q already in %s", ErrIDCollisionInNotes, inputs.ID, path)
 	}
 
-	notesPath := wd.NotesFile(inputs.Parent)
-	var notesBytes []byte
-	if data, err := os.ReadFile(notesPath); err == nil {
-		notesBytes = data
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return jsonOrTextError(cmd, flagJSON, 1, "read notes: %v", err)
-	}
+	var out addOutput
+	if storeWriteEnabled() {
+		var err error
+		out, err = runStoreAdd(wd, inputs)
+		if err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
+		}
+	} else {
+		notesPath := wd.NotesFile(inputs.Parent)
+		var notesBytes []byte
+		if data, err := os.ReadFile(notesPath); err == nil {
+			notesBytes = data
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return jsonOrTextError(cmd, flagJSON, 1, "read notes: %v", err)
+		}
 
-	newBytes := render.AppendChildToNotes(notesBytes, inputs.ID, inputs.Title)
+		newBytes := render.AppendChildToNotes(notesBytes, inputs.ID, inputs.Title)
 
-	if err := os.MkdirAll(filepath.Dir(notesPath), 0o755); err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
-	}
-	if err := os.WriteFile(notesPath, newBytes, 0o644); err != nil {
-		return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
-	}
-	storesync.WarnAfterWrite(wd)
+		if err := os.MkdirAll(filepath.Dir(notesPath), 0o755); err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
+		}
+		if err := os.WriteFile(notesPath, newBytes, 0o644); err != nil {
+			return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
+		}
+		storesync.WarnAfterWrite(wd)
 
-	out := addOutput{
-		Status:    "added",
-		Kind:      "child",
-		ID:        inputs.ID,
-		Title:     inputs.Title,
-		Parent:    inputs.Parent,
-		NotesPath: notesPath,
-		Warnings:  []string{indexNotUpdatedWarning},
+		out = addOutput{
+			Status:    "added",
+			Kind:      "child",
+			ID:        inputs.ID,
+			Title:     inputs.Title,
+			Parent:    inputs.Parent,
+			NotesPath: notesPath,
+			Warnings:  []string{indexNotUpdatedWarning},
+		}
 	}
 
 	if flagJSON {

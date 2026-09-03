@@ -157,16 +157,23 @@ func runLink(cmd *cobra.Command, args []string, clear, edit, asJSON bool) error 
 		value = url
 	}
 
-	res, err := link.SetLink(wd, id, name, value)
+	var res link.Result
+	if storeWriteEnabled() {
+		res, err = runStoreLink(wd, id, name, value)
+	} else {
+		res, err = link.SetLink(wd, id, name, value)
+		if err == nil {
+			if res.Parent != "" {
+				devboardOnLinkChild(res.Parent, id, name, value)
+			} else {
+				devboardOnLink(id, name, value)
+			}
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	if res.Parent != "" {
-		devboardOnLinkChild(res.Parent, id, name, value)
-	} else {
-		devboardOnLink(id, name, value)
-	}
-	storesync.WarnAfterWrite(wd)
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

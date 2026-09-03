@@ -88,15 +88,18 @@ func runImport(cmd *cobra.Command, flagFile, flagSection string, dryRun, asJSON 
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
-	result, err := importer.Import(wd, tickets, importer.Options{
-		SectionOverride: flagSection,
-		DryRun:          dryRun,
-	})
+	opts := importer.Options{SectionOverride: flagSection, DryRun: dryRun}
+	var result importer.Result
+	if storeWriteEnabled() {
+		result, err = runStoreImport(wd, tickets, opts)
+	} else {
+		result, err = importer.Import(wd, tickets, opts)
+		if err == nil && !dryRun && len(result.Imported) > 0 {
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "import: %v", err)
-	}
-	if !dryRun && len(result.Imported) > 0 {
-		storesync.WarnAfterWrite(wd)
 	}
 
 	if asJSON {

@@ -32,9 +32,9 @@ This is a rehearsal, not the migration itself — it builds confidence
 before the eventual one-way cutover, and can be run as many times as you
 like.
 
-The output database, its one-generation backup, and migrate's own scratch
-copies live under one directory: --out, or $WORKLOG_MIGRATION_DATA, or
-~/.local/share/worklog-migration by default.`,
+The output database, a timestamped backup of every prior generation, and
+migrate's own scratch copies live under one directory: --out, or
+$WORKLOG_MIGRATION_DATA, or ~/.local/share/worklog-migration by default.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrate(cmd, flagOut, flagJSON)
 		},
@@ -91,6 +91,7 @@ func runMigrate(cmd *cobra.Command, flagOut string, asJSON bool) error {
 			},
 			StaleRows:  orEmpty(res.StaleRows),
 			BackedUp:   res.BackedUp,
+			BackupPath: res.BackupPath,
 			OutputPath: outputPath,
 		})
 	}
@@ -109,6 +110,7 @@ type migrateJSON struct {
 	Diff       migrate.IDSetDiff `json:"diff"`
 	StaleRows  []string          `json:"staleRows"`
 	BackedUp   bool              `json:"backedUp"`
+	BackupPath string            `json:"backupPath,omitempty"`
 	OutputPath string            `json:"outputPath"`
 }
 
@@ -132,7 +134,7 @@ func migrateSummary(res *migrate.Result, outputPath string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "converted %d tickets, %d feedback entries -> %s\n", res.Report.Tickets, res.Report.Feedback, outputPath)
 	if res.BackedUp {
-		fmt.Fprintf(&sb, "previous generation backed up to %s.bak\n", outputPath)
+		fmt.Fprintf(&sb, "previous generation backed up to %s\n", res.BackupPath)
 	} else {
 		fmt.Fprintln(&sb, "no prior output db — this is the baseline run")
 	}

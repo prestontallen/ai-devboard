@@ -187,11 +187,18 @@ func runFeedbackAppend(cmd *cobra.Command, signal, trigger, excerpt, context str
 		Context: context,
 	}
 
-	out, err := feedback.Append(wd.FeedbackMD(), e)
+	var out feedback.Entry
+	if storeWriteEnabled() {
+		out, err = runStoreFeedbackAppend(wd, e)
+	} else {
+		out, err = feedback.Append(wd.FeedbackMD(), e)
+		if err == nil {
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
@@ -247,15 +254,21 @@ func runFeedbackResolve(cmd *cobra.Command, handle string, asJSON bool) error {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
-	at, already, err := feedback.Resolve(wd.FeedbackMD(), ts)
+	var at int64
+	var already bool
+	if storeWriteEnabled() {
+		at, already, err = runStoreFeedbackResolve(wd, ts)
+	} else {
+		at, already, err = feedback.Resolve(wd.FeedbackMD(), ts)
+		if err == nil && !already {
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	switch {
 	case errors.Is(err, feedback.ErrEntryNotFound):
 		return jsonOrTextError(cmd, asJSON, 64, "feedback: no entry stamped %d", ts)
 	case err != nil:
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-	}
-	if !already {
-		storesync.WarnAfterWrite(wd)
 	}
 
 	if asJSON {

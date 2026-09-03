@@ -117,6 +117,86 @@ func TestMigrateJSONSingleDocument(t *testing.T) {
 	}
 }
 
+// TestMigrateJSONReportsTimestampedBackupPath is contract criterion 5's
+// filename half: --json carries the exact backup filename a real backup
+// landed at, distinguishable from the plain ".bak" it replaced.
+func TestMigrateJSONReportsTimestampedBackupPath(t *testing.T) {
+	worklogDir := newCLIFixtureDir(t)
+	t.Setenv("DEVBOARD_DATA", t.TempDir())
+	t.Setenv("WORKLOG_MIGRATION_DATA", t.TempDir())
+
+	out1, err := invokeMigrate(t, worklogDir, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc1 map[string]any
+	if err := json.Unmarshal([]byte(out1), &doc1); err != nil {
+		t.Fatal(err)
+	}
+	if bp, ok := doc1["backupPath"]; ok && bp != "" {
+		t.Errorf("first run should have no backupPath, got %v", bp)
+	}
+
+	out2, err := invokeMigrate(t, worklogDir, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc2 map[string]any
+	if err := json.Unmarshal([]byte(out2), &doc2); err != nil {
+		t.Fatal(err)
+	}
+	bp, _ := doc2["backupPath"].(string)
+	outputPath, _ := doc2["outputPath"].(string)
+	if bp == "" {
+		t.Fatal("second run should report a backupPath")
+	}
+	if bp == outputPath+".bak" {
+		t.Errorf("backupPath = %q looks like the old single overwritten .bak, not a timestamped name", bp)
+	}
+	if !strings.HasPrefix(bp, outputPath+".bak.") {
+		t.Errorf("backupPath = %q, want prefix %q", bp, outputPath+".bak.")
+	}
+}
+
+// TestMigrateSharesRuntimeStorePath is contract criterion 5's other half:
+// migrate's OutputPath and the store-backed write path's runtime open
+// call (storeDataDir, in task_store.go/storesync.go) must resolve to the
+// same directory whenever the final cutover migrate run takes no --out
+// override — otherwise the flipped-default CLI would open a different db
+// than the one the freeze-window migrate just produced.
+func TestMigrateSharesRuntimeStorePath(t *testing.T) {
+	t.Run("default (no env)", func(t *testing.T) {
+		t.Setenv("WORKLOG_MIGRATION_DATA", "")
+		migrateDir, err := resolveMigrateDataDir("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtimeDir, err := storeDataDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if migrateDir != runtimeDir {
+			t.Errorf("migrate default dir %q != runtime store dir %q", migrateDir, runtimeDir)
+		}
+	})
+
+	t.Run("WORKLOG_MIGRATION_DATA set", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("WORKLOG_MIGRATION_DATA", dir)
+		migrateDir, err := resolveMigrateDataDir("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtimeDir, err := storeDataDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if migrateDir != dir || runtimeDir != dir {
+			t.Errorf("migrate dir %q, runtime dir %q, want both %q", migrateDir, runtimeDir, dir)
+		}
+	})
+}
+
 func TestMigrateTextSummary(t *testing.T) {
 	worklogDir := newCLIFixtureDir(t)
 	t.Setenv("DEVBOARD_DATA", t.TempDir())

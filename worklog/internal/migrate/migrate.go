@@ -4,22 +4,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
 // Options configures one migrate run. DataDir is the single knob for
-// everything migrate owns: the persisted output db, its one-generation
-// backup, the scratch working copy, and the staging corpus copy all live
+// everything migrate owns: the persisted output db, its timestamped
+// backups, the scratch working copy, and the staging corpus copy all live
 // under it (contract Decision #8).
 type Options struct {
 	Sources Sources
 	DataDir string
 }
 
-func (o Options) outputPath() string  { return OutputPath(o.DataDir) }
-func (o Options) backupPath() string  { return o.outputPath() + ".bak" }
+// backupTimestampLayout carries nanosecond precision: two Run() calls
+// close enough together to land in the same wall-clock second (routine in
+// tests, and not impossible from a script looping the CLI) must still get
+// distinct backup filenames rather than one silently overwriting the
+// other — the exact failure "genuinely timestamped, not a single
+// overwritten .bak" (contract criterion 5) exists to rule out.
+const backupTimestampLayout = "20060102T150405.000000000Z"
+
+func (o Options) outputPath() string { return OutputPath(o.DataDir) }
+
+// backupPath names this run's backup file, stamped with now. Every run
+// that finds a prior generation gets its own filename — nothing rotates
+// or deletes an earlier backup (no backup rotation beyond this ticket's
+// single timestamped-per-run scheme, by decision).
+func (o Options) backupPath(now time.Time) string {
+	return o.outputPath() + ".bak." + now.UTC().Format(backupTimestampLayout)
+}
 func (o Options) workingPath() string { return filepath.Join(o.DataDir, "working.db") }
 func (o Options) stagingDir() string  { return filepath.Join(o.DataDir, "staging") }
 
@@ -40,10 +56,11 @@ func DefaultDataDir() (string, error) {
 
 // Result is what one migrate run produced.
 type Result struct {
-	Report    *convert.Report
-	Diff      IDSetDiff
-	StaleRows []string
-	BackedUp  bool // whether a prior generation was preserved at OUTPUT_PATH.bak this run
+	Report     *convert.Report
+	Diff       IDSetDiff
+	StaleRows  []string
+	BackedUp   bool   // whether a prior generation was preserved this run
+	BackupPath string // where it was preserved; "" when BackedUp is false
 }
 
 // Run stages a read-only copy of the live worklog + devboard dirs,
@@ -110,15 +127,20 @@ func Run(o Options) (*Result, error) {
 	}
 
 	backedUp := fileExists(o.outputPath())
-	if err := swap(o.outputPath(), o.backupPath(), o.workingPath()); err != nil {
+	backupPath := ""
+	if backedUp {
+		backupPath = o.backupPath(time.Now())
+	}
+	if err := swap(o.outputPath(), backupPath, o.workingPath()); err != nil {
 		return nil, err
 	}
 
 	return &Result{
-		Report:    report,
-		Diff:      DiffIDs(before, after),
-		StaleRows: stale,
-		BackedUp:  backedUp,
+		Report:     report,
+		Diff:       DiffIDs(before, after),
+		StaleRows:  stale,
+		BackedUp:   backedUp,
+		BackupPath: backupPath,
 	}, nil
 }
 

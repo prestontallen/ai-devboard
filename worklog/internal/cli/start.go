@@ -57,6 +57,25 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
+	if storeWriteEnabled() {
+		today := time.Now().Format("2006-01-02")
+		out, err := runStoreStart(wd, id, flagRepo, flagTagsCSV, flagAcceptance, today)
+		if err != nil {
+			return mapStartError(cmd, asJSON, err)
+		}
+		if asJSON {
+			return emitJSON(cmd.OutOrStdout(), out)
+		}
+		switch v := out.(type) {
+		case wait.ResumeOutput:
+			fmt.Fprintln(cmd.OutOrStdout(),
+				style.Good.Render(fmt.Sprintf("resumed %s into ## Now", strings.ToUpper(v.ID))))
+		case start.Output:
+			emitStartText(cmd, v)
+		}
+		return nil
+	}
+
 	// Fast-path: if the ticket is in ## Waiting, resume it instead.
 	// TODO: unify parse in start.Run to avoid the double-parse in this path.
 	normID := strings.ToLower(strings.TrimSpace(id))

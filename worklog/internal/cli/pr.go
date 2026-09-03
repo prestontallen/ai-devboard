@@ -117,16 +117,23 @@ func runPR(cmd *cobra.Command, id, url string, clear, edit, asJSON bool) error {
 		value = url
 	}
 
-	res, err := pr.SetPR(wd, id, value)
+	var res pr.Result
+	if storeWriteEnabled() {
+		res, err = runStorePR(wd, id, value)
+	} else {
+		res, err = pr.SetPR(wd, id, value)
+		if err == nil {
+			if res.Parent != "" {
+				devboardOnPRChild(res.Parent, id, value)
+			} else {
+				devboardOnPR(id, value)
+			}
+			storesync.WarnAfterWrite(wd)
+		}
+	}
 	if err != nil {
 		return mapPRError(cmd, asJSON, err)
 	}
-	if res.Parent != "" {
-		devboardOnPRChild(res.Parent, id, value)
-	} else {
-		devboardOnPR(id, value)
-	}
-	storesync.WarnAfterWrite(wd)
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

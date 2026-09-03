@@ -8,10 +8,13 @@ import (
 )
 
 // swap checkpoints and closes-out workingPath, then atomically retires
-// whatever currently sits at outputPath to backupPath (one generation,
-// no rotation) and moves workingPath into outputPath's place. Only the
-// single .db file moves at each step — WAL sidecars are cleared, never
-// carried over or silently adopted by the incoming file (criterion 6).
+// whatever currently sits at outputPath to backupPath — a fresh,
+// timestamped name each run, so nothing here rotates or deletes an
+// earlier backup — and moves workingPath into outputPath's place. Only
+// the single .db file moves at each step — WAL sidecars are cleared,
+// never carried over or silently adopted by the incoming file
+// (criterion 6). backupPath is ignored when outputPath does not exist
+// (the baseline run).
 func swap(outputPath, backupPath, workingPath string) error {
 	if err := checkpoint(workingPath); err != nil {
 		return fmt.Errorf("migrate: checkpointing working copy before swap: %w", err)
@@ -21,7 +24,7 @@ func swap(outputPath, backupPath, workingPath string) error {
 	}
 
 	if fileExists(outputPath) {
-		os.Remove(backupPath) // only one prior generation is kept; no rotation
+		os.Remove(backupPath) // defensive only: a fresh timestamp should never already exist
 		if err := removeSidecars(backupPath); err != nil {
 			return fmt.Errorf("migrate: clearing prior backup WAL sidecars: %w", err)
 		}

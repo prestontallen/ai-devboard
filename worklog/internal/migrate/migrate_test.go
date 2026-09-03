@@ -34,8 +34,8 @@ func TestMigrateFreshRun(t *testing.T) {
 	if !fileExists(o.outputPath()) {
 		t.Fatal("output db was not created")
 	}
-	if fileExists(o.backupPath()) {
-		t.Error("no backup should exist after the first run")
+	if res.BackupPath != "" {
+		t.Errorf("no backup should exist after the first run, got BackupPath = %q", res.BackupPath)
 	}
 }
 
@@ -139,16 +139,23 @@ func TestMigrateBackupGeneration(t *testing.T) {
 	}
 
 	mustWrite(t, filepath.Join(worklogDir, "WORK.md"), workMDFixture("Renamed first ticket", "Second ticket"))
-	if _, err := Run(o); err != nil {
+	res, err := Run(o)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	backup, err := os.ReadFile(o.backupPath())
+	if res.BackupPath == "" {
+		t.Fatal("expected a non-empty BackupPath")
+	}
+	if !strings.HasPrefix(res.BackupPath, o.outputPath()+".bak.") {
+		t.Errorf("BackupPath = %q, want a %s.bak.<timestamp> name", res.BackupPath, o.outputPath())
+	}
+	backup, err := os.ReadFile(res.BackupPath)
 	if err != nil {
-		t.Fatal("expected a .bak file:", err)
+		t.Fatal("expected a backup file at BackupPath:", err)
 	}
 	if string(backup) != string(firstGen) {
-		t.Error(".bak does not hold the prior generation's exact bytes")
+		t.Error("backup does not hold the prior generation's exact bytes")
 	}
 	second, err := os.ReadFile(o.outputPath())
 	if err != nil {
@@ -156,6 +163,37 @@ func TestMigrateBackupGeneration(t *testing.T) {
 	}
 	if string(second) == string(firstGen) {
 		t.Error("OUTPUT_PATH did not change after a real conversion")
+	}
+}
+
+// TestMigrateBackupsAreNeverRotated: every run that backs up a prior
+// generation gets its own filename, and no earlier backup is deleted —
+// contract criterion 5's "not a single overwritten .bak".
+func TestMigrateBackupsAreNeverRotated(t *testing.T) {
+	src, worklogDir, _ := newLiveFixture(t)
+	o := Options{Sources: src, DataDir: t.TempDir()}
+
+	if _, err := Run(o); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(worklogDir, "WORK.md"), workMDFixture("Renamed first ticket", "Second ticket"))
+	res2, err := Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(worklogDir, "WORK.md"), workMDFixture("Renamed again", "Second ticket"))
+	res3, err := Run(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res2.BackupPath == res3.BackupPath {
+		t.Fatalf("run 2 and run 3 produced the same backup filename: %q", res2.BackupPath)
+	}
+	for _, p := range []string{res2.BackupPath, res3.BackupPath} {
+		if !fileExists(p) {
+			t.Errorf("backup %q from an earlier run was removed by a later run", p)
+		}
 	}
 }
 

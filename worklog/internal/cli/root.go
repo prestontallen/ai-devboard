@@ -8,8 +8,43 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/freeze"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
+
+// freezeExemptCommands are the top-level commands that keep running while a
+// write freeze is held — everything else is refused. This is a default-deny
+// list on purpose: a new write verb added later without an entry here is
+// blocked during a freeze by default, rather than silently allowed.
+var freezeExemptCommands = map[string]bool{
+	"validate":  true,
+	"status":    true,
+	"standup":   true,
+	"tui":       true,
+	"search":    true,
+	"summarize": true,
+	"verify":    true,
+	"migrate":   true,
+	"install":   true,
+	"hook":      true,
+	"serve":     true,
+	"freeze":    true,
+}
+
+// topLevelName returns the name of cmd's ancestor that is a direct child of
+// the root command, or "" for the bare `worklog` invocation (root itself),
+// which runs the read-only default status action.
+func topLevelName(cmd *cobra.Command) string {
+	root := cmd.Root()
+	if cmd == root {
+		return ""
+	}
+	node := cmd
+	for node.Parent() != root {
+		node = node.Parent()
+	}
+	return node.Name()
+}
 
 // global state populated by root persistent flags.
 var (
@@ -72,6 +107,23 @@ scripts that handled validation and skill deployment.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(cmd, false)
 		},
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if freezeExemptCommands[topLevelName(cmd)] {
+				return nil
+			}
+			wd, err := resolveWorkdir()
+			if err != nil {
+				return err
+			}
+			frozen, info, err := freeze.Check(wd.Root)
+			if err != nil {
+				return err
+			}
+			if !frozen {
+				return nil
+			}
+			return freeze.RefusalError(info)
+		},
 	}
 
 	cmd.PersistentFlags().StringVar(&flagDir, "dir", "",
@@ -101,6 +153,7 @@ scripts that handled validation and skill deployment.`,
 		newInstallCmd(),
 		newMigrateCmd(),
 		newVerifyCmd(),
+		newFreezeCmd(),
 	)
 	return cmd
 }
