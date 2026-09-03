@@ -81,12 +81,25 @@ func diffBoardPayloads(orig, rendered boardPayload) []Drift {
 	for repo, origTasks := range origByRepo {
 		renderedTasks, ok := renderedByRepo[repo]
 		if !ok {
+			if !anyJoined(origTasks) {
+				// Every task in this repo group is a bare producer file
+				// (no worklog: join key) — not canon by design, so the
+				// store legitimately renders nothing here. Not drift.
+				continue
+			}
 			drifts = append(drifts, Drift{Surface: "board", File: "devboard/" + repo, Field: "repo-presence", Live: "present", Rendered: "missing"})
 			continue
 		}
 		for id, ot := range origTasks {
 			rt, ok := renderedTasks[id]
 			if !ok {
+				if isBareProducer(ot) {
+					// Not canon by design (store-design.md): a devboard
+					// file with no worklog: join key is producer-owned
+					// and renderers never touch it. The store correctly
+					// has nothing for it; that's not drift.
+					continue
+				}
 				drifts = append(drifts, Drift{Surface: "board", File: "devboard/" + repo, Ticket: id, Field: "presence", Live: "present", Rendered: "missing"})
 				continue
 			}
@@ -110,6 +123,24 @@ func diffBoardPayloads(orig, rendered boardPayload) []Drift {
 		}
 	}
 	return dedupeDrifts(drifts)
+}
+
+// isBareProducer reports whether t has no worklog: join key — a
+// producer-owned devboard file store-design.md declares NOT canon: it
+// stays on disk untouched by renderers, so the store legitimately never
+// renders it. Comparing it against the store's view isn't drift.
+func isBareProducer(t boardTask) bool {
+	wl, _ := t.Task["worklog"].(string)
+	return wl == ""
+}
+
+func anyJoined(tasks map[string]boardTask) bool {
+	for _, t := range tasks {
+		if !isBareProducer(t) {
+			return true
+		}
+	}
+	return false
 }
 
 // dedupeDrifts is defensive: map iteration order is random, but callers

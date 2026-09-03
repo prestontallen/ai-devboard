@@ -181,3 +181,59 @@ func TestVerifyDetectsBoardDrift(t *testing.T) {
 		t.Errorf("drift values don't reflect the change: %+v", d)
 	}
 }
+
+// TestVerifyIgnoresBareProducerFiles: a devboard file with no worklog:
+// join key is producer-owned, not canon (store-design.md) — the store
+// legitimately never renders it, and that must not report as drift. The
+// fixture's devboard/nole/bare.yaml has no other task in its repo group,
+// so this also exercises the whole-repo-missing (repo-presence) path.
+func TestVerifyIgnoresBareProducerFiles(t *testing.T) {
+	live, rendered := t.TempDir(), t.TempDir()
+	mustCopyDir(t, corpusDir, live)
+	mustCopyDir(t, corpusDir, rendered)
+
+	// Simulate what RenderTo actually produces: the bare file is absent
+	// from the store-rendered side entirely, and (since it was the only
+	// task in its repo group) the whole repo group is absent too.
+	if err := os.RemoveAll(filepath.Join(rendered, "devboard", "nole")); err != nil {
+		t.Fatal(err)
+	}
+
+	drifts := compareBoard(live, rendered)
+	if len(drifts) != 0 {
+		t.Errorf("expected no drift for a bare producer file, got %+v", drifts)
+	}
+}
+
+// TestVerifyStillDetectsRealPresenceDriftAlongsideBareFiles: the bare-file
+// exemption must not swallow a genuine missing joined ticket in the same
+// repo group.
+func TestVerifyStillDetectsRealPresenceDriftAlongsideBareFiles(t *testing.T) {
+	live, rendered := t.TempDir(), t.TempDir()
+	mustCopyDir(t, corpusDir, live)
+	mustCopyDir(t, corpusDir, rendered)
+
+	mustWriteFile(t, filepath.Join(live, "devboard", "ai-devboard", "bare-sibling.yaml"),
+		"schema: 1\ntitle: Producer-owned, no join\nphase: done\n")
+	// A second joined ticket, present on both sides, keeps the repo group
+	// non-empty on the rendered side — otherwise removing the only real
+	// ticket next would drop the whole group (a repo-presence drift, a
+	// different code path from the per-ticket one this test targets).
+	otherFixture := "schema: 1\ntitle: Another real ticket\nworklog: another-ticket\nphase: done\n"
+	mustWriteFile(t, filepath.Join(live, "devboard", "ai-devboard", "another-ticket.yaml"), otherFixture)
+	mustWriteFile(t, filepath.Join(rendered, "devboard", "ai-devboard", "another-ticket.yaml"), otherFixture)
+	// bare-sibling.yaml is NOT copied into rendered — matches what a real
+	// store render would do — but an-epic.yaml (a real joined ticket) is
+	// also deliberately dropped from rendered to prove it's still caught.
+	if err := os.Remove(filepath.Join(rendered, "devboard", "ai-devboard", "an-epic.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	drifts := compareBoard(live, rendered)
+	if len(drifts) != 1 {
+		t.Fatalf("expected exactly 1 drift (the real missing ticket), got %d: %+v", len(drifts), drifts)
+	}
+	if drifts[0].Ticket != "an-epic" || drifts[0].Field != "presence" {
+		t.Errorf("unexpected drift: %+v", drifts[0])
+	}
+}
