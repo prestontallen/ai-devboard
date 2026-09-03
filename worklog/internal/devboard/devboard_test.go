@@ -440,3 +440,51 @@ func TestOnStartNeverOverwritesEpicType(t *testing.T) {
 		t.Errorf("Type = %q, want epic preserved", task.Type)
 	}
 }
+
+// TestChildEntryExtraSurvivesWrite is adb-childentry-extra: an
+// unrecognised key under children[] used to be destroyed by the next
+// write to the epic file, the one durability guarantee Task already had
+// via its inline Extra map and ChildEntry did not. The sub-item lists
+// carry the same guarantee now, so a producer's own annotation on a plan
+// step or scorecard row survives too.
+func TestChildEntryExtraSurvivesWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "epic.yaml")
+	const src = `schema: 1
+title: An epic
+type: epic
+worklog: epic-a
+children:
+    - id: child-1
+      state: active
+      title: First child
+      producer_note: keep me
+      plan:
+        - text: step one
+          state: pending
+          producer_step_note: keep me too
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A write that touches something else entirely.
+	if err := Mutate(path, func(task *Task) error {
+		task.Children[0].Phase = "implementing"
+		return nil
+	}); err != nil {
+		t.Fatalf("Mutate: %v", err)
+	}
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"producer_note: keep me", "producer_step_note: keep me too"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("unknown key destroyed by the write: %q missing from\n%s", want, out)
+		}
+	}
+	if !strings.Contains(string(out), "phase: implementing") {
+		t.Errorf("the actual mutation did not land:\n%s", out)
+	}
+}

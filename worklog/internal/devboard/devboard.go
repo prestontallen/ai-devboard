@@ -89,6 +89,10 @@ type ChildEntry struct {
 	WaitingOn  []WaitingItem `yaml:"waiting_on,omitempty"`
 	Links      []Link        `yaml:"links,omitempty"`
 	Scout      *Scout        `yaml:"scout,omitempty"`
+	// Extra closes adb-childentry-extra: without it an unrecognised key
+	// under children[] was destroyed by the next epic write, the one
+	// guarantee Task already had and ChildEntry did not.
+	Extra map[string]any `yaml:",inline"`
 }
 
 // ChildIdentity is the roster input to SyncEpicRoster: just enough to
@@ -104,12 +108,16 @@ type ChildIdentity struct {
 type PlanItem struct {
 	Text  string `yaml:"text"`
 	State string `yaml:"state"` // pending|in_progress|done|blocked
+	// Extra keeps keys this struct does not model, so a producer's own
+	// annotation survives a rewrite instead of being silently dropped.
+	Extra map[string]any `yaml:",inline"`
 }
 
 type ScoreItem struct {
-	Text   string `yaml:"text"`
-	Verify string `yaml:"verify,omitempty"`
-	Status string `yaml:"status"` // pending|pass|fail
+	Text   string         `yaml:"text"`
+	Verify string         `yaml:"verify,omitempty"`
+	Status string         `yaml:"status"` // pending|pass|fail
+	Extra  map[string]any `yaml:",inline"`
 }
 
 // Scout attests what happened to the contract-phase risk scout. Mode is
@@ -130,37 +138,42 @@ type Decision struct {
 	// decision leaves it empty. It lives here rather than on a separate
 	// amendments list because decisions are already the rendered timeline for
 	// both, and this field travels with the slice the epic child view copies.
-	Complexity string `yaml:"complexity,omitempty"`
+	Complexity string         `yaml:"complexity,omitempty"`
+	Extra      map[string]any `yaml:",inline"`
 }
 
 type CodeRef struct {
-	File    string `yaml:"file"`
-	Lines   string `yaml:"lines,omitempty"`
-	Lang    string `yaml:"lang,omitempty"`
-	Note    string `yaml:"note,omitempty"`
-	Snippet string `yaml:"snippet,omitempty"`
+	File    string         `yaml:"file"`
+	Lines   string         `yaml:"lines,omitempty"`
+	Lang    string         `yaml:"lang,omitempty"`
+	Note    string         `yaml:"note,omitempty"`
+	Snippet string         `yaml:"snippet,omitempty"`
+	Extra   map[string]any `yaml:",inline"`
 }
 
 type NeedsItem struct {
-	Type   string `yaml:"type,omitempty"` // question|checkpoint
-	Text   string `yaml:"text"`
-	Detail string `yaml:"detail,omitempty"`
+	Type   string         `yaml:"type,omitempty"` // question|checkpoint
+	Text   string         `yaml:"text"`
+	Detail string         `yaml:"detail,omitempty"`
+	Extra  map[string]any `yaml:",inline"`
 }
 
 type Link struct {
-	Label string `yaml:"label,omitempty"`
-	URL   string `yaml:"url"`
+	Label string         `yaml:"label,omitempty"`
+	URL   string         `yaml:"url"`
+	Extra map[string]any `yaml:",inline"`
 }
 
 // WaitingItem is a question blocked on an EXTERNAL party — another team or
 // person, expected to sit for days. Distinct from NeedsItem (blocked on the
 // task's own human, resolvable in minutes).
 type WaitingItem struct {
-	Text   string `yaml:"text"`
-	Who    string `yaml:"who"`             // who owes the answer; required
-	Asked  string `yaml:"asked,omitempty"` // YYYY-MM-DD; age renders from this
-	Link   string `yaml:"link,omitempty"`  // where it was asked
-	Detail string `yaml:"detail,omitempty"`
+	Text   string         `yaml:"text"`
+	Who    string         `yaml:"who"`             // who owes the answer; required
+	Asked  string         `yaml:"asked,omitempty"` // YYYY-MM-DD; age renders from this
+	Link   string         `yaml:"link,omitempty"`  // where it was asked
+	Detail string         `yaml:"detail,omitempty"`
+	Extra  map[string]any `yaml:",inline"`
 }
 
 // CloseWaitingOn converts every remaining waiting_on entry into an
