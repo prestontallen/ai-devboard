@@ -51,7 +51,11 @@ func boardMap(t *store.Ticket) map[string]any {
 		return map[string]any{"text": p.Text, "state": p.State}, p.Extra
 	}), len(t.PlanSteps) > 0)
 	set("scorecard", itemList(t.Scorecard, func(c store.ScoreItem) (map[string]any, map[string]any) {
-		return map[string]any{"text": c.Text, "verify": c.Verify, "status": c.Status}, c.Extra
+		out := map[string]any{"text": c.Text, "status": c.Status}
+		if c.Verify != "" {
+			out["verify"] = c.Verify
+		}
+		return out, c.Extra
 	}), len(t.Scorecard) > 0)
 	set("decisions", itemList(t.Decisions, func(d store.Decision) (map[string]any, map[string]any) {
 		out := map[string]any{"what": d.What, "why": d.Why}
