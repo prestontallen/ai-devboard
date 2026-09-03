@@ -3,7 +3,9 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/serve"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
 // newServeCmd wires the devboard dashboard server. Configuration is
@@ -25,7 +27,18 @@ DEVBOARD_WORKLOG (default ~/.local/share/worklog), DEVBOARD_PORT (8484),
 DEVBOARD_SCAN_INTERVAL (seconds, 1.0). Binds 0.0.0.0 — the board is used
 over LAN.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return serve.New(serve.ConfigFromEnv()).ListenAndServe()
+			cfg := serve.ConfigFromEnv()
+			srv := serve.New(cfg)
+			// adb-cutover M2: shadow-sync after a dashboard archive/unarchive
+			// move, injected here rather than imported by internal/serve
+			// directly (internal/verify already imports serve for board
+			// comparison, so that import would cycle).
+			srv.AfterWrite = func() {
+				if wd, err := model.NewWorkdir(cfg.WorklogDir); err == nil {
+					storesync.WarnAfterWrite(wd)
+				}
+			}
+			return srv.ListenAndServe()
 		},
 	}
 }

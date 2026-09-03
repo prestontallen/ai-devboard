@@ -82,6 +82,12 @@ type Server struct {
 	mu        sync.Mutex
 	ver       int64
 	notify    chan struct{}
+
+	// AfterWrite, if set, runs after a successful archive/unarchive move —
+	// adb-cutover M2's shadow-sync hook, injected by the CLI layer rather
+	// than imported directly (internal/verify already imports this package
+	// for board comparison, so a direct import here would cycle).
+	AfterWrite func()
 }
 
 func New(cfg Config) *Server {
@@ -309,6 +315,9 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 		return
 	}
 	s.bump() // wake SSE clients now; don't wait out the scan interval
+	if s.AfterWrite != nil {
+		s.AfterWrite()
+	}
 
 	status := "restored"
 	if toArchive {

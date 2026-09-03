@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
@@ -46,6 +47,7 @@ func runWait(cmd *cobra.Command, id string, asJSON bool) error {
 	if err != nil {
 		return mapWaitError(cmd, asJSON, err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
