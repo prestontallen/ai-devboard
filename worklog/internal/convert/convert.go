@@ -33,6 +33,7 @@ type Report struct {
 	Feedback int
 	Skipped  []string // bare producer files left alone
 	Warnings []string // lint-grade oddities preserved verbatim (e.g. space-separated tags)
+	Slugs    []string // every slugged ticket this run actually converted (slug-less entities excluded); lets a caller tell "in this corpus" from "leftover in the store" — adb-worklog2-migrate's stale-row check
 }
 
 // Load converts a corpus into the store. Deterministic across re-runs
@@ -238,6 +239,9 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 				return nil, fmt.Errorf("put %s: %w", t.Slug, err)
 			}
 			rep.Tickets++
+			if t.Slug != "" {
+				rep.Slugs = append(rep.Slugs, t.Slug)
+			}
 		}
 	}
 
@@ -246,11 +250,27 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Re-runs reuse the existing row's ID (keyed on the fields that
+		// identify an entry) so copy-forward doesn't duplicate feedback on
+		// every conversion — mirrors D4's slug-before-mint resolution for
+		// tickets, since PutFeedback has no equivalent "by content" lookup.
+		existingFB, err := s.Feedback()
+		if err != nil {
+			return nil, err
+		}
+		byKey := make(map[[4]string]store.ID, len(existingFB))
+		for _, e := range existingFB {
+			byKey[feedbackKey(e.Seconds, e.Signal, e.Trigger, e.Excerpt)] = e.ID
+		}
 		for _, e := range entries {
-			if err := s.PutFeedback(&store.FeedbackEntry{
+			fe := &store.FeedbackEntry{
 				Seconds: e.Timestamp, Signal: string(e.Signal), Trigger: e.Trigger,
 				Excerpt: e.Excerpt, Context: e.Context, Resolved: e.Resolved,
-			}); err != nil {
+			}
+			if id, ok := byKey[feedbackKey(fe.Seconds, fe.Signal, fe.Trigger, fe.Excerpt)]; ok {
+				fe.ID = id
+			}
+			if err := s.PutFeedback(fe); err != nil {
 				return nil, err
 			}
 			rep.Feedback++
@@ -358,6 +378,38 @@ func carrySubItemIDs(prev, next *store.Ticket) {
 			}
 		}
 	}
+	for i := range next.Links {
+		for _, p := range prev.Links {
+			if p.Kind == next.Links[i].Kind && p.URL == next.Links[i].URL {
+				next.Links[i].ID, next.Links[i].Rank = p.ID, p.Rank
+				break
+			}
+		}
+	}
+	for i := range next.CodeRefs {
+		for _, p := range prev.CodeRefs {
+			if p.File == next.CodeRefs[i].File && p.Lines == next.CodeRefs[i].Lines {
+				next.CodeRefs[i].ID, next.CodeRefs[i].Rank = p.ID, p.Rank
+				break
+			}
+		}
+	}
+	for i := range next.NeedsYou {
+		for _, p := range prev.NeedsYou {
+			if p.Type == next.NeedsYou[i].Type && p.Text == next.NeedsYou[i].Text {
+				next.NeedsYou[i].ID, next.NeedsYou[i].Rank = p.ID, p.Rank
+				break
+			}
+		}
+	}
+	for i := range next.WaitingOn {
+		for _, p := range prev.WaitingOn {
+			if p.Text == next.WaitingOn[i].Text && p.Who == next.WaitingOn[i].Who {
+				next.WaitingOn[i].ID, next.WaitingOn[i].Rank = p.ID, p.Rank
+				break
+			}
+		}
+	}
 }
 
 // stripConverterKeys removes the __-prefixed scratch fields the passes
@@ -371,6 +423,10 @@ func stripConverterKeys(t *store.Ticket) {
 	if len(t.ExtraFields) == 0 {
 		t.ExtraFields = nil
 	}
+}
+
+func feedbackKey(seconds int64, signal, trigger, excerpt string) [4]string {
+	return [4]string{fmt.Sprintf("%d", seconds), signal, trigger, excerpt}
 }
 
 func firstNonEmpty(vals ...string) string {

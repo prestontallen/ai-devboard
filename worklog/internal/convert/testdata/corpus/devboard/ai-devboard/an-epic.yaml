@@ -26,6 +26,17 @@ children:
         url: https://github.com/x/pr/1
       - label: design
         url: https://example.com/doc
+    code:
+      - file: internal/foo.go
+        lines: 10-20
+        lang: go
+        note: load-bearing
+    needs_you:
+      - type: question
+        text: which approach
+    waiting_on:
+      - text: waiting on infra
+        who: platform-team
   - id: kid-pending
     title: Pending child whose title lives only here
     state: pending

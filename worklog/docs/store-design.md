@@ -61,7 +61,10 @@ resolves by slug (or exact title for slug-less entities) before minting,
 so re-runs into the same store reuse every ID — the store IS the
 persisted id-map (D4), which is what makes adb-worklog2-migrate's
 id-set-diff check meaningful. Sub-item IDs carry across re-runs by exact
-content match. Removing an item never renumbers survivors
+content match, for every sub-item kind (plan steps, scorecard, decisions,
+note entries, links, code refs, needs-you, waiting-on) — verified by
+adb-worklog2-migrate, which found and fixed four kinds the original
+implementation missed. Removing an item never renumbers survivors
 (adb-task-item-ids retired by construction).
 
 ## Concurrency contract
@@ -127,11 +130,38 @@ adb-epic-per-child-cards land format changes, refresh the snapshot and
 re-run; the synthetic corpus gains a fixture only if a new hazard class
 appears.
 
-## What this ticket deliberately did not do
+## Migrate command (internal/migrate, internal/cli/migrate.go)
 
-Wire any CLI verb or the server to the store; ship the migrate command
-(adb-worklog2-migrate — the converter here is its engine, minus CLI and
-backup/rollback); wire write-through rendering or replace the SSE
-watcher's mtime mechanism (adb-projection-render); update skill texts for
-the projection world (follow-up: adb-skill-projection-update); JSONL
-export (deferred, D9).
+`worklog migrate` (adb-worklog2-migrate) is the first thing to actually
+run this design end to end. It stages a read-only copy of the live
+worklog dir + devboard dir (never writes them — verified by a live-dir
+checksum test), converts the copy via `convert.ReadCorpusDir` +
+`convert.Load`, and reports whether entity identity held steady: an
+id-set diff of every ticket and sub-item ULID between the pre- and
+post-run state of a persisted SQLite db, plus stale rows the diff alone
+can't see (`convert.Load` only upserts — nothing here deletes).
+
+Mechanism, in order: stage (with size/mtime tear detection and one retry —
+`ErrTornSnapshot`), copy-forward seed the working copy from the existing
+output db (a plain read of `OUTPUT_PATH`; it is never opened for writing —
+`convert.Load` runs against the working copy only), checkpoint
+(`PRAGMA wal_checkpoint(TRUNCATE)`) and close the working copy, then
+atomically swap it into place — `OUTPUT_PATH` → `OUTPUT_PATH.bak` (one
+generation, no rotation), working copy → `OUTPUT_PATH` — clearing any WAL
+sidecar rather than carrying or orphaning it. All of it lives under one
+directory: `--out`, `$WORKLOG_MIGRATION_DATA`, or
+`~/.local/share/worklog-migration` by default.
+
+Building this against the real mechanics (not just against `convert.Load`
+in isolation) found and fixed two gaps in the identity guarantee the
+design above describes: `carrySubItemIDs` didn't cover links, code refs,
+needs-you or waiting-on (only plan steps, scorecard, decisions and note
+entries), and feedback entries had no re-run identity at all, so
+copy-forward would have duplicated every friction entry on every run. Both
+are fixed in `internal/convert`; see the Identity section above.
+
+Still not done here: wiring any CLI verb or the server to actually *read*
+from the store for real use (`adb-projection-render`); the production
+cutover — freeze, rename binary, retire old write paths (`adb-cutover`);
+skill text updates for the projection world (`adb-skill-projection-update`);
+JSONL export (deferred, D9).
