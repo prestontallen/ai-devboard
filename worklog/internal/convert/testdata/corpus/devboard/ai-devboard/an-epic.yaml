@@ -1,0 +1,31 @@
+schema: 1
+worklog: an-epic
+title: The epic under test
+type: epic
+custom_top: survives
+children:
+  - id: kid-live
+    title: Active child
+    state: active
+    phase: implement
+    complexity: medium
+    plan:
+      - text: step one
+        state: done
+        surprise_key: kept
+    scorecard:
+      - text: it works
+        verify: go test -run TestX
+        status: pass
+    scout:
+      mode: ran
+      why: swept
+      when: "2026-09-02"
+    links:
+      - label: PR
+        url: https://github.com/x/pr/1
+      - label: design
+        url: https://example.com/doc
+  - id: kid-pending
+    title: Pending child whose title lives only here
+    state: pending

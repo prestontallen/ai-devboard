@@ -1,4 +1,4 @@
-package serve
+package yamlx
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // the frontend, with the divergences the contract accepts: YAML 1.2 scalar
 // resolution (bare yes/no/on/off stay strings) and NaN/Inf sanitized to
 // their raw text instead of Python's invalid-JSON tokens.
-func yamlToAny(data []byte) (any, error) {
+func YAMLToAny(data []byte) (any, error) {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func timestampString(raw string) string {
 
 // jsonToAny decodes a .json task file, using json.Number so numbers
 // round-trip exactly as written (Python's json.loads/dumps behavior).
-func jsonToAny(data []byte) (any, error) {
+func JSONToAny(data []byte) (any, error) {
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.UseNumber()
 	var v any

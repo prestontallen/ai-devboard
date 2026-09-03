@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
+	"github.com/prestontallen/ai-devboard/worklog/internal/yamlx"
 )
 
 const archiveDir = "_archive"
@@ -114,9 +115,9 @@ func (s *Server) parseTask(path string, archived bool) map[string]any {
 	}
 	var data any
 	if strings.HasSuffix(strings.ToLower(path), ".json") {
-		data, err = jsonToAny(raw)
+		data, err = yamlx.JSONToAny(raw)
 	} else {
-		data, err = yamlToAny(raw)
+		data, err = yamlx.YAMLToAny(raw)
 	}
 	if err != nil {
 		return fail(err)

@@ -77,7 +77,11 @@ func Parse(path string) ([]Entry, error) {
 		}
 		return nil, fmt.Errorf("feedback: read %s: %w", path, err)
 	}
+	return ParseBytes(data)
+}
 
+// ParseBytes parses FEEDBACK.md content already in memory.
+func ParseBytes(data []byte) ([]Entry, error) {
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 
 	var entries []Entry

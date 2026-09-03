@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
+	"github.com/prestontallen/ai-devboard/worklog/internal/yamlx"
 )
 
 func corpusServer(t *testing.T) *Server {
@@ -454,7 +455,7 @@ func TestScalarDates(t *testing.T) {
 		{`k: 2026-09-01T19:19:00Z`, "2026-09-01 19:19:00+00:00"},
 	}
 	for _, c := range cases {
-		v, err := yamlToAny([]byte(c.yaml))
+		v, err := yamlx.YAMLToAny([]byte(c.yaml))
 		if err != nil {
 			t.Fatalf("%s: %v", c.yaml, err)
 		}
@@ -469,7 +470,7 @@ func TestScalarDates(t *testing.T) {
 // strings under YAML 1.2, unlike PyYAML's 1.1 coercion. Documented in
 // devboard/API.md; ratified 2026-09-02.
 func TestYAML12Bools(t *testing.T) {
-	v, err := yamlToAny([]byte("a: yes\nb: no\nc: on\nd: off\ne: true\nf: false\n"))
+	v, err := yamlx.YAMLToAny([]byte("a: yes\nb: no\nc: on\nd: off\ne: true\nf: false\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
