@@ -12,6 +12,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/start"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
@@ -72,6 +73,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 				// Resume path: the block is already in hand, no extra parse.
 				devboardOnStart(out.ID, "", string(b.Type), b.Repo)
 			}
+			storesync.WarnAfterWrite(wd)
 			if asJSON {
 				return emitJSON(cmd.OutOrStdout(), out)
 			}
@@ -103,6 +105,7 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 	} else {
 		devboardOnStart(out.ID, out.Title, out.Type, out.Repo)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)

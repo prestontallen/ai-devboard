@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -125,6 +126,7 @@ func runPR(cmd *cobra.Command, id, url string, clear, edit, asJSON bool) error {
 	} else {
 		devboardOnPR(id, value)
 	}
+	storesync.WarnAfterWrite(wd)
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

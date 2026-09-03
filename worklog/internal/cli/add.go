@@ -16,6 +16,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/render"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -205,6 +206,7 @@ func runAddStandalone(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, 
 	if err != nil {
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if flagJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
@@ -350,6 +352,7 @@ func runAddEpic(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, inputs
 	if err := render.WriteAtomic(wd.WorkMD(), newWork); err != nil {
 		return jsonOrTextError(cmd, flagJSON, 1, "write WORK.md: %v", err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	out := addOutput{
 		Status:    "added",
@@ -431,6 +434,7 @@ func runAddChild(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, input
 	if err := os.WriteFile(notesPath, newBytes, 0o644); err != nil {
 		return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	out := addOutput{
 		Status:    "added",

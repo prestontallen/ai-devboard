@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/done"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -93,6 +94,7 @@ func runDone(
 	if out.Parent != "" {
 		devboardSyncEpic(wd, out.Parent)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)

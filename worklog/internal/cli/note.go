@@ -13,6 +13,7 @@ import (
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -104,6 +105,7 @@ func runNote(cmd *cobra.Command, id, text string, hasText, edit, editor, asJSON 
 			}
 			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 		}
+		storesync.WarnAfterWrite(wd)
 		if asJSON {
 			return emitJSON(cmd.OutOrStdout(), res)
 		}
@@ -163,6 +165,7 @@ func runNoteEditor(cmd *cobra.Command, wd model.Workdir, id string, asJSON bool)
 		}
 		return jsonOrTextError(cmd, asJSON, 1, "launch editor: %v", err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), map[string]any{

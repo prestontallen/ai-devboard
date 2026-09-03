@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/link"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -165,6 +166,7 @@ func runLink(cmd *cobra.Command, args []string, clear, edit, asJSON bool) error 
 	} else {
 		devboardOnLink(id, name, value)
 	}
+	storesync.WarnAfterWrite(wd)
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/edit"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -98,6 +99,7 @@ func runEdit(cmd *cobra.Command, id string, assignments []edit.Assignment, asJSO
 	if err != nil {
 		return mapEditError(cmd, asJSON, err)
 	}
+	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)

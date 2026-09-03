@@ -1,0 +1,101 @@
+package storesync
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
+)
+
+// TestDisabledIsNoop: without WORKLOG_STORE_SYNC=1, AfterWrite must not
+// touch the filesystem at all — this is the property that makes the hook
+// safe to call unconditionally from every write verb.
+func TestDisabledIsNoop(t *testing.T) {
+	t.Setenv("WORKLOG_STORE_SYNC", "")
+	t.Setenv("WORKLOG_MIGRATION_DATA", filepath.Join(t.TempDir(), "should-not-be-created"))
+
+	wd := model.Workdir{Root: t.TempDir()} // no WORK.md — would error if AfterWrite tried to read it
+	rep, err := AfterWrite(wd)
+	if err != nil {
+		t.Fatalf("disabled AfterWrite returned an error: %v", err)
+	}
+	if rep != nil {
+		t.Errorf("disabled AfterWrite returned a non-nil report: %+v", rep)
+	}
+	if _, statErr := os.Stat(os.Getenv("WORKLOG_MIGRATION_DATA")); !os.IsNotExist(statErr) {
+		t.Error("disabled AfterWrite created the migration data dir — it must be a true no-op")
+	}
+}
+
+// TestEnabledDerivesCleanAgainstCanonicalCorpus: proves the shadow-sync
+// mechanism itself (migrate.Run + sqlitestore.Open + verify.Run wiring)
+// round-trips correctly end to end, using a genuinely canonical directory
+// as input. The hand-authored fixture corpus is NOT itself a render
+// fixpoint (it deliberately contains things a canonical render normalizes
+// away — see internal/verify's TestVerifyCleanCorpus for the same
+// reasoning), so this test renders it once first to get one.
+func TestEnabledDerivesCleanAgainstCanonicalCorpus(t *testing.T) {
+	s := memstore.New()
+	c, err := convert.ReadCorpusDir("../convert/testdata/corpus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convert.Load(s, c); err != nil {
+		t.Fatal(err)
+	}
+	live := t.TempDir()
+	if err := projection.RenderAll(s, live); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("WORKLOG_STORE_SYNC", "1")
+	dataDir := t.TempDir()
+	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	t.Setenv("DEVBOARD_DATA", filepath.Join(live, "devboard"))
+	wd := model.Workdir{Root: live}
+	beforeHash := hashTree(t, live)
+
+	rep, err := AfterWrite(wd)
+	if err != nil {
+		t.Fatalf("AfterWrite: %v", err)
+	}
+	if rep == nil {
+		t.Fatal("enabled AfterWrite returned a nil report")
+	}
+	if !rep.Clean() {
+		t.Errorf("expected 0 drift against a canonical corpus, got %d: %+v", len(rep.Drifts), rep.Drifts)
+	}
+	if _, statErr := os.Stat(filepath.Join(dataDir, "worklog.db")); statErr != nil {
+		t.Errorf("expected a derived store at %s: %v", filepath.Join(dataDir, "worklog.db"), statErr)
+	}
+
+	// The live directory itself must be untouched — shadow-sync only reads.
+	if afterHash := hashTree(t, live); beforeHash != afterHash {
+		t.Error("AfterWrite modified the live directory it was pointed at")
+	}
+}
+
+func hashTree(t *testing.T, root string) string {
+	t.Helper()
+	var out string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		out += rel + ":" + string(b) + "\x00"
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("hashTree(%s): %v", root, err)
+	}
+	return out
+}
