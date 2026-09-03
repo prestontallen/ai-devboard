@@ -16,6 +16,7 @@ import (
 // entries.
 func NotesFile(t *store.Ticket) []byte {
 	var b bytes.Buffer
+	banner(&b)
 	if t.NotesPreamble != "" {
 		b.WriteString(t.NotesPreamble)
 		b.WriteString("\n")
@@ -50,6 +51,7 @@ func ArchiveMonth(month string, tickets, all []*store.Ticket) []byte {
 	sort.Sort(sort.Reverse(sort.StringSlice(days)))
 
 	var b bytes.Buffer
+	banner(&b)
 	fmt.Fprintf(&b, "# Archive — %s\n", month)
 	for _, day := range days {
 		fmt.Fprintf(&b, "\n## %s\n", day)

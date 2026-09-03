@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
@@ -71,6 +73,10 @@ func Notes(data []byte) *NotesFile {
 		}
 	}
 	flush()
-	nf.Preamble = strings.TrimRight(strings.Join(pre, "\n"), "\n")
+	// The preamble is stored verbatim, so the build-output banner has to
+	// come back off here or a render/parse round trip accumulates one
+	// banner per pass.
+	nf.Preamble = model.StripBanner(strings.Join(pre, "\n"))
+	nf.Preamble = strings.TrimRight(nf.Preamble, "\n")
 	return nf
 }

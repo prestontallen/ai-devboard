@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
@@ -29,8 +31,10 @@ func ArchiveMonth(month string, data []byte) ([]*store.Ticket, error) {
 	for i, line := range lines {
 		lineNo := i + 1
 		switch {
-		case i == 0 && strings.HasPrefix(line, "# "):
-			continue // month title
+		case i == 0 && line == model.Banner:
+			continue // build-output banner, stripped on the way in
+		case (i == 0 || i == 1) && strings.HasPrefix(line, "# "):
+			continue // month title (line 1 when a banner precedes it)
 		case dayRe.MatchString(line):
 			cur, inFeedback = nil, false
 			continue

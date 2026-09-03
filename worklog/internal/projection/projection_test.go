@@ -385,3 +385,98 @@ func TestOracles(t *testing.T) {
 		}
 	})
 }
+
+// TestBannerOnMarkdownSurfaces: the generated-file marker lands on the
+// markdown surfaces whose parsers tolerate it, and stays off the two that
+// don't (FEEDBACK.md is parsed by the legacy feedback package, devboard
+// files are YAML, not markdown).
+func TestBannerOnMarkdownSurfaces(t *testing.T) {
+	s := memstore.New()
+	loadCorpus(t, s, corpusDir)
+	files, err := Render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var sawNotes, sawArchive, sawBoard bool
+	for rel, content := range files {
+		has := bytes.HasPrefix(content, []byte(Banner+"\n"))
+		switch {
+		case rel == "WORK.md", strings.HasPrefix(rel, "notes/"), strings.HasPrefix(rel, "archive/"):
+			if !has {
+				t.Errorf("%s: want a banner, got none", rel)
+			}
+			sawNotes = sawNotes || strings.HasPrefix(rel, "notes/")
+			sawArchive = sawArchive || strings.HasPrefix(rel, "archive/")
+		case rel == "FEEDBACK.md", strings.HasPrefix(rel, "devboard/"):
+			if has {
+				t.Errorf("%s: banner must not be emitted here", rel)
+			}
+			sawBoard = sawBoard || strings.HasPrefix(rel, "devboard/")
+		}
+	}
+	// Guard against the assertions above passing vacuously.
+	if _, ok := files["WORK.md"]; !ok {
+		t.Fatal("corpus rendered no WORK.md")
+	}
+	if !sawNotes || !sawArchive || !sawBoard {
+		t.Fatalf("corpus did not exercise every surface: notes=%v archive=%v board=%v",
+			sawNotes, sawArchive, sawBoard)
+	}
+}
+
+// TestEditedFilesNamesHandEdits is the hand-edit guard: a write must be
+// able to tell that a projection changed under it, so it can refuse
+// instead of silently overwriting the edit.
+func TestEditedFilesNamesHandEdits(t *testing.T) {
+	s := memstore.New()
+	loadCorpus(t, s, corpusDir)
+	dir := t.TempDir()
+	if err := RenderAll(s, dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Freshly rendered: nothing was edited.
+	edited, err := EditedFiles(s, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edited) != 0 {
+		t.Fatalf("clean render reported edits: %v", edited)
+	}
+
+	// A file the store does not own must never be flagged — this is what
+	// keeps hand-written devboard producer files and INDEX.md honored.
+	if err := os.WriteFile(filepath.Join(dir, "INDEX.md"), []byte("hand-written\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if edited, err = EditedFiles(s, dir); err != nil || len(edited) != 0 {
+		t.Fatalf("unowned file flagged as edited: %v (err %v)", edited, err)
+	}
+
+	// Now actually edit a projection.
+	work := filepath.Join(dir, "WORK.md")
+	data, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(work, append(data, []byte("\n- [ ] **SNUCK-IN** — typed by hand\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edited, err = EditedFiles(s, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edited) != 1 || edited[0] != "WORK.md" {
+		t.Fatalf("want [WORK.md], got %v", edited)
+	}
+
+	// A deleted projection is an edit too: re-rendering would resurrect it
+	// without anyone noticing it had been removed.
+	if err := os.Remove(work); err != nil {
+		t.Fatal(err)
+	}
+	if edited, err = EditedFiles(s, dir); err != nil || len(edited) != 1 || edited[0] != "WORK.md" {
+		t.Fatalf("deleted projection not reported: %v (err %v)", edited, err)
+	}
+}

@@ -31,6 +31,7 @@ func WorkMD(tickets []*store.Ticket) []byte {
 		byID[t.ID] = t
 	}
 	var b bytes.Buffer
+	banner(&b)
 	b.WriteString("# Worklog — active\n")
 
 	for _, sec := range sectionOrder {

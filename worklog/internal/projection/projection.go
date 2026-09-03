@@ -12,35 +12,42 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
-// RenderAll writes every projection of s under root:
-// WORK.md, notes/<slug>.md, archive/<month>.md, FEEDBACK.md,
-// devboard/<repo>/<slug>.yaml (with _archive/ for board-archived tasks).
-// INDEX.md is rendered by running the real reindex over the output —
-// its four sections are the de-facto spec (reindex.go), so the projection
-// IS that code's output, not a reimplementation.
-func RenderAll(s store.Store, root string) error {
+// Banner is the build-output marker emitted at the top of the markdown
+// surfaces. It lives in internal/model so the parser can strip it without
+// depending on this package (see model.Banner).
+const Banner = model.Banner
+
+func banner(b *bytes.Buffer) { b.WriteString(Banner + "\n") }
+
+// Render produces every projection of s as an in-memory map of
+// slash-separated relative path to content: WORK.md, notes/<slug>.md,
+// archive/<month>.md, FEEDBACK.md, devboard/<repo>/<slug>.yaml (with
+// _archive/ for board-archived tasks).
+//
+// INDEX.md is deliberately absent: it is produced by running the real
+// reindex over this output, so the projection IS that code's output
+// rather than a reimplementation of it.
+func Render(s store.Store) (map[string][]byte, error) {
 	tickets, err := s.Tickets()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := writeIfChanged(filepath.Join(root, "WORK.md"), WorkMD(tickets)); err != nil {
-		return err
-	}
+	out := map[string][]byte{"WORK.md": WorkMD(tickets)}
+
 	for _, t := range tickets {
 		if t.NotesPreamble == "" && len(t.NoteEntries) == 0 {
 			continue
 		}
-		name := t.Slug
-		if name == "" {
+		if t.Slug == "" {
 			continue // slug-less quick-capture entities carry no notes file
 		}
-		if err := writeIfChanged(filepath.Join(root, "notes", name+".md"), NotesFile(t)); err != nil {
-			return err
-		}
+		out["notes/"+t.Slug+".md"] = NotesFile(t)
 	}
+
 	months := map[string][]*store.Ticket{}
 	for _, t := range tickets {
 		if t.Archived && t.ArchiveMonth != "" {
@@ -48,30 +55,24 @@ func RenderAll(s store.Store, root string) error {
 		}
 	}
 	for month, ts := range months {
-		if err := writeIfChanged(filepath.Join(root, "archive", month+".md"), ArchiveMonth(month, ts, tickets)); err != nil {
-			return err
-		}
+		out["archive/"+month+".md"] = ArchiveMonth(month, ts, tickets)
 	}
+
 	fb, err := s.Feedback()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(fb) > 0 {
-		if err := writeIfChanged(filepath.Join(root, "FEEDBACK.md"), FeedbackMD(fb)); err != nil {
-			return err
-		}
+		out["FEEDBACK.md"] = FeedbackMD(fb)
 	}
-	byID := map[store.ID]*store.Ticket{}
-	for _, t := range tickets {
-		byID[t.ID] = t
-	}
+
 	for _, t := range tickets {
 		if !t.BoardTracked || t.ParentID != "" {
 			continue // children render inside their epic's file
 		}
 		allKids, err := s.Children(t.ID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// Only board-tracked children nest in the feed: children archived
 		// before they ever had board entries stay out — the projection
@@ -88,15 +89,58 @@ func RenderAll(s store.Store, root string) error {
 		if repo == "" {
 			repo = "unknown"
 		}
-		dir := filepath.Join(root, "devboard", repo)
+		dir := "devboard/" + repo
 		if t.BoardArchived {
-			dir = filepath.Join(dir, "_archive")
+			dir += "/_archive"
 		}
-		if err := writeIfChanged(filepath.Join(dir, t.Slug+".yaml"), BoardYAML(t, kids)); err != nil {
+		out[dir+"/"+t.Slug+".yaml"] = BoardYAML(t, kids)
+	}
+	return out, nil
+}
+
+// RenderAll writes every projection of s under root.
+func RenderAll(s store.Store, root string) error {
+	files, err := Render(s)
+	if err != nil {
+		return err
+	}
+	for rel, content := range files {
+		if err := writeIfChanged(filepath.Join(root, filepath.FromSlash(rel)), content); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// EditedFiles reports the projections under root whose bytes differ from
+// what s renders right now, newline-sorted — the files someone hand-edited
+// since the last write, whose content a re-render would destroy.
+//
+// It only inspects paths the store actually renders, so files it does not
+// own are never flagged: bare devboard producer files (which are not
+// canon), INDEX.md, and anything else living alongside. A rendered file
+// missing from disk counts as edited; it was deleted.
+func EditedFiles(s store.Store, root string) ([]string, error) {
+	files, err := Render(s)
+	if err != nil {
+		return nil, err
+	}
+	var edited []string
+	for rel, want := range files {
+		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if os.IsNotExist(err) {
+			edited = append(edited, rel)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(got, want) {
+			edited = append(edited, rel)
+		}
+	}
+	sort.Strings(edited)
+	return edited, nil
 }
 
 // writeIfChanged is the freshness rule (criterion 13): identical content
