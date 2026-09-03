@@ -45,6 +45,11 @@ func WorkMD(tickets []*store.Ticket) []byte {
 		}
 		fmt.Fprintf(&b, "\n## %s\n", sec.heading)
 		for _, t := range in {
+			// Blank line before every block. This is a deliberate format
+			// choice, not splice residue: WORK.md is read by a human every
+			// session, and ~20 backlog entries run together without it.
+			// Matches ArchiveMonth's spacing of its own entries.
+			b.WriteString("\n")
 			renderBlock(&b, t, byID, tickets)
 		}
 	}
