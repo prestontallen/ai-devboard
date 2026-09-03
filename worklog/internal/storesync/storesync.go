@@ -18,8 +18,11 @@
 package storesync
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
@@ -78,17 +81,115 @@ func AfterWrite(wd model.Workdir) (*verify.Report, error) {
 // stderr on drift or a hard error. Write verbs call this at the end of
 // their Run — never treating shadow-sync trouble as a reason to fail the
 // user's command.
+// It reports the DELTA against the previous run, not the absolute count.
+// Live data carries a standing baseline of known drift (the misfiled
+// devboard entries M4 heals), so an absolute count prints the same number
+// after every write and a newly-introduced drift disappears into it —
+// which is the one thing this hook exists to catch.
 func WarnAfterWrite(wd model.Workdir) {
 	rep, err := AfterWrite(wd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "storesync: %v\n", err)
 		return
 	}
-	if rep != nil && !rep.Clean() {
-		fmt.Fprintf(os.Stderr,
-			"storesync: drift found after write (%d entries) -- run `worklog verify` for detail\n",
-			len(rep.Drifts))
+	if rep == nil {
+		return // hook disabled
 	}
+
+	path, baseErr := baselinePath()
+	if baseErr != nil {
+		// Nowhere to keep a baseline: fall back to the absolute count
+		// rather than going silent about real drift.
+		if !rep.Clean() {
+			fmt.Fprintf(os.Stderr,
+				"storesync: drift after write (%d entries, no baseline) -- run `worklog verify` for detail\n",
+				len(rep.Drifts))
+		}
+		return
+	}
+
+	prev, had := loadBaseline(path)
+	fresh := newDrifts(prev, rep.Drifts)
+	if err := saveBaseline(path, rep.Drifts); err != nil {
+		fmt.Fprintf(os.Stderr, "storesync: recording baseline: %v\n", err)
+	}
+
+	switch {
+	case !had && !rep.Clean():
+		// First run against this data dir: everything reads as new, so
+		// say that plainly instead of crying regression over the
+		// standing baseline.
+		fmt.Fprintf(os.Stderr,
+			"storesync: baseline recorded (%d pre-existing drift entries) -- run `worklog verify` for detail\n",
+			len(rep.Drifts))
+	case len(fresh) > 0:
+		fmt.Fprintf(os.Stderr,
+			"storesync: this write introduced %d new drift entries (%d total) -- run `worklog verify` for detail\n",
+			len(fresh), len(rep.Drifts))
+		for _, d := range fresh {
+			fmt.Fprintf(os.Stderr, "storesync:   %s %s %s: live %q, rendered %q\n",
+				d.Surface, d.Ticket, d.Field, d.Live, d.Rendered)
+		}
+	}
+}
+
+// driftKey identifies a drift entry across runs. Every field counts: a
+// drift whose live/rendered values changed is a different disagreement
+// from the one recorded last time, and should read as new.
+func driftKey(d verify.Drift) string {
+	return strings.Join([]string{d.Surface, d.File, d.Ticket, d.Field, d.Live, d.Rendered}, "\x00")
+}
+
+func newDrifts(prev map[string]bool, now []verify.Drift) []verify.Drift {
+	var out []verify.Drift
+	for _, d := range now {
+		if !prev[driftKey(d)] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func baselinePath() (string, error) {
+	dir, err := dataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "storesync-baseline.json"), nil
+}
+
+// loadBaseline reports the previous run's drift set and whether one was
+// found at all. An absent or unreadable file is "no baseline", never an
+// error — this hook must not interfere with the user's command.
+func loadBaseline(path string) (map[string]bool, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	var drifts []verify.Drift
+	if err := json.Unmarshal(data, &drifts); err != nil {
+		return nil, false
+	}
+	set := make(map[string]bool, len(drifts))
+	for _, d := range drifts {
+		set[driftKey(d)] = true
+	}
+	return set, true
+}
+
+func saveBaseline(path string, drifts []verify.Drift) error {
+	if drifts == nil {
+		drifts = []verify.Drift{}
+	}
+	data, err := json.Marshal(drifts)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func dataDir() (string, error) {

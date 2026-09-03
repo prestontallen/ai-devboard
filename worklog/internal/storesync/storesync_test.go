@@ -9,6 +9,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/verify"
 )
 
 // TestDisabledIsNoop: without WORKLOG_STORE_SYNC=1, AfterWrite must not
@@ -98,4 +99,55 @@ func hashTree(t *testing.T, root string) string {
 		t.Fatalf("hashTree(%s): %v", root, err)
 	}
 	return out
+}
+
+// TestBaselineDeltaHidesKnownDriftShowsNew: the property M2 shipped
+// without. Live data carries a standing baseline of known drift, so a
+// count alone can't distinguish "same 33 as always" from "34 — this write
+// broke something". Only drift absent from the previous run is new.
+func TestBaselineDeltaHidesKnownDriftShowsNew(t *testing.T) {
+	known := []verify.Drift{
+		{Surface: "board", File: "devboard/ai-devboard", Ticket: "skill-slim", Field: "presence", Live: "present", Rendered: "missing"},
+		{Surface: "board", File: "devboard/ai-devboard", Ticket: "slim-dedupe", Field: "presence", Live: "present", Rendered: "missing"},
+	}
+	path := filepath.Join(t.TempDir(), "storesync-baseline.json")
+
+	if _, had := loadBaseline(path); had {
+		t.Fatal("no baseline file exists yet, but loadBaseline reported one")
+	}
+	if err := saveBaseline(path, known); err != nil {
+		t.Fatalf("saveBaseline: %v", err)
+	}
+	prev, had := loadBaseline(path)
+	if !had {
+		t.Fatal("baseline was saved but loadBaseline did not find it")
+	}
+
+	// Same drift set as last run: nothing to report.
+	if fresh := newDrifts(prev, known); len(fresh) != 0 {
+		t.Errorf("known drift reported as new: %+v", fresh)
+	}
+
+	// One genuinely new entry among the known ones: exactly that one.
+	regression := verify.Drift{Surface: "workmd", File: "WORK.md", Ticket: "adb-cutover", Field: "acceptance", Live: "x", Rendered: "y"}
+	fresh := newDrifts(prev, append(append([]verify.Drift{}, known...), regression))
+	if len(fresh) != 1 || fresh[0].Ticket != "adb-cutover" {
+		t.Fatalf("want only the new drift, got %+v", fresh)
+	}
+
+	// A known drift whose values changed is a different disagreement, so
+	// it must read as new rather than hiding behind its old entry.
+	moved := known[0]
+	moved.Rendered = "present-but-different"
+	if fresh := newDrifts(prev, []verify.Drift{moved}); len(fresh) != 1 {
+		t.Errorf("changed drift values should read as new, got %+v", fresh)
+	}
+
+	// A corrupt baseline degrades to "no baseline", never an error.
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, had := loadBaseline(path); had {
+		t.Error("corrupt baseline should read as absent")
+	}
 }
