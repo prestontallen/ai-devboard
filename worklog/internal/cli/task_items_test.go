@@ -11,9 +11,8 @@ import (
 // not to disturb them.
 func seedItems(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	mustRun := func(args ...string) {
 		t.Helper()

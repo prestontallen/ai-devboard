@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,57 +38,73 @@ const baseFixture = `## Now
 ## Someday
 `
 
+// invokeAdd drives `add` through the real root command, so the test sees
+// the same wiring the binary does.
+func invokeAdd(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	prev := flagDir
+	t.Cleanup(func() { flagDir = prev })
+
+	root := newRoot()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs(append([]string{"add", "--dir", dir}, args...))
+	err := root.Execute()
+	return stdout.String(), err
+}
+
 func TestValidateAddInputsRequiresTitle(t *testing.T) {
-	_, doc := loadFixture(t, baseFixture)
-	err := validateAddInputs(doc, addInputs{ID: "x", Section: "Next"})
+	wd, doc := loadFixture(t, baseFixture)
+	err := validateStandaloneInputs(wd, doc, addInputs{ID: "x", Section: "Next"})
 	if err == nil || !strings.Contains(err.Error(), "title") {
 		t.Errorf("expected title-required error, got %v", err)
 	}
 }
 
 func TestValidateAddInputsRequiresID(t *testing.T) {
-	_, doc := loadFixture(t, baseFixture)
-	err := validateAddInputs(doc, addInputs{Title: "T", Section: "Next"})
+	wd, doc := loadFixture(t, baseFixture)
+	err := validateStandaloneInputs(wd, doc, addInputs{Title: "T", Section: "Next"})
 	if err == nil || !strings.Contains(err.Error(), "ID") {
 		t.Errorf("expected ID-required error, got %v", err)
 	}
 }
 
 func TestValidateAddInputsRejectsDuplicateID(t *testing.T) {
-	_, doc := loadFixture(t, baseFixture)
-	err := validateAddInputs(doc, addInputs{Title: "T", ID: "existing", Section: "Next"})
+	wd, doc := loadFixture(t, baseFixture)
+	err := validateStandaloneInputs(wd, doc, addInputs{Title: "T", ID: "existing", Section: "Next"})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("expected duplicate-ID error, got %v", err)
 	}
 }
 
 func TestValidateAddInputsRejectsBadSection(t *testing.T) {
-	_, doc := loadFixture(t, baseFixture)
-	err := validateAddInputs(doc, addInputs{Title: "T", ID: "new", Section: "Now"})
+	wd, doc := loadFixture(t, baseFixture)
+	err := validateStandaloneInputs(wd, doc, addInputs{Title: "T", ID: "new", Section: "Now"})
 	if err == nil || !strings.Contains(err.Error(), "section") {
 		t.Errorf("expected section error, got %v", err)
 	}
 }
 
 func TestApplyAddInsertsIntoNext(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	out, err := applyAdd(wd, doc, addInputs{
-		Title:   "Refactor auth",
-		ID:      "auth-1",
-		Repo:    "api",
-		Tags:    []string{"refactor", "auth"},
-		Section: "Next",
-	})
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeAdd(t, dir,
+		"--title", "Refactor auth", "--id", "auth-1", "--repo", "api",
+		"--tags", "refactor,auth", "--section", "Next", "--json")
 	if err != nil {
-		t.Fatalf("applyAdd: %v", err)
+		t.Fatalf("invokeAdd: %v\nout: %s", err, out)
 	}
-	if out.Status != "added" || out.ID != "auth-1" || out.Section != "Next" {
-		t.Errorf("output = %+v", out)
+	var res addOutput
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("json: %v\nout: %s", jerr, out)
 	}
-	data, _ := os.ReadFile(wd.WorkMD())
+	if res.Status != "added" || res.ID != "auth-1" || res.Section != "Next" {
+		t.Errorf("output = %+v", res)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
 	work := string(data)
 	for _, want := range []string{
-		"- [ ] **AUTH-1** — Refactor auth",
+		"— Refactor auth",
 		"  - **ID**: auth-1",
 		"  - **Repo**: api",
 		"  - **Tags**: refactor, auth",
@@ -98,43 +115,24 @@ func TestApplyAddInsertsIntoNext(t *testing.T) {
 	}
 }
 
-func TestApplyAddPersistsWarnings(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	out, err := applyAdd(wd, doc, addInputs{
-		Title: "T", ID: "tt", Section: "Someday",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out.Warnings) == 0 {
-		t.Error("expected at least one warning about INDEX.md")
-	}
-	if !strings.Contains(out.Warnings[0], "INDEX.md") {
-		t.Errorf("warning text unexpected: %q", out.Warnings[0])
-	}
-}
-
 func TestApplyStandaloneKindIsTicket(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	out, err := applyStandalone(wd, doc, addInputs{
-		Title: "x", ID: "x-1", Section: "Next",
-	})
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeAdd(t, dir, "--title", "x", "--id", "x-1", "--section", "Next", "--json")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("invokeAdd: %v\nout: %s", err, out)
 	}
-	if out.Kind != "ticket" {
-		t.Errorf("Kind = %q, want ticket", out.Kind)
+	var res addOutput
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("json: %v\nout: %s", jerr, out)
+	}
+	if res.Kind != "ticket" {
+		t.Errorf("Kind = %q, want ticket", res.Kind)
 	}
 }
 
 func TestEpicAddCreatesBlockAndNotes(t *testing.T) {
-	root := t.TempDir()
-	wdPath := filepath.Join(root, "WORK.md")
-	if err := os.WriteFile(wdPath,
-		[]byte("## Now\n## Next\n## Someday\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	wd, err := model.NewWorkdir(root)
+	live, _, _ := storeWriteFixture(t)
+	wd, err := model.NewWorkdir(live)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,16 +152,14 @@ func TestEpicAddCreatesBlockAndNotes(t *testing.T) {
 			Section: "Next",
 			Type:    "epic",
 		}, true); err != nil {
-		// errWithExit with code 0 message would have err != nil; sanity-check
 		t.Fatalf("runAddEpic: %v", err)
 	}
 	workBytes, _ := os.ReadFile(wd.WorkMD())
 	w := string(workBytes)
 	for _, want := range []string{
-		"- [ ] **EPIC-A** — Big epic",
+		"— Big epic",
 		"  - **Type**: epic",
 		"  - **Notes**: notes/epic-a.md",
-		"  - **Active children**: <none>",
 	} {
 		if !strings.Contains(w, want) {
 			t.Errorf("WORK.md missing %q:\n%s", want, w)
@@ -177,14 +173,16 @@ func TestEpicAddCreatesBlockAndNotes(t *testing.T) {
 	if !strings.Contains(n, "# Big epic") {
 		t.Errorf("notes scaffold missing title:\n%s", n)
 	}
-	if !strings.Contains(n, "## Children") {
-		t.Errorf("notes scaffold missing Children section:\n%s", n)
+	if !strings.Contains(n, "## Background") {
+		t.Errorf("notes scaffold missing Background section:\n%s", n)
 	}
 }
 
 func TestEpicAddRejectsParentCombo(t *testing.T) {
 	// Test via the runAdd dispatcher because that's where the invalid-combo
-	// rule lives.
+	// rule lives. This refuses before the store is ever touched (the
+	// epic+parent check runs ahead of runStoreAdd), so a bare WORK.md-only
+	// fixture is enough.
 	wd, _ := loadFixture(t, baseFixture)
 	cmd := newAddCmd()
 	cmd.SetOut(new(bytes.Buffer))
@@ -200,9 +198,6 @@ func TestEpicAddRejectsParentCombo(t *testing.T) {
 	err := runAdd(cmd, "Bad", "bad-1", "", "", "", "Next", "epic", "some-parent", true)
 	if err == nil {
 		t.Fatal("expected error from epic+parent combo")
-	}
-	if !strings.Contains(err.Error(), "") { // codedError carries msg=""
-		// Look for the underlying err in cmd output (JSON path).
 	}
 }
 
@@ -231,46 +226,6 @@ func TestEpicAddRefusesExistingNotes(t *testing.T) {
 	}, true)
 	if err == nil {
 		t.Fatal("expected error for pre-existing notes file")
-	}
-}
-
-func TestChildAddAppendsToNotes(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "WORK.md"),
-		[]byte(`## Now
-## Next
-- [ ] **EPIC-A** — Big epic
-  - **ID**: epic-a
-  - **Type**: epic
-  - **Notes**: notes/epic-a.md
-  - **Active children**: <none>
-## Someday
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "notes", "epic-a.md"),
-		[]byte("# Big epic\n\n## Children\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	wd, _ := model.NewWorkdir(root)
-	doc, _ := parse.File(wd.WorkMD())
-
-	cmd := newAddCmd()
-	cmd.SetOut(new(bytes.Buffer))
-	err := runAddChild(cmd, wd, doc, addInputs{
-		Title:  "First child task",
-		ID:     "child-1",
-		Parent: "epic-a",
-	}, true)
-	if err != nil {
-		t.Fatalf("runAddChild: %v", err)
-	}
-	notes, _ := os.ReadFile(filepath.Join(root, "notes", "epic-a.md"))
-	if !strings.Contains(string(notes), "- [ ] child-1: First child task") {
-		t.Errorf("notes missing child line:\n%s", string(notes))
 	}
 }
 
@@ -320,16 +275,13 @@ func TestSplitTags(t *testing.T) {
 // --- spike type -------------------------------------------------------------
 
 func TestAddSpikeWritesTypeIntoBlock(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	if _, err := applyStandalone(wd, doc, addInputs{
-		Title:   "Investigate the thing",
-		ID:      "spike-1",
-		Section: "Next",
-		Type:    "spike",
-	}); err != nil {
-		t.Fatalf("applyStandalone: %v", err)
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeAdd(t, dir,
+		"--title", "Investigate the thing", "--id", "spike-1", "--section", "Next", "--type", "spike", "--json")
+	if err != nil {
+		t.Fatalf("invokeAdd: %v\nout: %s", err, out)
 	}
-	body, _ := os.ReadFile(wd.WorkMD())
+	body, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
 	if !strings.Contains(string(body), "- **Type**: spike") {
 		t.Errorf("block missing Type line:\n%s", body)
 	}
@@ -337,16 +289,13 @@ func TestAddSpikeWritesTypeIntoBlock(t *testing.T) {
 
 // A spike must survive a parse round-trip, or start/done can't read it back.
 func TestAddSpikeRoundTripsThroughParse(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	if _, err := applyStandalone(wd, doc, addInputs{
-		Title:   "Investigate the thing",
-		ID:      "spike-1",
-		Section: "Next",
-		Type:    "spike",
-	}); err != nil {
-		t.Fatalf("applyStandalone: %v", err)
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeAdd(t, dir,
+		"--title", "Investigate the thing", "--id", "spike-1", "--section", "Next", "--type", "spike", "--json")
+	if err != nil {
+		t.Fatalf("invokeAdd: %v\nout: %s", err, out)
 	}
-	reparsed, err := parse.File(wd.WorkMD())
+	reparsed, err := parse.File(filepath.Join(dir, "WORK.md"))
 	if err != nil {
 		t.Fatalf("re-parse: %v", err)
 	}
@@ -361,16 +310,13 @@ func TestAddSpikeRoundTripsThroughParse(t *testing.T) {
 
 // The default type stays off the block so ordinary tickets are unchanged.
 func TestAddTicketOmitsTypeLine(t *testing.T) {
-	wd, doc := loadFixture(t, baseFixture)
-	if _, err := applyStandalone(wd, doc, addInputs{
-		Title:   "Ordinary work",
-		ID:      "tkt-1",
-		Section: "Next",
-		Type:    "ticket",
-	}); err != nil {
-		t.Fatalf("applyStandalone: %v", err)
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeAdd(t, dir,
+		"--title", "Ordinary work", "--id", "tkt-1", "--section", "Next", "--type", "ticket", "--json")
+	if err != nil {
+		t.Fatalf("invokeAdd: %v\nout: %s", err, out)
 	}
-	body, _ := os.ReadFile(wd.WorkMD())
+	body, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
 	if strings.Contains(string(body), "- **Type**: ticket") {
 		t.Errorf("ordinary ticket should carry no Type line:\n%s", body)
 	}

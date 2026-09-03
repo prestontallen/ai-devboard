@@ -71,19 +71,16 @@ func Render(s store.Store) (map[string][]byte, error) {
 		if !t.BoardTracked || t.ParentID != "" {
 			continue // children render inside their epic's file
 		}
-		allKids, err := s.Children(t.ID)
+		kids, err := s.Children(t.ID)
 		if err != nil {
 			return nil, err
 		}
-		// Only board-tracked children nest in the feed: children archived
-		// before they ever had board entries stay out — the projection
-		// states today's facts, it doesn't invent feed entries.
-		kids := allKids[:0]
-		for _, k := range allKids {
-			if k.BoardTracked {
-				kids = append(kids, k)
-			}
-		}
+		// A child never gets its own top-level file (see the skip above),
+		// so its own BoardTracked flag doesn't gate anything here — the
+		// epic's roster is the only surface a child ever appears on, and
+		// it's the full history: pending, active, and done children alike
+		// (a done child leaves ## Now but stays on the epic's card as
+		// completed history until the epic itself is archived).
 		// Repo attribution heals here (ratified OQ2): the canonical repo
 		// field decides the group directory, never the writer's cwd.
 		repo := t.Repo

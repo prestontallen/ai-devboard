@@ -20,6 +20,9 @@ const linkCLIFixture = `## Now
 ## Someday
 `
 
+// linkFixtureDir is for read-only/validation-only cases (the reserved-name
+// guard runs before any store access). Cases that actually write need
+// storeWriteFixture and one of its canonical tickets instead.
 func linkFixtureDir(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -46,8 +49,8 @@ func invokeLink(t *testing.T, dir string, args ...string) (string, error) {
 }
 
 func TestLinkCLISetWritesField(t *testing.T) {
-	dir := linkFixtureDir(t)
-	out, err := invokeLink(t, dir, "auth-1", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json")
+	live, _, _ := storeWriteFixture(t)
+	out, err := invokeLink(t, live, "solo", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json")
 	if err != nil {
 		t.Fatalf("invokeLink: %v\nout: %s", err, out)
 	}
@@ -61,32 +64,35 @@ func TestLinkCLISetWritesField(t *testing.T) {
 	if res["name"] != "Jira" {
 		t.Errorf("name = %q", res["name"])
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
+	data, _ := os.ReadFile(live + "/WORK.md")
 	if !strings.Contains(string(data), "  - **Link**: Jira — https://company.atlassian.net/browse/AUTH-1234") {
 		t.Errorf("WORK.md missing new Link line:\n%s", string(data))
 	}
 }
 
 func TestLinkCLIClearRemovesLine(t *testing.T) {
-	dir := linkFixtureDir(t)
-	if _, err := invokeLink(t, dir, "auth-1", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json"); err != nil {
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokeLink(t, live, "solo", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if _, err := invokeLink(t, dir, "auth-1", "Jira", "--clear", "--json"); err != nil {
+	if _, err := invokeLink(t, live, "solo", "Jira", "--clear", "--json"); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
-	if strings.Contains(string(data), "**Link**") {
-		t.Errorf("expected Link line removed entirely:\n%q", string(data))
+	// Check within solo's own block only — the fixture's kid-live ticket
+	// carries an unrelated pre-existing Link line.
+	data, _ := os.ReadFile(live + "/WORK.md")
+	soloBlock := string(data)[strings.Index(string(data), "**SOLO**"):]
+	if strings.Contains(soloBlock, "**Link**") {
+		t.Errorf("expected Link line removed from solo's block:\n%q", soloBlock)
 	}
 }
 
 func TestLinkCLIGetShowsCurrent(t *testing.T) {
-	dir := linkFixtureDir(t)
-	if _, err := invokeLink(t, dir, "auth-1", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json"); err != nil {
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokeLink(t, live, "solo", "Jira", "https://company.atlassian.net/browse/AUTH-1234", "--json"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	out, err := invokeLink(t, dir, "auth-1", "Jira", "--json")
+	out, err := invokeLink(t, live, "solo", "Jira", "--json")
 	if err != nil {
 		t.Fatalf("read: %v\nout: %s", err, out)
 	}
@@ -100,14 +106,14 @@ func TestLinkCLIGetShowsCurrent(t *testing.T) {
 }
 
 func TestLinkCLIListAll(t *testing.T) {
-	dir := linkFixtureDir(t)
-	if _, err := invokeLink(t, dir, "auth-1", "Jira", "https://a.example/1", "--json"); err != nil {
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokeLink(t, live, "solo", "Jira", "https://a.example/1", "--json"); err != nil {
 		t.Fatalf("set jira: %v", err)
 	}
-	if _, err := invokeLink(t, dir, "auth-1", "Slack", "https://b.example/2", "--json"); err != nil {
+	if _, err := invokeLink(t, live, "solo", "Slack", "https://b.example/2", "--json"); err != nil {
 		t.Fatalf("set slack: %v", err)
 	}
-	out, err := invokeLink(t, dir, "auth-1", "--json")
+	out, err := invokeLink(t, live, "solo", "--json")
 	if err != nil {
 		t.Fatalf("list: %v\nout: %s", err, out)
 	}
@@ -175,31 +181,14 @@ func TestLinkCLIEditRequiresTTY(t *testing.T) {
 	assertExit64(t, err)
 }
 
+// TestLinkCLIChildMirror: SetLink on a child of an epic surfaces Parent
+// in the result, so the CLI's text-output path can tell child tickets
+// apart from standalone ones. kid-live/an-epic is the canonical
+// fixture's existing epic/child pair.
 func TestLinkCLIChildMirror(t *testing.T) {
-	dir := t.TempDir()
-	// A child-of-epic ticket is just a normal bullet block carrying
-	// **Parent**: — same shape internal/done's epic tests use. No devboard
-	// data dir is set, so the devboard mirror itself no-ops; this test
-	// only checks that SetLink surfaces Parent so the CLI picks the child
-	// mirror path over the plain-ticket one.
-	work := `## Now
-- [~] **EPIC-A** — Cross-cutting effort
-  - **ID**: epic-a
-  - **Type**: epic
-  - **Active children**: child-1
-- [~] **CHILD-1** — First sub-task
-  - **ID**: child-1
-  - **Parent**: epic-a
+	live, _, _ := storeWriteFixture(t)
 
-## Next
-
-## Someday
-`
-	if err := os.WriteFile(filepath.Join(dir, "WORK.md"), []byte(work), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	out, err := invokeLink(t, dir, "child-1", "Jira", "https://company.atlassian.net/browse/CHILD-1", "--json")
+	out, err := invokeLink(t, live, "kid-live", "Jira", "https://company.atlassian.net/browse/CHILD-1", "--json")
 	if err != nil {
 		t.Fatalf("invokeLink: %v\nout: %s", err, out)
 	}
@@ -207,8 +196,8 @@ func TestLinkCLIChildMirror(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("json: %v\nout: %s", err, out)
 	}
-	if res["parent"] != "epic-a" {
-		t.Errorf("parent = %q, want epic-a", res["parent"])
+	if res["parent"] != "an-epic" {
+		t.Errorf("parent = %q, want an-epic", res["parent"])
 	}
 }
 

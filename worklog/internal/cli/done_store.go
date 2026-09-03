@@ -64,6 +64,9 @@ func runStoreDone(wd model.Workdir, in done.Inputs, today string) (done.Output, 
 	t.Summary = strings.TrimSpace(in.Summary)
 	t.ArchiveFeedback = trimAll(in.Feedback)
 	t.TimeSpent = strings.TrimSpace(in.Time)
+	if err := ensureParentBoardTracked(ss, t); err != nil {
+		return done.Output{}, err
+	}
 
 	if err := ss.commit(t); err != nil {
 		return done.Output{}, err

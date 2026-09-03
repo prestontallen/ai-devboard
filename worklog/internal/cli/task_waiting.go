@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
 // newTaskWaitingOnCmd manages the external-answer queue: questions blocked
@@ -47,7 +46,7 @@ sanctioned devboard→worklog write. resolve without --answer records a
 				if asked == "" {
 					asked = time.Now().Format("2006-01-02")
 				}
-				return mutateTask(cmd, *id, *child, *asJSON, true, *force, "waiting-on added", arg+" → "+who,
+				return mutateTask(cmd, *id, *child, *asJSON, "waiting-on added", arg+" → "+who,
 					func(t *devboard.Task) error {
 						t.WaitingOn = append(t.WaitingOn, devboard.WaitingItem{
 							Text: arg, Who: who, Asked: asked,
@@ -55,7 +54,7 @@ sanctioned devboard→worklog write. resolve without --answer records a
 						return nil
 					})
 			case "resolve":
-				return runWaitingOnResolve(cmd, *id, *child, *asJSON, *force, arg, strings.TrimSpace(flagAnswer))
+				return runWaitingOnResolve(cmd, *id, *child, *asJSON, arg, strings.TrimSpace(flagAnswer))
 			default:
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task waiting-on: unknown verb %q (add|resolve)", verb)
@@ -74,13 +73,13 @@ sanctioned devboard→worklog write. resolve without --answer records a
 // the decision recording the outcome is written inside the SAME atomic
 // Mutate that removes the entry — an entry is never deleted without a
 // record. The worklog-notes append runs afterward, best-effort, warn-only.
-func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON, force bool, arg, answer string) error {
+func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON bool, arg, answer string) error {
 	if taskDisabled(cmd) {
 		return nil
 	}
 	today := time.Now().Format("2006-01-02")
 	var resolved []devboard.WaitingItem // captured for the notes append
-	path, worklogID, mutErr := runTaskMutation(id, child, false, force, func(t *devboard.Task) error {
+	path, worklogID, mutErr := storeMutateTaskOrChild(id, child, func(t *devboard.Task) error {
 		if arg == "all" {
 			resolved = nil // "all" is the close-out path: decisions say unanswered
 			devboard.CloseWaitingOn(t, today)
@@ -120,9 +119,6 @@ func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON, force boo
 	detail := "resolved"
 	if answer != "" && len(resolved) == 1 {
 		detail = appendAnswerToWorklog(cmd, worklogID, resolved[0], answer)
-	}
-	if wd, err := resolveWorkdir(); err == nil {
-		storesync.WarnAfterWrite(wd)
 	}
 
 	rel, _ := filepath.Rel(devboard.DataDir(), path)

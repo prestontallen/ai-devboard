@@ -12,36 +12,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
-const waitCLIFixture = `## Now
-- [~] **AUTH-1** — Refactor auth middleware
-  - **ID**: auth-1
-  - **Repo**: api
-  - **PR**: https://example.com/pull/42
-  - **Started**: 2026-05-10
-
-## Next
-- [ ] **DASH-1** — Dashboard redesign
-  - **ID**: dash-1
-  - **PR**:
-
-## Someday
-`
-
-func waitFixtureDir(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "archive"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(waitCLIFixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 func invokeWait(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
 	prev := flagDir
@@ -73,8 +43,8 @@ func invokeStartInDir(t *testing.T, dir string, args ...string) (string, error) 
 }
 
 func TestWaitCLIBasic(t *testing.T) {
-	dir := waitFixtureDir(t)
-	out, err := invokeWait(t, dir, "--json", "auth-1")
+	live, _, _ := storeWriteFixture(t)
+	out, err := invokeWait(t, live, "--json", "kid-live")
 	if err != nil {
 		t.Fatalf("wait: %v (output: %s)", err, out)
 	}
@@ -86,11 +56,11 @@ func TestWaitCLIBasic(t *testing.T) {
 	if result["status"] != "waiting" {
 		t.Errorf("status = %v, want waiting", result["status"])
 	}
-	if result["id"] != "auth-1" {
-		t.Errorf("id = %v, want auth-1", result["id"])
+	if result["id"] != "kid-live" {
+		t.Errorf("id = %v, want kid-live", result["id"])
 	}
 
-	wd, _ := model.NewWorkdir(dir)
+	wd, _ := model.NewWorkdir(live)
 	doc, err := parse.File(wd.WorkMD())
 	if err != nil {
 		t.Fatalf("parse WORK.md: %v", err)
@@ -99,8 +69,8 @@ func TestWaitCLIBasic(t *testing.T) {
 	if waiting == nil || len(waiting.Blocks) == 0 {
 		t.Fatal("## Waiting section not created or empty")
 	}
-	if waiting.Blocks[0].ID != "auth-1" {
-		t.Errorf("first Waiting block = %q, want auth-1", waiting.Blocks[0].ID)
+	if waiting.Blocks[0].ID != "kid-live" {
+		t.Errorf("first Waiting block = %q, want kid-live", waiting.Blocks[0].ID)
 	}
 	if waiting.Blocks[0].WaitingSince == "" {
 		t.Error("WaitingSince not stamped")
@@ -108,28 +78,28 @@ func TestWaitCLIBasic(t *testing.T) {
 }
 
 func TestWaitCLIUnknownExits1(t *testing.T) {
-	dir := waitFixtureDir(t)
-	_, err := invokeWait(t, dir, "nope")
+	live, _, _ := storeWriteFixture(t)
+	_, err := invokeWait(t, live, "nope")
 	if err == nil {
 		t.Error("expected error for unknown ID")
 	}
 }
 
 func TestStartResumesFromWaiting(t *testing.T) {
-	// Set up: park auth-1 into Waiting first.
-	dir := waitFixtureDir(t)
-	if _, err := invokeWait(t, dir, "auth-1"); err != nil {
+	// Set up: park kid-live into Waiting first.
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokeWait(t, live, "kid-live"); err != nil {
 		t.Fatalf("setup wait: %v", err)
 	}
 
-	wd, _ := model.NewWorkdir(dir)
+	wd, _ := model.NewWorkdir(live)
 	doc, _ := parse.File(wd.WorkMD())
 	if doc.Section(model.SectionWaiting) == nil {
 		t.Fatal("setup: Waiting section not created")
 	}
 
 	// Now resume via worklog start.
-	out, err := invokeStartInDir(t, dir, "--json", "auth-1")
+	out, err := invokeStartInDir(t, live, "--json", "kid-live")
 	if err != nil {
 		t.Fatalf("start: %v (output: %s)", err, out)
 	}
@@ -145,11 +115,11 @@ func TestStartResumesFromWaiting(t *testing.T) {
 	doc2, _ := parse.File(wd.WorkMD())
 	now := doc2.Section(model.SectionNow)
 	if now == nil || len(now.Blocks) == 0 {
-		t.Fatal("auth-1 not back in ## Now")
+		t.Fatal("kid-live not back in ## Now")
 	}
 	found := false
 	for _, b := range now.Blocks {
-		if b.ID == "auth-1" {
+		if b.ID == "kid-live" {
 			found = true
 			if b.WaitingSince != "" {
 				t.Errorf("WaitingSince not cleared after resume: %q", b.WaitingSince)
@@ -157,15 +127,15 @@ func TestStartResumesFromWaiting(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("auth-1 not found in ## Now after resume")
+		t.Error("kid-live not found in ## Now after resume")
 	}
 
 	// Verify it's gone from Waiting.
 	w := doc2.Section(model.SectionWaiting)
 	if w != nil {
 		for _, b := range w.Blocks {
-			if b.ID == "auth-1" {
-				t.Error("auth-1 still in ## Waiting after resume")
+			if b.ID == "kid-live" {
+				t.Error("kid-live still in ## Waiting after resume")
 			}
 		}
 	}

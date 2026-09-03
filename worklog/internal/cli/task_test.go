@@ -10,6 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
 // runTask executes `worklog task <args...>` against a fresh root command,
@@ -25,16 +28,47 @@ func runTask(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	return out.String(), errBuf.String(), err
 }
 
-func taskFile(t *testing.T, dir string) string {
+// taskStoreFixture builds a real worklog ticket "tkt" and points
+// DEVBOARD_DATA/WORKLOG_DIR/WORKLOG_MIGRATION_DATA at a real migrated
+// store — task<sub> resolves --id against the store (resolveStoreTarget),
+// not a bare devboard file. tracked controls whether the ticket starts
+// BoardTracked: false is the common case (a task<sub> mutation
+// board-tracks and creates the file on first use, same as any other
+// ticket); true is for tests that need the file to already exist before
+// any mutation runs (untrack, which only ever finds an existing file,
+// never creates one).
+func taskStoreFixture(t *testing.T, tracked bool) (dir string) {
 	t.Helper()
-	p := filepath.Join(dir, devboard.RepoName(), "tkt.yaml")
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	s := memstore.New()
+	if err := s.PutTicket(&store.Ticket{
+		Slug: "tkt", Title: "T", Type: store.TypeTicket,
+		State: store.StatePending, Section: store.SectionNext,
+		Repo: devboard.RepoName(), BoardTracked: tracked,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, []byte("schema: 1\ntitle: T\n"), 0o644); err != nil {
+	dir = t.TempDir()
+	if err := projection.RenderAll(s, dir); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	devDir := filepath.Join(dir, "devboard")
+	if err := os.MkdirAll(devDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "migration")
+	t.Setenv("DEVBOARD_DATA", devDir)
+	t.Setenv("WORKLOG_DIR", dir)
+	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+		t.Fatalf("migrate: %s", stderr)
+	}
+	return dir
+}
+
+// taskFilePath is where taskStoreFixture's "tkt" ticket's devboard file
+// lands, whether or not it exists yet.
+func taskFilePath(dir string) string {
+	return filepath.Join(dir, "devboard", devboard.RepoName(), "tkt.yaml")
 }
 
 func loadTask(t *testing.T, p string) devboard.Task {
@@ -62,9 +96,8 @@ func TestTaskNoopWhenDisabled(t *testing.T) {
 }
 
 func TestTaskPhaseSetAndValidate(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "verify", "--id", "tkt"); err != nil {
 		t.Fatal(err)
@@ -79,9 +112,8 @@ func TestTaskPhaseSetAndValidate(t *testing.T) {
 }
 
 func TestTaskPlanLifecycle(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	for _, item := range []string{"first step", "second step"} {
 		if _, _, err := runTask(t, "plan", "add", item, "--id", "tkt"); err != nil {
@@ -107,9 +139,8 @@ func TestTaskPlanLifecycle(t *testing.T) {
 }
 
 func TestTaskScorecardAndNeedsYouAndDecisionAndCode(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	mustRun := func(args ...string) {
 		t.Helper()
@@ -144,9 +175,7 @@ func TestTaskScorecardAndNeedsYouAndDecisionAndCode(t *testing.T) {
 }
 
 func TestTaskJSONOutput(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	taskFile(t, dir)
+	taskStoreFixture(t, false)
 	stdout, _, err := runTask(t, "phase", "plan", "--id", "tkt", "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -157,9 +186,8 @@ func TestTaskJSONOutput(t *testing.T) {
 }
 
 func TestTaskUntrackRemovesOnlyTaskFile(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, true)
+	p := taskFilePath(dir)
 	os.WriteFile(p+".lock", nil, 0o644)
 
 	if _, _, err := runTask(t, "untrack", "--id", "tkt"); err != nil {
@@ -179,7 +207,12 @@ func TestTaskUntrackRemovesOnlyTaskFile(t *testing.T) {
 
 // otherRepoTaskFile creates a task file under a repo-group directory
 // guaranteed to differ from devboard.RepoName() — simulating a task file
-// that belongs to a different, unrelated repo checkout.
+// that belongs to a different, unrelated repo checkout. Still meaningful
+// for untrack (TestTaskUntrackRefusesCrossRepoID below): untrack alone
+// still resolves via resolveTaskPath's filesystem scan, cross-repo check
+// included. Every other task<sub> mutation now resolves against the
+// store (resolveStoreTarget) instead, which has no such concept — see
+// that test's neighbors, deliberately gone, for why.
 func otherRepoTaskFile(t *testing.T, dir, id string) string {
 	t.Helper()
 	other := "other-repo"
@@ -196,79 +229,21 @@ func otherRepoTaskFile(t *testing.T, dir, id string) string {
 	return p
 }
 
-func TestTaskCrossRepoIDCollisionRefused(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	otherPath := otherRepoTaskFile(t, dir, "shared-id")
-	before, err := os.ReadFile(otherPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, err = runTask(t, "phase", "verify", "--id", "shared-id")
-	if err == nil {
-		t.Fatal("expected refusal, got success")
-	}
-	if !strings.Contains(err.Error(), "different repo") || !strings.Contains(err.Error(), "shared-id") {
-		t.Fatalf("expected cross-repo collision error, got %v", err)
-	}
-	after, err := os.ReadFile(otherPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("other repo's task file was mutated by a refused cross-repo id")
-	}
-	// no new file was created under the current repo's group either
-	if _, statErr := os.Stat(filepath.Join(dir, devboard.RepoName(), "shared-id.yaml")); !os.IsNotExist(statErr) {
-		t.Fatal("a new task file was created despite the refusal")
-	}
-}
-
-func TestTaskCrossRepoIDCollisionJSONShape(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	otherRepoTaskFile(t, dir, "shared-id")
-
-	stdout, _, err := runTask(t, "phase", "verify", "--id", "shared-id", "--json")
-	if err == nil {
-		t.Fatal("expected refusal")
-	}
-	if !strings.Contains(stdout, `"error"`) || !strings.Contains(stdout, "different repo") {
-		t.Fatalf("expected {\"error\": ...} JSON body, got stdout=%q err=%v", stdout, err)
-	}
-}
-
-func TestTaskForceBypassesCrossRepoCollision(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	otherPath := otherRepoTaskFile(t, dir, "shared-id")
-
-	if _, _, err := runTask(t, "phase", "verify", "--id", "shared-id", "--force"); err != nil {
-		t.Fatalf("expected --force to succeed, got %v", err)
-	}
-	task := loadTask(t, otherPath)
-	if task.Phase != "verify" {
-		t.Fatalf("expected the other repo's file to be adopted and mutated, got phase=%q", task.Phase)
-	}
-}
-
-func TestTaskSameRepoReEntryNeedsNoForce(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir) // lives under devboard.RepoName() — the "current repo"
-
-	for _, phase := range []string{"clarify", "contract", "plan"} {
-		if _, _, err := runTask(t, "phase", phase, "--id", "tkt"); err != nil {
-			t.Fatalf("re-entry to the same repo's file should not require --force: %v", err)
-		}
-	}
-	task := loadTask(t, p)
-	if task.Phase != "plan" {
-		t.Fatalf("expected final phase 'plan', got %q", task.Phase)
-	}
-}
-
+// TestTaskCrossRepoIDCollisionRefused, TestTaskCrossRepoIDCollisionJSONShape,
+// TestTaskForceBypassesCrossRepoCollision, TestTaskSameRepoReEntryNeedsNoForce,
+// and TestTaskMalformedFileFailsCleanly are deliberately gone (adb-cutover
+// M4 legacy retirement). All five drove an ordinary mutation (phase, not
+// untrack) against a bare devboard file with no backing worklog ticket,
+// to pin resolveTaskPath's filesystem-scan behavior: cross-repo-group
+// collision detection (with its --force escape hatch) and a malformed-YAML
+// parse error. Ordinary task<sub> mutations no longer resolve through
+// resolveTaskPath at all — they resolve against the store
+// (resolveStoreTarget, task_store.go), which has no repo-group concept
+// ("Repo attribution heals here rather than following cwd") and no file to
+// parse in the first place; a bare id with no matching ticket is just "no
+// ticket found". untrack is the one command that still resolves via
+// resolveTaskPath, and keeps its own cross-repo coverage in
+// TestTaskUntrackRefusesCrossRepoID below.
 func TestTaskUntrackRefusesCrossRepoID(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DEVBOARD_DATA", dir)
@@ -283,30 +258,11 @@ func TestTaskUntrackRefusesCrossRepoID(t *testing.T) {
 	}
 }
 
-func TestTaskMalformedFileFailsCleanly(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := filepath.Join(dir, devboard.RepoName(), "bad.yaml")
-	os.MkdirAll(filepath.Dir(p), 0o755)
-	garbage := []byte("title: broken\n  bad: [unclosed\n")
-	os.WriteFile(p, garbage, 0o644)
-
-	_, _, err := runTask(t, "phase", "verify", "--id", "bad")
-	if err == nil || !strings.Contains(err.Error(), "not valid YAML") {
-		t.Fatalf("expected YAML error, got %v", err)
-	}
-	raw, _ := os.ReadFile(p)
-	if !bytes.Equal(raw, garbage) {
-		t.Fatal("malformed file modified")
-	}
-}
-
 // research joins the phase enum between clarify and contract; the error
 // message is derived from the same list, so it can never go stale.
 func TestTaskPhaseResearch(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "research", "--id", "tkt"); err != nil {
 		t.Fatalf("phase research: %v", err)

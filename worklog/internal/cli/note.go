@@ -13,7 +13,6 @@ import (
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/note"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -95,33 +94,14 @@ func runNote(cmd *cobra.Command, id, text string, hasText, edit, editor, asJSON 
 			return jsonOrTextError(cmd, asJSON, 64, "%v", note.ErrEmptyBody)
 		}
 
-		var res note.AppendResult
-		if storeWriteEnabled() {
-			ss, err := openStoreForWrite(wd)
-			if err != nil {
-				return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-			}
-			res, err = runStoreNoteAppend(ss, id, body, time.Now())
-			ss.close()
-			if err != nil {
-				if errors.Is(err, note.ErrUnknownID) {
-					return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-				}
-				return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-			}
-		} else {
-			var err error
-			res, err = note.Append(wd, id, body, time.Now())
-			if err != nil {
-				if errors.Is(err, note.ErrEmptyBody) {
-					return jsonOrTextError(cmd, asJSON, 64, "%v", err)
-				}
-				if errors.Is(err, note.ErrUnknownID) {
-					return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-				}
-				return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-			}
-			storesync.WarnAfterWrite(wd)
+		ss, err := openStoreForWrite(wd)
+		if err != nil {
+			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+		}
+		res, err := runStoreNoteAppend(ss, id, body, time.Now())
+		ss.close()
+		if err != nil {
+			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 		}
 		if asJSON {
 			return emitJSON(cmd.OutOrStdout(), res)
@@ -177,50 +157,21 @@ func runNoteEditor(cmd *cobra.Command, wd model.Workdir, id string, asJSON bool)
 		return nil
 	}
 
-	if storeWriteEnabled() {
-		ss, err := openStoreForWrite(wd)
-		if err != nil {
-			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-		}
-		defer ss.close()
-		path, created, err := runStoreNoteEditor(ss, id, runEditor)
-		if err != nil {
-			if errors.Is(err, note.ErrUnknownID) {
-				return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-			}
-			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-		}
-		if asJSON {
-			return emitJSON(cmd.OutOrStdout(), map[string]any{
-				"id":             id,
-				"file":           path,
-				"createdFile":    created,
-				"linkedInWorkMD": true,
-				"editorExitCode": 0,
-			})
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "edited: %s\n", path)
-		return nil
-	}
-
-	path, created, linked, err := note.EnsureFile(wd, id)
+	ss, err := openStoreForWrite(wd)
 	if err != nil {
-		if errors.Is(err, note.ErrUnknownID) {
-			return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-		}
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	if err := runEditor(path); err != nil {
+	defer ss.close()
+	path, created, err := runStoreNoteEditor(ss, id, runEditor)
+	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	storesync.WarnAfterWrite(wd)
-
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), map[string]any{
 			"id":             id,
 			"file":           path,
 			"createdFile":    created,
-			"linkedInWorkMD": linked,
+			"linkedInWorkMD": true,
 			"editorExitCode": 0,
 		})
 	}

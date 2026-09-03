@@ -1,3 +1,7 @@
+// Package importer holds the wire types and JSON decoding for
+// `worklog import`. Writes are store-backed (internal/cli/import_store.go,
+// adb-cutover M3d/M4) — this package now only carries the shapes both the
+// CLI and the store-backed implementation agree on, plus Decode.
 package importer
 
 import (
@@ -6,13 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
-
-	"github.com/prestontallen/ai-devboard/worklog/internal/model"
-	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
-	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
-	"github.com/prestontallen/ai-devboard/worklog/internal/render"
 )
 
 func decodeJSON(data []byte, v any) error {
@@ -94,158 +92,4 @@ func Decode(r io.Reader) ([]Ticket, error) {
 	default:
 		return nil, fmt.Errorf("expected JSON object or array")
 	}
-}
-
-// Import validates each ticket and writes valid ones to WORK.md. Each ticket
-// is its own atomic write; partial success is possible.
-func Import(wd model.Workdir, tickets []Ticket, opts Options) (Result, error) {
-	now := opts.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-	today := now.Format("2006-01-02")
-
-	result := Result{
-		Imported: []Imported{},
-		Failed:   []Failed{},
-	}
-
-	for i, t := range tickets {
-		id, section, reason := importOne(wd, t, opts.SectionOverride, today, opts.DryRun)
-		if reason != "" {
-			result.Failed = append(result.Failed, Failed{
-				Index:  i,
-				ID:     t.ID,
-				Reason: reason,
-			})
-			continue
-		}
-		result.Imported = append(result.Imported, Imported{ID: id, Section: section})
-	}
-	return result, nil
-}
-
-// importOne validates and writes a single ticket. Returns the canonical id and
-// section on success, or a non-empty reason string on failure.
-func importOne(wd model.Workdir, t Ticket, sectionOverride, today string, dryRun bool) (id, section, reason string) {
-	// Normalize.
-	id = strings.ToLower(strings.TrimSpace(t.ID))
-	if id == "" {
-		return "", "", ErrIDRequired.Error()
-	}
-	title := strings.TrimSpace(t.Title)
-	if title == "" {
-		return id, "", ErrTitleRequired.Error()
-	}
-	ticketType := strings.ToLower(strings.TrimSpace(t.Type))
-	if ticketType == "" {
-		ticketType = "ticket"
-	}
-	switch ticketType {
-	case "ticket", "epic", "spike", "chore":
-	default:
-		return id, "", ErrInvalidType.Error()
-	}
-
-	section = sectionOverride
-	if section == "" {
-		section = strings.ToLower(strings.TrimSpace(t.Section))
-	}
-	if section == "" {
-		section = "next"
-	}
-	switch section {
-	case "now", "next", "someday":
-	default:
-		return id, section, ErrInvalidSection.Error()
-	}
-
-	parent := strings.ToLower(strings.TrimSpace(t.Parent))
-
-	// Load WORK.md fresh per ticket.
-	doc, err := parse.File(wd.WorkMD())
-	if err != nil {
-		return id, section, fmt.Sprintf("read WORK.md: %v", err)
-	}
-
-	if doc.BlockByID(id) != nil {
-		return id, section, ErrAlreadyExists.Error()
-	}
-
-	if parent != "" {
-		pb := doc.BlockByID(parent)
-		if pb == nil {
-			if hint := reindex.ArchivedHint(wd.ArchiveDir(), parent); hint != "" {
-				return id, section, fmt.Sprintf(
-					"%v: epic %q was %s; archived epics cannot take new children",
-					ErrParentMissing, parent, hint)
-			}
-			return id, section, ErrParentMissing.Error()
-		}
-		if !pb.IsEpic() {
-			return id, section, ErrParentNotEpic.Error()
-		}
-	}
-
-	if dryRun {
-		return id, section, ""
-	}
-
-	// Map section to model types.
-	var (
-		sectionName model.SectionName
-		state       model.State
-		started     string
-	)
-	switch section {
-	case "now":
-		sectionName = model.SectionNow
-		state = model.StateActive
-		started = today
-	case "next":
-		sectionName = model.SectionNext
-		state = model.StatePending
-	case "someday":
-		sectionName = model.SectionSomeday
-		state = model.StatePending
-	}
-
-	// Build and append the block.
-	blockLines := render.FormatTicketBlock(render.BlockOptions{
-		Title:   title,
-		ID:      id,
-		Type:    ticketType,
-		Parent:  parent,
-		Repo:    t.Repo,
-		Tags:    t.Tags,
-		PR:      t.PR,
-		Source:  t.Source,
-		Started: started,
-		State:   state,
-	})
-
-	newLines, err := render.AppendToSection(doc, sectionName, blockLines)
-	if err != nil {
-		return id, section, fmt.Sprintf("append block: %v", err)
-	}
-	if err := render.WriteAtomic(wd.WorkMD(), newLines); err != nil {
-		return id, section, fmt.Sprintf("write WORK.md: %v", err)
-	}
-
-	// Update parent epic's Active children if applicable.
-	if parent != "" {
-		doc2, err := parse.File(wd.WorkMD())
-		if err != nil {
-			return id, section, fmt.Sprintf("re-read WORK.md: %v", err)
-		}
-		updated, err := render.UpdateEpicActiveChildren(doc2, parent, id)
-		if err != nil {
-			return id, section, fmt.Sprintf("update active children: %v", err)
-		}
-		if err := render.WriteAtomic(wd.WorkMD(), updated); err != nil {
-			return id, section, fmt.Sprintf("write WORK.md (active children): %v", err)
-		}
-	}
-
-	return id, section, ""
 }

@@ -405,7 +405,7 @@ func RepoRootFor(declaredRepo string) string {
 	return root
 }
 
-func gitBranch() string {
+func GitBranch() string {
 	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
 		return ""
@@ -517,7 +517,7 @@ func OnStart(id, title, blockType, declaredRepo string) error {
 			t.Session = s
 		}
 		if created {
-			if b := gitBranch(); b != "" {
+			if b := GitBranch(); b != "" {
 				t.Branch = b
 			}
 		}

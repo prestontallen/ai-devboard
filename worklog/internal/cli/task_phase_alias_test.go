@@ -9,9 +9,8 @@ import (
 // "implementing". The alias makes the documented word work without changing
 // what lands on disk.
 func TestTaskPhaseImplementAlias(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "implement", "--id", "tkt"); err != nil {
 		t.Fatalf("phase implement: %v", err)
@@ -22,9 +21,8 @@ func TestTaskPhaseImplementAlias(t *testing.T) {
 }
 
 func TestTaskPhaseCanonicalStillAccepted(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := taskFile(t, dir)
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "implementing", "--id", "tkt"); err != nil {
 		t.Fatalf("phase implementing: %v", err)
@@ -37,9 +35,7 @@ func TestTaskPhaseCanonicalStillAccepted(t *testing.T) {
 // An alias must not widen what counts as a phase, and the error still lists
 // the canonical set rather than the aliases.
 func TestTaskPhaseUnknownStillRefused(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	taskFile(t, dir)
+	t.Setenv("DEVBOARD_DATA", t.TempDir())
 
 	_, _, err := runTask(t, "phase", "implementer", "--id", "tkt")
 	if err == nil {

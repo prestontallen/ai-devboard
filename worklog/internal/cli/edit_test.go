@@ -13,36 +13,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 )
 
-// editCLIFixture keeps a second block after the first so tests can catch a
-// field appended past the blank line that separates them.
-const editCLIFixture = `## Now
-
-- [~] **AUTH-1** — Refactor auth
-  - **ID**: auth-1
-  - **Repo**: api
-  - **PR**:
-  - **Started**: 2026-05-15
-  - **Acceptance**: login works
-
-- [~] **AUTH-2** — Second ticket
-  - **ID**: auth-2
-  - **PR**:
-  - **Started**: 2026-05-16
-
-## Next
-
-## Someday
-`
-
-func editFixtureDir(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(editCLIFixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 // invokeEdit drives `edit` through the real root command, so the test sees
 // the same wiring the binary does. Notably SilenceUsage: without it cobra
 // appends a usage banner to the --json error document.
@@ -97,66 +67,55 @@ func exitCodeOf(t *testing.T, err error) int {
 }
 
 func TestEditInsert(t *testing.T) {
-	dir := editFixtureDir(t)
-	before := readWork(t, dir)
+	dir, _, _ := storeWriteFixture(t)
+	before := blockIn(t, dir, "solo")
+	if before.Status != "" {
+		t.Fatalf("setup: solo already has a Status: %q", before.Status)
+	}
 
-	out, err := invokeEdit(t, dir, "auth-1", "--status", "in review", "--json")
+	out, err := invokeEdit(t, dir, "solo", "--status", "in review", "--json")
 	if err != nil {
 		t.Fatalf("invokeEdit: %v\nout: %s", err, out)
 	}
 
-	after := readWork(t, dir)
-	beforeLines := strings.Split(before, "\n")
-	afterLines := strings.Split(after, "\n")
-	if len(afterLines) != len(beforeLines)+1 {
-		t.Fatalf("line count %d, want %d:\n%s", len(afterLines), len(beforeLines)+1, after)
+	after := blockIn(t, dir, "solo")
+	if after.Status != "in review" {
+		t.Errorf("status = %q, want %q", after.Status, "in review")
 	}
-
-	// Every line except the inserted one must survive byte-for-byte.
-	var inserted int
-	bi := 0
-	for _, l := range afterLines {
-		if bi < len(beforeLines) && beforeLines[bi] == l {
-			bi++
-			continue
-		}
-		inserted++
-		if l != "  - **Status**: in review" {
-			t.Errorf("unexpected changed line %q", l)
-		}
-	}
-	if inserted != 1 {
-		t.Errorf("%d lines differ, want 1:\n%s", inserted, after)
+	// Everything else on the block is untouched.
+	if after.Repo != before.Repo || after.Acceptance != before.Acceptance || after.Title != before.Title {
+		t.Errorf("unrelated fields changed: before=%+v after=%+v", before, after)
 	}
 
 	// Status ranks last, so it lands after Acceptance and inside the block.
-	iStatus := strings.Index(after, "**Status**: in review")
-	iAcceptance := strings.Index(after, "**Acceptance**: login works")
-	iSecond := strings.Index(after, "**AUTH-2**")
-	if iStatus < iAcceptance || iStatus > iSecond {
-		t.Errorf("Status landed outside AUTH-1's block:\n%s", after)
+	workmd := readWork(t, dir)
+	iStatus := strings.Index(workmd, "**Status**: in review")
+	iAcceptance := strings.Index(workmd, "**Acceptance**: "+before.Acceptance)
+	if iStatus < 0 || iAcceptance < 0 || iStatus < iAcceptance {
+		t.Errorf("Status did not land after Acceptance inside solo's block:\n%s", workmd)
 	}
 }
 
 func TestEditRewritesInPlace(t *testing.T) {
-	dir := editFixtureDir(t)
-	if out, err := invokeEdit(t, dir, "auth-1", "--acceptance", "logout works", "--json"); err != nil {
+	dir, _, _ := storeWriteFixture(t)
+	if out, err := invokeEdit(t, dir, "solo", "--acceptance", "logout works", "--json"); err != nil {
 		t.Fatalf("invokeEdit: %v\nout: %s", err, out)
 	}
 	after := readWork(t, dir)
 	if n := strings.Count(after, "**Acceptance**"); n != 1 {
 		t.Errorf("Acceptance appears %d times, want 1:\n%s", n, after)
 	}
-	if got := blockIn(t, dir, "auth-1").Acceptance; got != "logout works" {
+	if got := blockIn(t, dir, "solo").Acceptance; got != "logout works" {
 		t.Errorf("acceptance = %q", got)
 	}
 }
 
 func TestEditClearVsAbsent(t *testing.T) {
-	dir := editFixtureDir(t)
+	dir, _, _ := storeWriteFixture(t)
+	baseline := blockIn(t, dir, "solo")
 
 	// Flag passed with an empty value removes the line.
-	if out, err := invokeEdit(t, dir, "auth-1", "--acceptance", "", "--json"); err != nil {
+	if out, err := invokeEdit(t, dir, "solo", "--acceptance", "", "--json"); err != nil {
 		t.Fatalf("clear: %v\nout: %s", err, out)
 	}
 	after := readWork(t, dir)
@@ -165,28 +124,28 @@ func TestEditClearVsAbsent(t *testing.T) {
 	}
 
 	// A flag not passed leaves its field alone: editing Status must not
-	// disturb Repo.
-	if out, err := invokeEdit(t, dir, "auth-1", "--status", "blocked", "--json"); err != nil {
+	// disturb Repo or Started.
+	if out, err := invokeEdit(t, dir, "solo", "--status", "blocked", "--json"); err != nil {
 		t.Fatalf("set status: %v\nout: %s", err, out)
 	}
-	b := blockIn(t, dir, "auth-1")
-	if b.Repo != "api" {
-		t.Errorf("repo = %q, want it untouched", b.Repo)
+	b := blockIn(t, dir, "solo")
+	if b.Repo != baseline.Repo {
+		t.Errorf("repo = %q, want it untouched (%q)", b.Repo, baseline.Repo)
 	}
-	if b.Started != "2026-05-15" {
-		t.Errorf("started = %q, want it untouched", b.Started)
+	if b.Started != baseline.Started {
+		t.Errorf("started = %q, want it untouched (%q)", b.Started, baseline.Started)
 	}
 }
 
 func TestEditCSVRoundTrip(t *testing.T) {
-	dir := editFixtureDir(t)
-	out, err := invokeEdit(t, dir, "auth-1",
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeEdit(t, dir, "solo",
 		"--tags", "auth,  api ,cli", "--files", "a.go, b.go", "--json")
 	if err != nil {
 		t.Fatalf("invokeEdit: %v\nout: %s", err, out)
 	}
 
-	b := blockIn(t, dir, "auth-1")
+	b := blockIn(t, dir, "solo")
 	if got, want := strings.Join(b.Tags, "|"), "auth|api|cli"; got != want {
 		t.Errorf("tags = %q, want %q", got, want)
 	}
@@ -202,22 +161,26 @@ func TestEditCSVRoundTrip(t *testing.T) {
 }
 
 func TestEditTitle(t *testing.T) {
-	dir := editFixtureDir(t)
-	if out, err := invokeEdit(t, dir, "auth-1", "--title", "Rework auth", "--json"); err != nil {
+	dir, _, _ := storeWriteFixture(t)
+	baseline := blockIn(t, dir, "solo")
+
+	if out, err := invokeEdit(t, dir, "solo", "--title", "Rework auth", "--json"); err != nil {
 		t.Fatalf("invokeEdit: %v\nout: %s", err, out)
 	}
 	after := readWork(t, dir)
-	if !strings.Contains(after, "- [~] **AUTH-1** — Rework auth") {
+	if !strings.Contains(after, "— Rework auth") {
 		t.Errorf("bullet line not rewritten as expected:\n%s", after)
 	}
-	if b := blockIn(t, dir, "auth-1"); b.State != model.StateActive {
-		t.Errorf("state = %q, want it preserved", b.State)
+	if b := blockIn(t, dir, "solo"); b.State != baseline.State {
+		t.Errorf("state = %q, want it preserved (%q)", b.State, baseline.State)
 	}
 }
 
 func TestEditAppliesMultipleFieldsInOneWrite(t *testing.T) {
-	dir := editFixtureDir(t)
-	out, err := invokeEdit(t, dir, "auth-1",
+	dir, _, _ := storeWriteFixture(t)
+	baseline := blockIn(t, dir, "solo")
+
+	out, err := invokeEdit(t, dir, "solo",
 		"--repo", "acme/api", "--status", "in review", "--acceptance", "all green", "--json")
 	if err != nil {
 		t.Fatalf("invokeEdit: %v\nout: %s", err, out)
@@ -235,18 +198,18 @@ func TestEditAppliesMultipleFieldsInOneWrite(t *testing.T) {
 	if got, want := strings.Join(fields, ","), "Repo,Acceptance,Status"; got != want {
 		t.Errorf("changed fields = %q, want %q", got, want)
 	}
-	if res.Changes[0].From != "api" {
-		t.Errorf("repo from = %q, want %q", res.Changes[0].From, "api")
+	if res.Changes[0].From != baseline.Repo {
+		t.Errorf("repo from = %q, want %q", res.Changes[0].From, baseline.Repo)
 	}
 
-	b := blockIn(t, dir, "auth-1")
+	b := blockIn(t, dir, "solo")
 	if b.Repo != "acme/api" || b.Status != "in review" || b.Acceptance != "all green" {
 		t.Errorf("block not fully updated: %+v", *b)
 	}
 }
 
 func TestEditUnknownID(t *testing.T) {
-	dir := editFixtureDir(t)
+	dir, _, _ := storeWriteFixture(t)
 	before := readWork(t, dir)
 
 	out, err := invokeEdit(t, dir, "nope", "--status", "x", "--json")
@@ -267,10 +230,13 @@ func TestEditUnknownID(t *testing.T) {
 }
 
 func TestEditNoFlags(t *testing.T) {
-	dir := editFixtureDir(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "WORK.md"), []byte("## Now\n\n## Next\n\n## Someday\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	before := readWork(t, dir)
 
-	out, err := invokeEdit(t, dir, "auth-1", "--json")
+	out, err := invokeEdit(t, dir, "whatever", "--json")
 	if code := exitCodeOf(t, err); code != 64 {
 		t.Errorf("exit code = %d, want 64", code)
 	}
@@ -283,10 +249,10 @@ func TestEditNoFlags(t *testing.T) {
 }
 
 func TestEditEmptyTitleRejected(t *testing.T) {
-	dir := editFixtureDir(t)
+	dir, _, _ := storeWriteFixture(t)
 	before := readWork(t, dir)
 
-	if _, err := invokeEdit(t, dir, "auth-1", "--title", "", "--json"); exitCodeOf(t, err) != 64 {
+	if _, err := invokeEdit(t, dir, "solo", "--title", "", "--json"); exitCodeOf(t, err) != 64 {
 		t.Errorf("exit code = %d, want 64", exitCodeOf(t, err))
 	}
 	if readWork(t, dir) != before {
@@ -306,7 +272,7 @@ func TestEditRejectsFieldsOwnedElsewhere(t *testing.T) {
 	}
 
 	// And the operation layer refuses them even if a flag appeared.
-	dir := editFixtureDir(t)
+	dir, _, _ := storeWriteFixture(t)
 	prev := flagDir
 	flagDir = dir
 	t.Cleanup(func() { flagDir = prev })
@@ -314,7 +280,7 @@ func TestEditRejectsFieldsOwnedElsewhere(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := edit.Apply(wd, "auth-1", []edit.Assignment{{Field: "Started", Value: "2026-01-01"}}); err == nil {
-		t.Error("edit.Apply accepted Started, want ErrNotEditable")
+	if _, err := runStoreEdit(wd, "solo", []edit.Assignment{{Field: "Started", Value: "2026-01-01"}}); err == nil {
+		t.Error("runStoreEdit accepted Started, want ErrNotEditable")
 	}
 }

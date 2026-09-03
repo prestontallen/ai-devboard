@@ -13,28 +13,18 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
-// storeWriteEnv gates the store-backed write path (adb-cutover M3c/M3d).
-// Defaults on as of the M3d cutover flip: every write verb is
-// store-backed unless explicitly overridden with WORKLOG_STORE_WRITE=0,
-// an emergency rollback lever that doesn't require swapping the binary.
-// The flip is atomic across every verb that shares an entity on purpose
-// — a ported `task` reading the store while `add` still only wrote
-// markdown would make a just-created ticket invisible.
-const storeWriteEnv = "WORKLOG_STORE_WRITE"
-
-func storeWriteEnabled() bool { return os.Getenv(storeWriteEnv) != "0" }
-
-// storeMutateTaskOrChild is the store-backed twin of mutateTaskOrChild:
-// same dispatch, same closures, different system of record. The ticket is
-// read from the store, projected into the *devboard.Task shape the eleven
-// subcommand closures already expect, mutated by the closure untouched,
-// applied back, and committed — after which the affected projections are
-// re-rendered to disk so the dashboard and the session-start hook keep
-// reading live files.
+// storeMutateTaskOrChild is what every task<sub> subcommand's mutation
+// runs against (adb-cutover M4: the legacy YAML-splice dispatch,
+// mutateTaskOrChild, is retired). The ticket is read from the store,
+// projected into the *devboard.Task shape the eleven subcommand closures
+// already expect, mutated by the closure untouched, applied back, and
+// committed — after which the affected projections are re-rendered to
+// disk so the dashboard and the session-start hook keep reading live
+// files.
 //
-// The epic/child scratch-view machinery has no counterpart here: a child
-// is its own ticket row carrying ParentID, so it resolves by slug like
-// any other ticket and its in-flight detail is simply its own.
+// A child is its own ticket row carrying ParentID, so it resolves by
+// slug like any other ticket and its in-flight detail is simply its own
+// — no separate scratch-view machinery needed for the epic/child split.
 // Returns the absolute path of the board file the render produced, so
 // mutateTask's warn hooks and result reporting work unchanged. Because
 // write-through renders synchronously before returning, a hook that
@@ -69,7 +59,7 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 			strings.Join(edited, "\n  "))
 	}
 
-	target, worklogID, err := resolveStoreTarget(s, id, child)
+	target, worklogID, top, err := resolveStoreTarget(s, id, child)
 	if err != nil {
 		return "", "", err
 	}
@@ -80,58 +70,78 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 	}
 	projection.ApplyBoardTask(target, task)
 	// A task subcommand is what puts a ticket on the board in the first
-	// place, matching the legacy path's create-on-first-use behavior.
-	target.BoardTracked = true
+	// place, matching the legacy path's create-on-first-use behavior. A
+	// child never gets a file of its own, so it's top — itself for a
+	// plain ticket, the parent epic for a child — that actually needs
+	// board-tracking for anything to render at all.
+	top.BoardTracked = true
 
 	if err := s.PutTicket(target); err != nil {
 		return "", "", fmt.Errorf("task: %w", err)
+	}
+	if top.ID != target.ID {
+		if err := s.PutTicket(top); err != nil {
+			return "", "", fmt.Errorf("task: %w", err)
+		}
 	}
 	if err := projection.RenderTo(s, layout); err != nil {
 		return "", "", fmt.Errorf("task: rendering projections: %w", err)
 	}
 	// Repo attribution heals here rather than following cwd, so the
 	// misfiled-group guard and its --force escape hatch have nothing left
-	// to guard (adb-cutover M4 heals the 29 existing strays).
-	repo := target.Repo
+	// to guard (adb-cutover M4 heals the 29 existing strays). Always
+	// keyed off top: a child's mutation still lands in the epic's file.
+	repo := top.Repo
 	if repo == "" {
 		repo = "unknown"
 	}
-	return filepath.Join(devboard.DataDir(), repo, target.Slug+".yaml"), worklogID, nil
+	return filepath.Join(devboard.DataDir(), repo, top.Slug+".yaml"), worklogID, nil
 }
 
 // resolveStoreTarget applies the same --id/--child rules mutateTaskOrChild
-// enforces, against the store instead of a file path.
-func resolveStoreTarget(s store.Store, id, child string) (*store.Ticket, string, error) {
+// enforces, against the store instead of a file path. top is the ticket
+// whose devboard file the mutation ultimately lands in — itself for a
+// plain ticket, or the parent epic when child is set, since a child never
+// gets a file of its own (it nests inside the epic's). target is what fn
+// actually mutates: top itself, or the named child.
+func resolveStoreTarget(s store.Store, id, child string) (target *store.Ticket, worklogID string, top *store.Ticket, err error) {
 	if id == "" {
-		return nil, "", errWithExit(64, "task: --id is required")
+		return nil, "", nil, errWithExit(64, "task: --id is required")
 	}
 	t, err := s.TicketBySlug(id)
 	if store.IsNotFound(err) {
-		return nil, "", errWithExit(1, "task: no ticket found for id %q", id)
+		return nil, "", nil, errWithExit(1, "task: no ticket found for id %q", id)
 	}
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	if t.Type != store.TypeEpic {
 		if child != "" {
-			return nil, "", errWithExit(64, "task: --child is only valid when --id names an epic")
+			return nil, "", nil, errWithExit(64, "task: --child is only valid when --id names an epic")
 		}
-		return t, t.Slug, nil
+		if t.ParentID != "" {
+			if parent, perr := s.Ticket(t.ParentID); perr == nil {
+				return nil, "", nil, errWithExit(64,
+					"task: %q is a child of epic %q; pass --id %s --child %s instead of creating a standalone file",
+					t.Slug, parent.Slug, parent.Slug, t.Slug)
+			}
+		}
+		return t, t.Slug, t, nil
 	}
 
 	kids, err := s.Children(t.ID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	if child == "" {
-		return nil, "", errWithExit(64,
+		return nil, "", nil, errWithExit(64,
 			"task: --id %q is an epic; pass --child <id> (children: %s)",
 			t.Slug, strings.Join(storeChildIDs(kids), ", "))
 	}
 	for _, k := range kids {
 		if strings.EqualFold(k.Slug, child) {
-			return k, k.Slug, nil
+			return k, k.Slug, t, nil
 		}
 	}
 	// Matches findOrAppendChild: naming a not-yet-rostered child creates a
@@ -139,7 +149,7 @@ func resolveStoreTarget(s store.Store, id, child string) (*store.Ticket, string,
 	return &store.Ticket{
 		Slug: store.NormalizeSlug(child), Type: store.TypeTicket,
 		State: store.StatePending, ParentID: t.ID, Repo: t.Repo,
-	}, child, nil
+	}, child, t, nil
 }
 
 func storeChildIDs(kids []*store.Ticket) []string {

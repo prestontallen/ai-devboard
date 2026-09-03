@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/link"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -157,20 +156,7 @@ func runLink(cmd *cobra.Command, args []string, clear, edit, asJSON bool) error 
 		value = url
 	}
 
-	var res link.Result
-	if storeWriteEnabled() {
-		res, err = runStoreLink(wd, id, name, value)
-	} else {
-		res, err = link.SetLink(wd, id, name, value)
-		if err == nil {
-			if res.Parent != "" {
-				devboardOnLinkChild(res.Parent, id, name, value)
-			} else {
-				devboardOnLink(id, name, value)
-			}
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	res, err := runStoreLink(wd, id, name, value)
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}

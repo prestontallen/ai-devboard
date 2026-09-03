@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/pr"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -117,20 +116,7 @@ func runPR(cmd *cobra.Command, id, url string, clear, edit, asJSON bool) error {
 		value = url
 	}
 
-	var res pr.Result
-	if storeWriteEnabled() {
-		res, err = runStorePR(wd, id, value)
-	} else {
-		res, err = pr.SetPR(wd, id, value)
-		if err == nil {
-			if res.Parent != "" {
-				devboardOnPRChild(res.Parent, id, value)
-			} else {
-				devboardOnPR(id, value)
-			}
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	res, err := runStorePR(wd, id, value)
 	if err != nil {
 		return mapPRError(cmd, asJSON, err)
 	}

@@ -4,20 +4,17 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
 // ---- criterion 1 ----
 
 func TestTaskScoutRecordsAttestation(t *testing.T) {
-	_, path := amendFixture(t, devboard.Task{Schema: 1, Title: "T", Complexity: "high"}, "tkt")
+	_, path := amendFixture(t, store.Ticket{Complexity: "high"})
 
 	if _, _, err := runTask(t, "scout", "inline",
 		"--why", "subagents unavailable; walked the lenses single-pass", "--id", "tkt"); err != nil {
@@ -54,13 +51,7 @@ func TestTaskScoutRecordsAttestation(t *testing.T) {
 // ---- criterion 2 ----
 
 func TestTaskScoutChildPathPersists(t *testing.T) {
-	_, path := amendFixture(t, devboard.Task{
-		Schema: 1, Title: "E", Type: "epic",
-		Children: []devboard.ChildEntry{
-			{ID: "kid", Title: "K", State: "active", Complexity: "high"},
-			{ID: "sib", Title: "S", State: "active"},
-		},
-	}, "epic")
+	_, path := amendEpicChildFixture(t, "high")
 
 	if _, _, err := runTask(t, "scout", "ran", "--why", "4 lenses",
 		"--id", "epic", "--child", "kid"); err != nil {
@@ -90,61 +81,21 @@ func TestTaskScoutChildPathPersists(t *testing.T) {
 }
 
 // ---- criterion 3 ----
-
-// childWorkView and applyChildWorkView enumerate fields by hand, so a field
-// added to both structs but forgotten in the pair is lost silently. Three
-// fields have now hit that; this makes the fourth a test failure.
-func TestChildWorkViewCoversRoundTripFields(t *testing.T) {
-	// Identity is worklog-authored via the roster sync and deliberately
-	// excluded; Schema/Title/Type/Children/Extra are not child concepts.
-	excluded := map[string]bool{
-		"Schema": true, "Title": true, "Type": true, "Worklog": true,
-		"Children": true, "Extra": true, "RepoPath": true,
-	}
-	var missing []string
-	ct := reflect.TypeOf(devboard.ChildEntry{})
-	for i := 0; i < ct.NumField(); i++ {
-		name := ct.Field(i).Name
-		if excluded[name] || name == "ID" || name == "State" {
-			continue
-		}
-		// Every non-identity ChildEntry field must survive a round trip.
-		c := devboard.ChildEntry{ID: "k"}
-		cv := reflect.ValueOf(&c).Elem().FieldByName(name)
-		if !cv.CanSet() {
-			continue
-		}
-		switch cv.Kind() {
-		case reflect.String:
-			cv.SetString("sentinel")
-		case reflect.Slice:
-			cv.Set(reflect.MakeSlice(cv.Type(), 1, 1))
-		case reflect.Ptr:
-			cv.Set(reflect.New(cv.Type().Elem()))
-		default:
-			continue
-		}
-		var out devboard.ChildEntry
-		out.ID = "k"
-		applyChildWorkView(&out, childWorkView(&c))
-		if reflect.DeepEqual(reflect.ValueOf(out).FieldByName(name).Interface(),
-			reflect.Zero(cv.Type()).Interface()) {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		t.Errorf("childWorkView/applyChildWorkView drop these ChildEntry fields: %v\n"+
-			"add them to BOTH functions in task_epic.go, or they are lost on the --child path",
-			missing)
-	}
-}
+//
+// TestChildWorkViewCoversRoundTripFields is deliberately gone along with
+// childWorkView/applyChildWorkView (adb-cutover M4 legacy retirement):
+// those hand-enumerated ChildEntry's in-flight fields for the legacy
+// YAML-splice epic-child mutation path, which no task<sub> command uses
+// any more (storeMutateTaskOrChild replaced it). The store-model
+// equivalent, projection.BoardTask/ApplyBoardTask, has its own round-trip
+// guard — internal/projection/board_test.go's TestBoardTaskRoundTrip.
 
 // ---- criteria 4 and 5 ----
 
 func TestScoutGateWarnsOnPhase(t *testing.T) {
 	for _, level := range []string{"medium", "high"} {
 		for _, phase := range []string{"plan", "implementing"} {
-			amendFixture(t, devboard.Task{Schema: 1, Title: "T", Complexity: level}, "tkt")
+			amendFixture(t, store.Ticket{Complexity: level})
 			out, _, err := runTask(t, "phase", phase, "--id", "tkt")
 			if err != nil {
 				t.Fatal(err)
@@ -162,16 +113,16 @@ func TestScoutGateWarnsOnPhase(t *testing.T) {
 func TestScoutGateSilentWhenNotOwed(t *testing.T) {
 	cases := []struct {
 		name string
-		task devboard.Task
+		task store.Ticket
 	}{
-		{"low complexity", devboard.Task{Schema: 1, Title: "T", Complexity: "low"}},
-		{"no rating at all", devboard.Task{Schema: 1, Title: "T"}},
-		{"already attested", devboard.Task{Schema: 1, Title: "T", Complexity: "high",
-			Scout: &devboard.Scout{Mode: "ran", Why: "did it"}}},
+		{"low complexity", store.Ticket{Complexity: "low"}},
+		{"no rating at all", store.Ticket{}},
+		{"already attested", store.Ticket{Complexity: "high",
+			Scout: &store.Scout{Mode: "ran", Why: "did it"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			amendFixture(t, tc.task, "tkt")
+			amendFixture(t, tc.task)
 			out, _, err := runTask(t, "phase", "plan", "--id", "tkt")
 			if err != nil {
 				t.Fatal(err)
@@ -186,7 +137,7 @@ func TestScoutGateSilentWhenNotOwed(t *testing.T) {
 // An early phase must not warn even at high complexity — the scout has not
 // been owed yet.
 func TestScoutGateSilentBeforeContract(t *testing.T) {
-	amendFixture(t, devboard.Task{Schema: 1, Title: "T", Complexity: "high"}, "tkt")
+	amendFixture(t, store.Ticket{Complexity: "high"})
 	out, _, err := runTask(t, "phase", "clarify", "--id", "tkt")
 	if err != nil {
 		t.Fatal(err)
@@ -200,7 +151,7 @@ func TestScoutGateSilentBeforeContract(t *testing.T) {
 
 func TestScoutGateWarnsOnLateRating(t *testing.T) {
 	t.Run("complexity raised after the work started", func(t *testing.T) {
-		amendFixture(t, devboard.Task{Schema: 1, Title: "T", Phase: "implementing"}, "tkt")
+		amendFixture(t, store.Ticket{Phase: "implementing"})
 		out, _, err := runTask(t, "complexity", "high", "--id", "tkt")
 		if err != nil {
 			t.Fatal(err)
@@ -211,7 +162,7 @@ func TestScoutGateWarnsOnLateRating(t *testing.T) {
 	})
 
 	t.Run("complexity rated at intake stays silent", func(t *testing.T) {
-		amendFixture(t, devboard.Task{Schema: 1, Title: "T", Phase: "intake"}, "tkt")
+		amendFixture(t, store.Ticket{Phase: "intake"})
 		out, _, err := runTask(t, "complexity", "high", "--id", "tkt")
 		if err != nil {
 			t.Fatal(err)
@@ -225,10 +176,10 @@ func TestScoutGateWarnsOnLateRating(t *testing.T) {
 // ---- criterion 7 ----
 
 func TestTaskAmendClearsAttestation(t *testing.T) {
-	_, path := amendFixture(t, devboard.Task{
-		Schema: 1, Title: "T", Complexity: "medium", Phase: "implementing",
-		Scout: &devboard.Scout{Mode: "ran", Why: "against the old scope"},
-	}, "tkt")
+	_, path := amendFixture(t, store.Ticket{
+		Complexity: "medium", Phase: "implementing",
+		Scout: &store.Scout{Mode: "ran", Why: "against the old scope"},
+	})
 
 	out, _, err := runTask(t, "amend", "scope doubled", "--why", "w",
 		"--complexity", "high", "--id", "tkt")
@@ -248,10 +199,10 @@ func TestTaskAmendClearsAttestation(t *testing.T) {
 }
 
 func TestTaskAmendKeepsAttestationWhenResultIsLow(t *testing.T) {
-	_, path := amendFixture(t, devboard.Task{
-		Schema: 1, Title: "T", Complexity: "medium",
-		Scout: &devboard.Scout{Mode: "ran", Why: "did it"},
-	}, "tkt")
+	_, path := amendFixture(t, store.Ticket{
+		Complexity: "medium",
+		Scout:      &store.Scout{Mode: "ran", Why: "did it"},
+	})
 
 	if _, _, err := runTask(t, "amend", "scope shrank", "--why", "w",
 		"--complexity", "low", "--id", "tkt"); err != nil {
@@ -268,18 +219,11 @@ func TestTaskAmendKeepsAttestationWhenResultIsLow(t *testing.T) {
 // the requirement. It is replaced rather than deleted so the unknown-key
 // invariant it guarded is not lost with it.
 func TestTaskAmendClearsScoutAndKeepsOtherUnknownKeys(t *testing.T) {
-	data := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", data)
-	group := filepath.Join(data, devboard.RepoName())
-	if err := os.MkdirAll(group, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(group, "tkt.yaml")
-	if err := os.WriteFile(path, []byte(
-		"schema: 1\ntitle: T\ncomplexity: low\nscout:\n  mode: ran\n  why: because\n"+
-			"custom_field: keep me\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	_, path := amendFixture(t, store.Ticket{
+		Complexity: "low",
+		Scout:      &store.Scout{Mode: "ran", Why: "because"},
+		Extra:      map[string]any{"custom_field": "keep me"},
+	})
 
 	if _, _, err := runTask(t, "amend", "x", "--why", "w",
 		"--complexity", "medium", "--id", "tkt"); err != nil {
@@ -307,7 +251,7 @@ func TestScoutGateHookSpawnsNothing(t *testing.T) {
 	if _, err := exec.LookPath("go"); err == nil {
 		t.Fatal("PATH not actually stripped")
 	}
-	amendFixture(t, devboard.Task{Schema: 1, Title: "T", Complexity: "high"}, "tkt")
+	amendFixture(t, store.Ticket{Complexity: "high"})
 
 	out, _, err := runTask(t, "phase", "plan", "--id", "tkt")
 	if err != nil {
@@ -321,7 +265,7 @@ func TestScoutGateHookSpawnsNothing(t *testing.T) {
 // ---- criterion 10 ----
 
 func TestScoutGateJSONSingleDocument(t *testing.T) {
-	amendFixture(t, devboard.Task{Schema: 1, Title: "T", Complexity: "high"}, "tkt")
+	amendFixture(t, store.Ticket{Complexity: "high"})
 
 	out, _, err := runTask(t, "phase", "plan", "--id", "tkt", "--json")
 	if err != nil {
@@ -341,10 +285,7 @@ func TestScoutGateJSONSingleDocument(t *testing.T) {
 
 // A differently-cased --child must not make the gate vanish.
 func TestScoutGateChildLookupIsCaseInsensitive(t *testing.T) {
-	amendFixture(t, devboard.Task{
-		Schema: 1, Title: "E", Type: "epic",
-		Children: []devboard.ChildEntry{{ID: "kid", Title: "K", State: "active", Complexity: "high"}},
-	}, "epic")
+	amendEpicChildFixture(t, "high")
 
 	out, _, err := runTask(t, "phase", "plan", "--id", "epic", "--child", "KID")
 	if err != nil {
@@ -353,5 +294,4 @@ func TestScoutGateChildLookupIsCaseInsensitive(t *testing.T) {
 	if !strings.Contains(out, "worklog task scout") {
 		t.Errorf("gate should fire for a differently-cased child:\n%s", out)
 	}
-	_ = yaml.Unmarshal
 }

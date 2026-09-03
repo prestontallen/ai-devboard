@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
@@ -87,6 +88,91 @@ func (ss *storeSession) render() error {
 		return fmt.Errorf("regenerating INDEX.md: %w", err)
 	}
 	return nil
+}
+
+// ensureBoardTracked replicates the one create-if-missing devboard hook
+// the legacy write surface had (devboard.OnStart — done/pr/link's hooks
+// all no-op on a missing entry, matching devboard.Find's contract). A
+// ticket that has never been on the board gets BoardTracked, its session
+// (for the dashboard's resume button — dev-context documents this as
+// automatic on start), branch, and repo path; an already-tracked ticket
+// only gets its repo path self-healed, same as legacy. declaredRepo is
+// the ticket's own canonical Repo, used only to resolve a filesystem
+// root when RepoPath is empty or has gone away.
+func ensureBoardTracked(t *store.Ticket, declaredRepo string) {
+	if t.BoardTracked {
+		if t.RepoPath == "" || !dirExists(t.RepoPath) {
+			if root := devboard.RepoRootFor(declaredRepo); root != "" {
+				t.RepoPath = root
+			}
+		}
+		return
+	}
+	if !devboard.Enabled() {
+		return // devboard is opt-in by dir presence; a first tracking is a no-op, not a create
+	}
+	t.BoardTracked = true
+	if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" {
+		t.Session = s
+	}
+	if b := devboard.GitBranch(); b != "" {
+		t.Branch = b
+	}
+	if root := devboard.RepoRootFor(declaredRepo); root != "" {
+		t.RepoPath = root
+	}
+}
+
+// ensureParentBoardTracked replicates legacy's devboardSyncEpic, called on
+// every child start/resume/done: a child's parent epic never goes through
+// its own start (epics can't occupy ## Now), so nothing else ever
+// board-tracks it. Without this, an epic's own file is never created and
+// children with nowhere to nest never render. No-ops for a standalone
+// ticket (t.ParentID == "") or if the parent lookup fails — a dangling
+// ParentID is reported by the caller's own checks, not silently patched
+// here.
+func ensureParentBoardTracked(ss *storeSession, t *store.Ticket) error {
+	if t.ParentID == "" {
+		return nil
+	}
+	parent, err := ss.s.Ticket(t.ParentID)
+	if err != nil {
+		return nil
+	}
+	ensureBoardTracked(parent, parent.Repo)
+	return ss.s.PutTicket(parent)
+}
+
+// clearBoardTracked is untrack's store-side half. Render only ever writes
+// the files it expects (every BoardTracked, non-child ticket); it never
+// prunes a file that fell out of that set, so deleting a task file alone
+// would leave it recreated on the next write that happens to re-render.
+// No-op (not an error) when id doesn't resolve to a store ticket — a bare
+// producer file (no worklog: join key) has nothing in the store to clear,
+// and the caller deletes the file directly in that case.
+func clearBoardTracked(wd model.Workdir, id string) error {
+	ss, err := openStoreForWrite(wd)
+	if err != nil {
+		return err
+	}
+	defer ss.close()
+	t, err := ss.s.TicketBySlug(id)
+	if store.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	t.BoardTracked = false
+	return ss.commit(t)
+}
+
+func dirExists(p string) bool {
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // ticketBySlugOrErr resolves slug to a *store.Ticket, mapping a

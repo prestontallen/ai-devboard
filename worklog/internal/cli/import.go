@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/importer"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
 func newImportCmd() *cobra.Command {
@@ -89,15 +88,7 @@ func runImport(cmd *cobra.Command, flagFile, flagSection string, dryRun, asJSON 
 	}
 
 	opts := importer.Options{SectionOverride: flagSection, DryRun: dryRun}
-	var result importer.Result
-	if storeWriteEnabled() {
-		result, err = runStoreImport(wd, tickets, opts)
-	} else {
-		result, err = importer.Import(wd, tickets, opts)
-		if err == nil && !dryRun && len(result.Imported) > 0 {
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	result, err := runStoreImport(wd, tickets, opts)
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "import: %v", err)
 	}

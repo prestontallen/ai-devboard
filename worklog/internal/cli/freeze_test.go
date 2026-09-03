@@ -106,7 +106,7 @@ func TestFreezeCommandItselfRunsWhileFrozen(t *testing.T) {
 // accidentally inverted (blocking everything or nothing): a representative
 // write verb must still succeed with no freeze held.
 func TestFreezeWriteVerbsSucceedUnfrozen(t *testing.T) {
-	live, _ := canonicalWorklogFixture(t)
+	live, _, _ := storeWriteFixture(t)
 	if err := runCLIExpectingFailure(t, "edit", "solo", "--status", "unfrozen edit", "--dir", live); err != nil {
 		t.Errorf("edit failed with no freeze held: %v", err)
 	}

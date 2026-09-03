@@ -8,9 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
 // fakeLister replaces the toolchain seam. A real nested `go test -list` inside
@@ -38,28 +39,53 @@ func (f *fakeLister) install(t *testing.T) {
 	t.Cleanup(func() { listTests = prev })
 }
 
-// scorecardFixture makes a task file whose single criterion carries verify.
-func scorecardFixture(t *testing.T, verify string) (dir, path string) {
+// scorecardFixture makes a real worklog ticket "tkt" whose single
+// scorecard criterion carries verify. Under the store model, task<sub>
+// resolves --id against a real store ticket (resolveStoreTarget), not a
+// bare devboard file — there's no devboard file yet at all; the first
+// task<sub> mutation creates it (storeMutateTaskOrChild's
+// create-on-first-use), matching what "worklog start" does for any other
+// ticket.
+func scorecardFixture(t *testing.T, verify string) (dir string) {
 	t.Helper()
+	// Repo matches devboard.RepoName() so the rendered file's group lines
+	// up with the process's actual cwd, same as the legacy fixture's
+	// explicit devboard.RepoName() group directory did.
+	return scorecardFixtureWithRepoPath(t, verify, devboard.RepoName(), "")
+}
+
+// scorecardFixtureWithRepoPath is scorecardFixture with repo/repoPath
+// overridable, for the working-directory-resolution tests that need the
+// rendered file's group to mismatch cwd and/or carry a recorded RepoPath.
+func scorecardFixtureWithRepoPath(t *testing.T, verify, repo, repoPath string) (dir string) {
+	t.Helper()
+	s := memstore.New()
+	if err := s.PutTicket(&store.Ticket{
+		Slug: "tkt", Title: "T", Type: store.TypeTicket,
+		State: store.StatePending, Section: store.SectionNext,
+		Repo: repo, RepoPath: repoPath,
+		// Scorecard content lives only in the rendered devboard YAML, so
+		// the ticket must be BoardTracked for RenderAll to write it —
+		// migrate then re-derives the sqlite store purely from what's on
+		// disk, with no visibility into this in-memory store at all.
+		BoardTracked: true,
+		Scorecard:    []store.ScoreItem{{Text: "c1", Verify: verify, Status: "pending"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	dir = t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	group := filepath.Join(dir, devboard.RepoName())
-	if err := os.MkdirAll(group, 0o755); err != nil {
+	if err := projection.RenderAll(s, dir); err != nil {
 		t.Fatal(err)
 	}
-	path = filepath.Join(group, "tkt.yaml")
-	task := devboard.Task{
-		Schema: 1, Title: "T",
-		Score: []devboard.ScoreItem{{Text: "c1", Verify: verify, Status: "pending"}},
+	devDir := filepath.Join(dir, "devboard")
+	dataDir := filepath.Join(t.TempDir(), "migration")
+	t.Setenv("DEVBOARD_DATA", devDir)
+	t.Setenv("WORKLOG_DIR", dir)
+	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+		t.Fatalf("migrate: %s", stderr)
 	}
-	raw, err := yaml.Marshal(task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir, path
+	return dir
 }
 
 // ---- criterion 1: wording rules, pure ----
@@ -239,20 +265,8 @@ func TestVerifyLintResolvesWorkingDir(t *testing.T) {
 	t.Run("recorded repo_path when the group does not match", func(t *testing.T) {
 		f := &fakeLister{names: []string{"TestX"}}
 		f.install(t)
-		data := t.TempDir()
-		t.Setenv("DEVBOARD_DATA", data)
 		elsewhere := t.TempDir()
-		group := filepath.Join(data, "some-other-repo")
-		if err := os.MkdirAll(group, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		raw, _ := yaml.Marshal(devboard.Task{
-			Schema: 1, Title: "T", RepoPath: elsewhere,
-			Score: []devboard.ScoreItem{{Text: "c1", Verify: "go test ./x -run TestX"}},
-		})
-		if err := os.WriteFile(filepath.Join(group, "tkt.yaml"), raw, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		scorecardFixtureWithRepoPath(t, "go test ./x -run TestX", "some-other-repo", elsewhere)
 		if _, _, err := runTask(t, "scorecard", "pass", "1", "--id", "tkt", "--force"); err != nil {
 			t.Fatal(err)
 		}
@@ -264,19 +278,8 @@ func TestVerifyLintResolvesWorkingDir(t *testing.T) {
 	t.Run("silent when neither resolves", func(t *testing.T) {
 		f := &fakeLister{names: []string{"TestX"}}
 		f.install(t)
-		data := t.TempDir()
-		t.Setenv("DEVBOARD_DATA", data)
-		group := filepath.Join(data, "some-other-repo")
-		if err := os.MkdirAll(group, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		raw, _ := yaml.Marshal(devboard.Task{
-			Schema: 1, Title: "T", RepoPath: filepath.Join(t.TempDir(), "gone"),
-			Score: []devboard.ScoreItem{{Text: "c1", Verify: "go test ./x -run TestX"}},
-		})
-		if err := os.WriteFile(filepath.Join(group, "tkt.yaml"), raw, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		gone := filepath.Join(t.TempDir(), "gone")
+		scorecardFixtureWithRepoPath(t, "go test ./x -run TestX", "some-other-repo", gone)
 		if _, _, err := runTask(t, "scorecard", "pass", "1", "--id", "tkt", "--force"); err != nil {
 			t.Fatal(err)
 		}
@@ -313,21 +316,38 @@ func TestVerifyLintDisabledDevboardIsNoOp(t *testing.T) {
 func TestVerifyLintChildPath(t *testing.T) {
 	f := &fakeLister{names: nil}
 	f.install(t)
-	data := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", data)
-	group := filepath.Join(data, devboard.RepoName())
-	if err := os.MkdirAll(group, 0o755); err != nil {
+
+	s := memstore.New()
+	// Only the epic needs BoardTracked: its own file is what carries the
+	// rendered devboard YAML (Scorecard included) that migrate re-derives
+	// the store from; a child never gets a file of its own, and every
+	// child of a tracked epic nests into it regardless of its own flag.
+	epic := &store.Ticket{
+		Slug: "epic", Title: "E", Type: store.TypeEpic,
+		State: store.StatePending, Section: store.SectionNext,
+		Repo: devboard.RepoName(), BoardTracked: true,
+	}
+	if err := s.PutTicket(epic); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := yaml.Marshal(devboard.Task{
-		Schema: 1, Title: "E", Type: "epic",
-		Children: []devboard.ChildEntry{{
-			ID: "kid", Title: "K", State: "active",
-			Score: []devboard.ScoreItem{{Text: "c1", Verify: "go test ./x -run TestNope"}},
-		}},
-	})
-	if err := os.WriteFile(filepath.Join(group, "epic.yaml"), raw, 0o644); err != nil {
+	if err := s.PutTicket(&store.Ticket{
+		Slug: "kid", Title: "K", Type: store.TypeTicket,
+		State: store.StateActive, ParentID: epic.ID, Repo: devboard.RepoName(),
+		Scorecard: []store.ScoreItem{{Text: "c1", Verify: "go test ./x -run TestNope", Status: "pending"}},
+	}); err != nil {
 		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := projection.RenderAll(s, dir); err != nil {
+		t.Fatal(err)
+	}
+	devDir := filepath.Join(dir, "devboard")
+	dataDir := filepath.Join(t.TempDir(), "migration")
+	t.Setenv("DEVBOARD_DATA", devDir)
+	t.Setenv("WORKLOG_DIR", dir)
+	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+		t.Fatalf("migrate: %s", stderr)
 	}
 
 	out, _, err := runTask(t, "scorecard", "pass", "1", "--id", "epic", "--child", "kid")

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/edit"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -96,36 +95,10 @@ func runEdit(cmd *cobra.Command, id string, assignments []edit.Assignment, asJSO
 
 	id = strings.ToLower(strings.TrimSpace(id))
 
-	if storeWriteEnabled() {
-		res, err := runStoreEdit(wd, id, assignments)
-		if err != nil {
-			return mapEditError(cmd, asJSON, err)
-		}
-		if asJSON {
-			return emitJSON(cmd.OutOrStdout(), res)
-		}
-		w := cmd.OutOrStdout()
-		for _, c := range res.Changes {
-			switch {
-			case c.To == "":
-				fmt.Fprintln(w, style.Good.Render(c.Field+" cleared")+
-					style.Dim.Render("  (was: "+c.From+")"))
-			case c.From == "":
-				fmt.Fprintln(w, style.Good.Render(c.Field+": "+c.To))
-			default:
-				fmt.Fprintln(w, style.Good.Render(c.Field+": "+c.To)+
-					style.Dim.Render("  (was: "+c.From+")"))
-			}
-		}
-		return nil
-	}
-
-	res, err := edit.Apply(wd, id, assignments)
+	res, err := runStoreEdit(wd, id, assignments)
 	if err != nil {
 		return mapEditError(cmd, asJSON, err)
 	}
-	storesync.WarnAfterWrite(wd)
-
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), res)
 	}

@@ -51,6 +51,10 @@ func runStoreStart(wd model.Workdir, id, flagRepo, flagTagsCSV, flagAcceptance, 
 		}
 		t.Section = store.SectionNow
 		t.WaitingSince = ""
+		ensureBoardTracked(t, t.Repo)
+		if err := ensureParentBoardTracked(ss, t); err != nil {
+			return nil, err
+		}
 		if err := ss.commit(t); err != nil {
 			return nil, err
 		}
@@ -100,6 +104,10 @@ func runStoreStart(wd model.Workdir, id, flagRepo, flagTagsCSV, flagAcceptance, 
 	t.Section = store.SectionNow
 	t.State = store.StateActive
 	t.Started = today
+	ensureBoardTracked(t, t.Repo)
+	if err := ensureParentBoardTracked(ss, t); err != nil {
+		return nil, err
+	}
 
 	if err := ss.commit(t); err != nil {
 		return nil, err

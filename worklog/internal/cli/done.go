@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/done"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -87,27 +86,10 @@ func runDone(
 
 	today := time.Now().Format("2006-01-02")
 
-	if storeWriteEnabled() {
-		out, err := runStoreDone(wd, in, today)
-		if err != nil {
-			return mapDoneError(cmd, asJSON, err)
-		}
-		if asJSON {
-			return emitJSON(cmd.OutOrStdout(), out)
-		}
-		emitDoneText(cmd, out)
-		return nil
-	}
-
-	out, err := done.Run(wd, in, today)
+	out, err := runStoreDone(wd, in, today)
 	if err != nil {
 		return mapDoneError(cmd, asJSON, err)
 	}
-	devboardOnDone(out.ID)
-	if out.Parent != "" {
-		devboardSyncEpic(wd, out.Parent)
-	}
-	storesync.WarnAfterWrite(wd)
 
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
@@ -122,7 +104,6 @@ func mapDoneError(cmd *cobra.Command, asJSON bool, err error) error {
 		return jsonOrTextError(cmd, asJSON, 64, "%v", err)
 	case errors.Is(err, done.ErrIDNotFound),
 		errors.Is(err, done.ErrEpicHasOpenChildren),
-		errors.Is(err, done.ErrEpicNotesMissing),
 		errors.Is(err, done.ErrInvalidDate):
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	default:

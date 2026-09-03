@@ -8,11 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/model"
-	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/start"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
@@ -57,91 +53,22 @@ func runStart(cmd *cobra.Command, id, flagRepo, flagTagsCSV, flagAcceptance stri
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
-	if storeWriteEnabled() {
-		today := time.Now().Format("2006-01-02")
-		out, err := runStoreStart(wd, id, flagRepo, flagTagsCSV, flagAcceptance, today)
-		if err != nil {
-			return mapStartError(cmd, asJSON, err)
-		}
-		if asJSON {
-			return emitJSON(cmd.OutOrStdout(), out)
-		}
-		switch v := out.(type) {
-		case wait.ResumeOutput:
-			fmt.Fprintln(cmd.OutOrStdout(),
-				style.Good.Render(fmt.Sprintf("resumed %s into ## Now", strings.ToUpper(v.ID))))
-		case start.Output:
-			emitStartText(cmd, v)
-		}
-		return nil
-	}
-
-	// Fast-path: if the ticket is in ## Waiting, resume it instead.
-	// TODO: unify parse in start.Run to avoid the double-parse in this path.
-	normID := strings.ToLower(strings.TrimSpace(id))
-	if doc, parseErr := parse.File(wd.WorkMD()); parseErr == nil {
-		if b := doc.BlockByID(normID); b != nil && b.Section == model.SectionWaiting {
-			today := time.Now().Format("2006-01-02")
-			out, err := wait.Resume(wd, normID, today)
-			if err != nil {
-				return mapResumeError(cmd, asJSON, err)
-			}
-			if b.Parent != "" {
-				devboardSyncEpic(wd, b.Parent)
-			} else {
-				// Resume path: the block is already in hand, no extra parse.
-				devboardOnStart(out.ID, "", string(b.Type), b.Repo)
-			}
-			storesync.WarnAfterWrite(wd)
-			if asJSON {
-				return emitJSON(cmd.OutOrStdout(), out)
-			}
-			fmt.Fprintln(cmd.OutOrStdout(),
-				style.Good.Render(fmt.Sprintf("resumed %s into ## Now",
-					strings.ToUpper(out.ID))))
-			return nil
-		}
-	}
-
-	inputs := start.Inputs{
-		ID:         strings.ToLower(strings.TrimSpace(id)),
-		Repo:       strings.TrimSpace(flagRepo),
-		Tags:       splitTags(flagTagsCSV),
-		Acceptance: strings.TrimSpace(flagAcceptance),
-	}
 	today := time.Now().Format("2006-01-02")
-
-	out, err := start.Run(wd, inputs, today)
+	out, err := runStoreStart(wd, id, flagRepo, flagTagsCSV, flagAcceptance, today)
 	if err != nil {
 		return mapStartError(cmd, asJSON, err)
 	}
-	// Checked before the write, since the write is what creates the group.
-	if group := devboard.PendingNewGroup(); group != "" {
-		out.Warnings = append(out.Warnings, newDevboardGroupWarning(group))
-	}
-	if out.Parent != "" {
-		devboardSyncEpic(wd, out.Parent)
-	} else {
-		devboardOnStart(out.ID, out.Title, out.Type, out.Repo)
-	}
-	storesync.WarnAfterWrite(wd)
-
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
 	}
-	emitStartText(cmd, out)
-	return nil
-}
-
-func mapResumeError(cmd *cobra.Command, asJSON bool, err error) error {
-	switch {
-	case errors.Is(err, wait.ErrIDNotFound),
-		errors.Is(err, wait.ErrNotInWaiting),
-		errors.Is(err, wait.ErrCapExceeded):
-		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
-	default:
-		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
+	switch v := out.(type) {
+	case wait.ResumeOutput:
+		fmt.Fprintln(cmd.OutOrStdout(),
+			style.Good.Render(fmt.Sprintf("resumed %s into ## Now", strings.ToUpper(v.ID))))
+	case start.Output:
+		emitStartText(cmd, v)
 	}
+	return nil
 }
 
 func mapStartError(cmd *cobra.Command, asJSON bool, err error) error {
@@ -154,15 +81,6 @@ func mapStartError(cmd *cobra.Command, asJSON bool, err error) error {
 	default:
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-}
-
-// newDevboardGroupWarning describes a devboard repo group being created for
-// the first time. Worth saying out loud: a group named after something that
-// isn't the repo means task files are being filed where the dashboard won't
-// look for them.
-func newDevboardGroupWarning(group string) string {
-	return "devboard: creating a new repo group \"" + group +
-		"\"; if that is not this repository's name, task files are being filed in the wrong place"
 }
 
 func emitStartText(cmd *cobra.Command, out start.Output) {

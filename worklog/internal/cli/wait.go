@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 	"github.com/prestontallen/ai-devboard/worklog/internal/wait"
 )
@@ -43,26 +42,10 @@ func runWait(cmd *cobra.Command, id string, asJSON bool) error {
 	id = strings.ToLower(strings.TrimSpace(id))
 	today := time.Now().Format("2006-01-02")
 
-	if storeWriteEnabled() {
-		out, err := runStoreWait(wd, id, today)
-		if err != nil {
-			return mapWaitError(cmd, asJSON, err)
-		}
-		if asJSON {
-			return emitJSON(cmd.OutOrStdout(), out)
-		}
-		fmt.Fprintln(cmd.OutOrStdout(),
-			style.Good.Render(fmt.Sprintf("parked %s into ## Waiting (since %s)",
-				strings.ToUpper(out.ID), out.WaitingSince)))
-		return nil
-	}
-
-	out, err := wait.Wait(wd, id, today)
+	out, err := runStoreWait(wd, id, today)
 	if err != nil {
 		return mapWaitError(cmd, asJSON, err)
 	}
-	storesync.WarnAfterWrite(wd)
-
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
 	}

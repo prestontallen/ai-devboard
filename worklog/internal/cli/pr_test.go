@@ -4,31 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
-
-const prCLIFixture = `## Now
-- [~] **AUTH-1** — Refactor auth
-  - **ID**: auth-1
-  - **Repo**: api
-  - **Tags**: refactor
-  - **Started**: 2026-05-15
-
-## Next
-
-## Someday
-`
-
-func prFixtureDir(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(prCLIFixture), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
 
 // invokePR drives the `pr` cobra subcommand and captures stdout.
 func invokePR(t *testing.T, dir string, args ...string) (string, error) {
@@ -47,8 +25,8 @@ func invokePR(t *testing.T, dir string, args ...string) (string, error) {
 }
 
 func TestPrCLISetWritesField(t *testing.T) {
-	dir := prFixtureDir(t)
-	out, err := invokePR(t, dir, "auth-1", "https://example.com/pull/42", "--json")
+	live, _, _ := storeWriteFixture(t)
+	out, err := invokePR(t, live, "solo", "https://example.com/pull/42", "--json")
 	if err != nil {
 		t.Fatalf("invokePR: %v\nout: %s", err, out)
 	}
@@ -62,32 +40,32 @@ func TestPrCLISetWritesField(t *testing.T) {
 	if res["previous"] != "" {
 		t.Errorf("previous = %q, want empty", res["previous"])
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
+	data, _ := os.ReadFile(live + "/WORK.md")
 	if !strings.Contains(string(data), "  - **PR**: https://example.com/pull/42") {
 		t.Errorf("WORK.md missing new PR line:\n%s", string(data))
 	}
 }
 
 func TestPrCLIClearKeepsLine(t *testing.T) {
-	dir := prFixtureDir(t)
-	if _, err := invokePR(t, dir, "auth-1", "https://example.com/pull/1", "--json"); err != nil {
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokePR(t, live, "solo", "https://example.com/pull/1", "--json"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if _, err := invokePR(t, dir, "auth-1", "--clear", "--json"); err != nil {
+	if _, err := invokePR(t, live, "solo", "--clear", "--json"); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
+	data, _ := os.ReadFile(live + "/WORK.md")
 	if !strings.Contains(string(data), "  - **PR**: \n") {
 		t.Errorf("expected `  - **PR**: ` (trailing space) line preserved:\n%q", string(data))
 	}
 }
 
 func TestPrCLINoArgsShowsCurrent(t *testing.T) {
-	dir := prFixtureDir(t)
-	if _, err := invokePR(t, dir, "auth-1", "https://example.com/pull/7", "--json"); err != nil {
+	live, _, _ := storeWriteFixture(t)
+	if _, err := invokePR(t, live, "solo", "https://example.com/pull/7", "--json"); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	out, err := invokePR(t, dir, "auth-1", "--json")
+	out, err := invokePR(t, live, "solo", "--json")
 	if err != nil {
 		t.Fatalf("read: %v\nout: %s", err, out)
 	}
@@ -101,8 +79,8 @@ func TestPrCLINoArgsShowsCurrent(t *testing.T) {
 }
 
 func TestPrCLIConflictURLAndClear(t *testing.T) {
-	dir := prFixtureDir(t)
-	_, err := invokePR(t, dir, "auth-1", "https://example.com", "--clear", "--json")
+	dir := t.TempDir()
+	_, err := invokePR(t, dir, "solo", "https://example.com", "--clear", "--json")
 	if err == nil {
 		t.Fatal("expected error from URL + --clear")
 	}
@@ -116,8 +94,8 @@ func TestPrCLIConflictURLAndClear(t *testing.T) {
 }
 
 func TestPrCLIConflictURLAndEdit(t *testing.T) {
-	dir := prFixtureDir(t)
-	_, err := invokePR(t, dir, "auth-1", "https://example.com", "--edit", "--json")
+	dir := t.TempDir()
+	_, err := invokePR(t, dir, "solo", "https://example.com", "--edit", "--json")
 	if err == nil {
 		t.Fatal("expected error from URL + --edit")
 	}
@@ -131,8 +109,8 @@ func TestPrCLIConflictURLAndEdit(t *testing.T) {
 }
 
 func TestPrCLIConflictClearAndEdit(t *testing.T) {
-	dir := prFixtureDir(t)
-	_, err := invokePR(t, dir, "auth-1", "--clear", "--edit", "--json")
+	dir := t.TempDir()
+	_, err := invokePR(t, dir, "solo", "--clear", "--edit", "--json")
 	if err == nil {
 		t.Fatal("expected error from --clear + --edit")
 	}

@@ -11,8 +11,8 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
 
-// storeWriteFixture stands up a canonical corpus, migrates it into a
-// store, and points the CLI at both with the store-backed write path on.
+// storeWriteFixture stands up a canonical corpus and migrates it into a
+// real store the CLI's unconditionally store-backed write path can open.
 func storeWriteFixture(t *testing.T) (live, board, dataDir string) {
 	t.Helper()
 	live, board = canonicalWorklogFixture(t)
@@ -23,7 +23,6 @@ func storeWriteFixture(t *testing.T) (live, board, dataDir string) {
 	if _, stderr := runCLI(t, "migrate", "--dir", live, "--out", dataDir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
-	t.Setenv("WORKLOG_STORE_WRITE", "1")
 	return live, board, dataDir
 }
 

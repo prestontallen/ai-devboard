@@ -13,7 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -105,15 +104,18 @@ func taskDisabled(cmd *cobra.Command) bool {
 	return true
 }
 
-// resolveTaskPath maps --id (or the cwd repo's single task) to a file path.
-// allowCreate controls whether a missing --id target may be created.
+// resolveTaskPath maps --id (or the cwd repo's single task) to an
+// EXISTING file path — every task<sub> command now resolves its target
+// against the store (storeMutateTaskOrChild), which creates on first use
+// itself, so the only remaining caller is untrack, which only ever
+// operates on a file that's already there.
 //
 // devboard.Find searches every repo group by filename alone, so an --id
 // that collides with an unrelated task in another repo would otherwise be
 // silently adopted (or, worse, mutated). force=false refuses that case;
 // force=true is the deliberate escape hatch (e.g. the same repo checked
 // out under two different directory names).
-func resolveTaskPath(id string, allowCreate, force bool) (string, error) {
+func resolveTaskPath(id string, force bool) (string, error) {
 	if id != "" {
 		p, err := devboard.Find(id)
 		if err != nil {
@@ -130,14 +132,6 @@ func resolveTaskPath(id string, allowCreate, force bool) (string, error) {
 					id, rel)
 			}
 			return p, nil
-		}
-		if allowCreate {
-			if parent := childOfEpicParent(id); parent != "" {
-				return "", errWithExit(64,
-					"task: %q is a child of epic %q; pass --id %s --child %s instead of creating a standalone file",
-					id, parent, parent, id)
-			}
-			return filepath.Join(devboard.DataDir(), devboard.RepoName(), id+".yaml"), nil
 		}
 		return "", errWithExit(1, "task: no task file found for id %q", id)
 	}
@@ -193,33 +187,24 @@ func emitTaskResult(cmd *cobra.Command, asJSON bool, res taskResult) error {
 	return nil
 }
 
-// mutateTask is the shared body of every subcommand: resolve, mutate, emit.
-// child routes the mutation to that child's own entry when --id names an
-// epic — see mutateTaskOrChild.
-// warn hooks run after the mutation and outside devboard.Mutate's flock, so a
-// hook that shells out never holds the lock. Variadic so the ten other callers
-// stay untouched.
-func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force bool,
+// mutateTask is the shared body of every subcommand: resolve against the
+// store, mutate, commit, emit. child routes the mutation to that child's
+// own entry when --id names an epic — see storeMutateTaskOrChild.
+// warn hooks run after the mutation, using the file it landed in. Variadic
+// so the ten other callers stay untouched.
+func mutateTask(cmd *cobra.Command, id, child string, asJSON bool,
 	action, detail string, fn func(*devboard.Task) error,
 	warn ...func(string) []string) error {
 	if taskDisabled(cmd) {
 		return nil
 	}
-	path, _, err := runTaskMutation(id, child, allowCreate, force, fn)
+	path, _, err := storeMutateTaskOrChild(id, child, fn)
 	if err != nil {
 		code := 1
 		if ec, ok := err.(exitCoder); ok { // e.g. bad index, or missing/invalid --child
 			code = ec.ExitCode()
 		}
 		return jsonOrTextError(cmd, asJSON, code, "%v", err)
-	}
-	// Outside devboard.Mutate's flock, same as the warn hooks below — a
-	// shared choke point for the whole task<sub> family (adb-cutover M2).
-	// Skipped on the store-backed path: shadow-sync exists to check that a
-	// legacy write and the derived store agree, and once the store IS the
-	// writer there is nothing left for it to compare.
-	if wd, err := resolveWorkdir(); err == nil && !storeWriteEnabled() {
-		storesync.WarnAfterWrite(wd)
 	}
 	var warnings []string
 	for _, w := range warn {
@@ -230,23 +215,6 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 	rel, _ := filepath.Rel(devboard.DataDir(), path)
 	return emitTaskResult(cmd, asJSON,
 		taskResult{File: rel, Action: action, Detail: detail, Warnings: warnings})
-}
-
-// runTaskMutation is the one place the two systems of record diverge for
-// the whole task<sub> family: same closure, same dispatch rules, either
-// spliced into a YAML file or committed to the store and rendered back
-// out. Returns the board file the mutation landed in.
-func runTaskMutation(id, child string, allowCreate, force bool,
-	fn func(*devboard.Task) error) (path, worklogID string, err error) {
-	if storeWriteEnabled() {
-		return storeMutateTaskOrChild(id, child, fn)
-	}
-	path, err = resolveTaskPath(id, allowCreate, force)
-	if err != nil {
-		return "", "", err
-	}
-	worklogID, err = mutateTaskOrChild(path, child, fn)
-	return path, worklogID, err
 }
 
 // index1 parses a 1-based list index against a length.
@@ -269,7 +237,7 @@ func newTaskComplexityCmd(id, child *string, force *bool, asJSON *bool) *cobra.C
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task: complexity must be low|medium|high, got %q", c)
 			}
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "complexity set", c,
+			return mutateTask(cmd, *id, *child, *asJSON, "complexity set", c,
 				func(t *devboard.Task) error { t.Complexity = c; return nil },
 				scoutGateHook(*child, "", true))
 		},
@@ -331,7 +299,7 @@ stays a single document.`,
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task amend: --complexity must be unchanged|low|medium|high, got %q", flagComplexity)
 			}
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "amendment recorded", args[0],
+			return mutateTask(cmd, *id, *child, *asJSON, "amendment recorded", args[0],
 				func(t *devboard.Task) error {
 					old := strings.TrimSpace(t.Complexity)
 					next := c
@@ -410,7 +378,7 @@ has no attestation.`,
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task scout: --why is required; the value is in the answer, not the record")
 			}
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "scout attested", mode,
+			return mutateTask(cmd, *id, *child, *asJSON, "scout attested", mode,
 				func(t *devboard.Task) error {
 					t.Scout = &devboard.Scout{
 						Mode: mode, Why: flagWhy,
@@ -492,7 +460,7 @@ func newTaskPhaseCmd(id, child *string, force *bool, asJSON *bool) *cobra.Comman
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task: unknown phase %q (%s)", p, strings.Join(phaseOrder, "|"))
 			}
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "phase set", p,
+			return mutateTask(cmd, *id, *child, *asJSON, "phase set", p,
 				func(t *devboard.Task) error { t.Phase = p; return nil },
 				scoutGateHook(*child, p, false))
 		},
@@ -544,7 +512,7 @@ the list before addressing an item by index after a removal.`,
 						"task plan add: takes exactly one argument")
 				}
 				text := args[1]
-				return mutateTask(cmd, *id, *child, *asJSON, true, *force, "plan item added", text,
+				return mutateTask(cmd, *id, *child, *asJSON, "plan item added", text,
 					func(t *devboard.Task) error {
 						t.Plan = append(t.Plan, devboard.PlanItem{Text: text, State: "pending"})
 						return nil
@@ -558,7 +526,7 @@ the list before addressing an item by index after a removal.`,
 
 			switch {
 			case verb == "edit":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "plan item edited", "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "plan item edited", "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Plan), "plan")
 						if err != nil {
@@ -568,7 +536,7 @@ the list before addressing an item by index after a removal.`,
 						return nil
 					})
 			case verb == "remove":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "plan item removed", "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "plan item removed", "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Plan), "plan")
 						if err != nil {
@@ -578,7 +546,7 @@ the list before addressing an item by index after a removal.`,
 						return nil
 					})
 			case states[verb] != "":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "plan item "+states[verb], "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "plan item "+states[verb], "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Plan), "plan")
 						if err != nil {
@@ -628,7 +596,7 @@ cannot answer: no toolchain, a build failure, or no repo it can identify.`,
 						"task scorecard add: takes exactly one argument")
 				}
 				text := args[1]
-				return mutateTask(cmd, *id, *child, *asJSON, true, *force, "criterion added", text,
+				return mutateTask(cmd, *id, *child, *asJSON, "criterion added", text,
 					func(t *devboard.Task) error {
 						t.Score = append(t.Score, devboard.ScoreItem{
 							Text: text, Verify: flagVerify, Status: "pending"})
@@ -648,7 +616,7 @@ cannot answer: no toolchain, a build failure, or no repo it can identify.`,
 				if setVerify {
 					editedVerify = flagVerify
 				}
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "criterion edited", "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "criterion edited", "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Score), "scorecard")
 						if err != nil {
@@ -661,7 +629,7 @@ cannot answer: no toolchain, a build failure, or no repo it can identify.`,
 						return nil
 					}, verifyLintHook("edit", editedVerify, arg, *child))
 			case "remove":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "criterion removed", "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "criterion removed", "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Score), "scorecard")
 						if err != nil {
@@ -671,7 +639,7 @@ cannot answer: no toolchain, a build failure, or no repo it can identify.`,
 						return nil
 					})
 			case "pass", "fail", "pending":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "criterion "+verb, "#"+arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "criterion "+verb, "#"+arg,
 					func(t *devboard.Task) error {
 						i, err := index1(arg, len(t.Score), "scorecard")
 						if err != nil {
@@ -698,7 +666,7 @@ func newTaskDecisionCmd(id, child *string, force *bool, asJSON *bool) *cobra.Com
 		Args:  cobra.ExactArgs(1),
 		Short: "Record an implementation decision (or contract amendment)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "decision recorded", args[0],
+			return mutateTask(cmd, *id, *child, *asJSON, "decision recorded", args[0],
 				func(t *devboard.Task) error {
 					t.Decision = append(t.Decision, devboard.Decision{
 						What: args[0], Why: flagWhy,
@@ -724,14 +692,14 @@ does — stale entries poison the queue.`,
 			verb, arg := args[0], args[1]
 			switch verb {
 			case "add":
-				return mutateTask(cmd, *id, *child, *asJSON, true, *force, "needs-you added", arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "needs-you added", arg,
 					func(t *devboard.Task) error {
 						t.NeedsYou = append(t.NeedsYou, devboard.NeedsItem{
 							Type: flagType, Text: arg, Detail: flagDetail})
 						return nil
 					})
 			case "resolve":
-				return mutateTask(cmd, *id, *child, *asJSON, false, *force, "needs-you resolved", arg,
+				return mutateTask(cmd, *id, *child, *asJSON, "needs-you resolved", arg,
 					func(t *devboard.Task) error {
 						if arg == "all" {
 							t.NeedsYou = nil
@@ -770,7 +738,7 @@ func newTaskCodeCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command
 				}
 				snippet = raw
 			}
-			return mutateTask(cmd, *id, *child, *asJSON, true, *force, "code entry added", args[0],
+			return mutateTask(cmd, *id, *child, *asJSON, "code entry added", args[0],
 				func(t *devboard.Task) error {
 					t.Code = append(t.Code, devboard.CodeRef{
 						File: args[0], Lines: flagLines, Lang: flagLang,
@@ -798,20 +766,27 @@ notes, and archive entries all remain.`,
 			if taskDisabled(cmd) {
 				return nil
 			}
-			path, err := resolveTaskPath(*id, false, *force)
+			path, err := resolveTaskPath(*id, *force)
 			if err != nil {
 				if ec, ok := err.(exitCoder); ok {
 					return jsonOrTextError(cmd, *asJSON, ec.ExitCode(), "%v", err)
 				}
 				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
 			}
+			wd, err := resolveWorkdir()
+			if err != nil {
+				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
+			}
+			// *id may be empty (single-task-in-repo resolution), so derive
+			// the slug from the file resolveTaskPath actually found.
+			slug := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			if err := clearBoardTracked(wd, slug); err != nil {
+				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
+			}
 			if err := os.Remove(path); err != nil {
 				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
 			}
 			os.Remove(path + ".lock") // best-effort
-			if wd, err := resolveWorkdir(); err == nil {
-				storesync.WarnAfterWrite(wd)
-			}
 			rel, _ := filepath.Rel(devboard.DataDir(), path)
 			return emitTaskResult(cmd, *asJSON, taskResult{
 				File: rel, Action: "untracked", Detail: "task file removed; worklog data untouched"})

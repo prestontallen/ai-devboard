@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
 func newFeedbackCmd() *cobra.Command {
@@ -187,15 +186,7 @@ func runFeedbackAppend(cmd *cobra.Command, signal, trigger, excerpt, context str
 		Context: context,
 	}
 
-	var out feedback.Entry
-	if storeWriteEnabled() {
-		out, err = runStoreFeedbackAppend(wd, e)
-	} else {
-		out, err = feedback.Append(wd.FeedbackMD(), e)
-		if err == nil {
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	out, err := runStoreFeedbackAppend(wd, e)
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
@@ -254,16 +245,7 @@ func runFeedbackResolve(cmd *cobra.Command, handle string, asJSON bool) error {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
-	var at int64
-	var already bool
-	if storeWriteEnabled() {
-		at, already, err = runStoreFeedbackResolve(wd, ts)
-	} else {
-		at, already, err = feedback.Resolve(wd.FeedbackMD(), ts)
-		if err == nil && !already {
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	at, already, err := runStoreFeedbackResolve(wd, ts)
 	switch {
 	case errors.Is(err, feedback.ErrEntryNotFound):
 		return jsonOrTextError(cmd, asJSON, 64, "feedback: no entry stamped %d", ts)

@@ -14,65 +14,41 @@ import (
 
 // TestStoreSyncDisabledIsSilent: without WORKLOG_STORE_SYNC, a real write
 // verb through the actual CLI must never mention storesync — the flag's
-// off-by-default cost must be exactly zero, in output as well as behavior.
+// off-by-default cost must be exactly zero, in output as well as
+// behavior. reindex is the exemplar (not a task<sub> verb, edit, note, or
+// any other write command: adb-cutover M4 made every one of them
+// unconditionally store-backed, leaving storesync.WarnAfterWrite with no
+// legacy write anywhere left to shadow-verify against). reindex still
+// calls it as a belt-and-suspenders check after regenerating INDEX.md,
+// independent of that retirement — the one production call site left.
 func TestStoreSyncDisabledIsSilent(t *testing.T) {
-	live, dataDir := canonicalWorklogFixture(t)
+	live, _, _ := storeWriteFixture(t)
 	t.Setenv("WORKLOG_STORE_SYNC", "")
-	t.Setenv("WORKLOG_MIGRATION_DATA", filepath.Join(t.TempDir(), "migration"))
-	t.Setenv("DEVBOARD_DATA", dataDir)
 
-	_, stderr := runCLI(t, "edit", "--dir", live, "solo", "--status", "no sync")
+	_, stderr := runCLI(t, "reindex", "--dir", live)
 	if strings.Contains(stderr, "storesync") {
 		t.Errorf("disabled shadow-sync produced output: %q", stderr)
 	}
 }
 
 // TestStoreSyncCleanAfterRealWrites is adb-cutover M2's per-verb parity
-// proof (contract criterion 2): starting from a genuinely canonical
+// proof (contract criterion 2), starting from a genuinely canonical
 // corpus (a render fixpoint — the hand-authored fixture is deliberately
-// not one, see internal/verify's TestVerifyCleanCorpus), a representative
-// write verb from each of the three integration shapes wired this
-// milestone — a WORK.md-family verb (edit), a notes-file verb (note),
-// and the task<sub> family (task scorecard add, via devboard.Mutate) —
-// must each report zero drift when run with the shadow-sync flag on.
-// storesync's own package tests already prove the derive+verify mechanism
-// itself; this proves the CLI-layer wiring calls it correctly, once per
-// command, from clean state.
+// not one, see internal/verify's TestVerifyCleanCorpus). storesync's own
+// package tests already prove the derive+verify mechanism itself; this
+// proves the CLI-layer wiring (reindex, the one remaining call site —
+// see TestStoreSyncDisabledIsSilent above) calls it correctly, from
+// clean state.
 func TestStoreSyncCleanAfterRealWrites(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-	}{
-		{"edit", []string{"edit", "solo", "--status", "clean status"}},
-		{"note", []string{"note", "solo", "a clean smoke-test note"}},
-		{"task-scorecard-add", []string{"task", "scorecard", "add", "clean criterion", "--id", "an-epic", "--child", "kid-live"}},
+	live, _, _ := storeWriteFixture(t)
+	t.Setenv("WORKLOG_STORE_SYNC", "1")
+
+	_, stderr := runCLI(t, "reindex", "--dir", live)
+	if strings.Contains(stderr, "storesync: drift found") {
+		t.Errorf("unexpected drift against a canonical corpus:\n%s", stderr)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			live, dataDir := canonicalWorklogFixture(t)
-			t.Setenv("WORKLOG_STORE_SYNC", "1")
-			t.Setenv("WORKLOG_MIGRATION_DATA", filepath.Join(t.TempDir(), "migration"))
-			t.Setenv("DEVBOARD_DATA", dataDir)
-
-			args := append([]string{}, tc.args...)
-			// --dir only applies to worklog-rooted commands; task addresses
-			// the devboard file by --id/--child and has no --dir flag, so it
-			// relies on $WORKLOG_DIR for the shadow-sync's own resolveWorkdir.
-			if tc.name == "task-scorecard-add" {
-				t.Setenv("WORKLOG_DIR", live)
-			} else {
-				args = append(args[:1], append([]string{"--dir", live}, args[1:]...)...)
-			}
-
-			_, stderr := runCLI(t, args...)
-			if strings.Contains(stderr, "storesync: drift found") {
-				t.Errorf("%s: unexpected drift against a canonical corpus:\n%s", tc.name, stderr)
-			}
-			if strings.Contains(stderr, "storesync: derive") || strings.Contains(stderr, "storesync: verify") || strings.Contains(stderr, "storesync: open") {
-				t.Errorf("%s: shadow-sync hard error:\n%s", tc.name, stderr)
-			}
-		})
+	if strings.Contains(stderr, "storesync: derive") || strings.Contains(stderr, "storesync: verify") || strings.Contains(stderr, "storesync: open") {
+		t.Errorf("shadow-sync hard error:\n%s", stderr)
 	}
 }
 

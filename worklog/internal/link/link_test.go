@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
@@ -95,50 +94,5 @@ func TestListNoLinks(t *testing.T) {
 	}
 	if len(res.Links) != 0 {
 		t.Errorf("Links = %+v, want none", res.Links)
-	}
-}
-
-func TestSetLinkWritesValue(t *testing.T) {
-	wd := fixtureWorkdir(t, fixtureNoLinks)
-	res, err := SetLink(wd, "auth-1", "Jira", "https://company.atlassian.net/browse/AUTH-1234")
-	if err != nil {
-		t.Fatalf("SetLink: %v", err)
-	}
-	if res.URL != "https://company.atlassian.net/browse/AUTH-1234" || res.Previous != "" {
-		t.Errorf("res = %+v", res)
-	}
-	data, _ := os.ReadFile(wd.WorkMD())
-	if !strings.Contains(string(data), "  - **Link**: Jira — https://company.atlassian.net/browse/AUTH-1234") {
-		t.Errorf("WORK.md missing new Link:\n%s", string(data))
-	}
-}
-
-func TestSetLinkUpdatesInPlace(t *testing.T) {
-	wd := fixtureWorkdir(t, fixtureWithLinks)
-	res, err := SetLink(wd, "auth-1", "Jira", "https://company.atlassian.net/browse/AUTH-9999")
-	if err != nil {
-		t.Fatalf("SetLink: %v", err)
-	}
-	if res.Previous != "https://company.atlassian.net/browse/AUTH-1234" {
-		t.Errorf("Previous = %q", res.Previous)
-	}
-	data, _ := os.ReadFile(wd.WorkMD())
-	if !strings.Contains(string(data), "  - **Link**: Jira — https://company.atlassian.net/browse/AUTH-9999") {
-		t.Errorf("WORK.md missing updated Link:\n%s", string(data))
-	}
-}
-
-func TestSetLinkClearRemovesLine(t *testing.T) {
-	wd := fixtureWorkdir(t, fixtureWithLinks)
-	res, err := SetLink(wd, "auth-1", "Jira", "")
-	if err != nil {
-		t.Fatalf("SetLink: %v", err)
-	}
-	if res.URL != "" {
-		t.Errorf("URL = %q, want empty", res.URL)
-	}
-	data, _ := os.ReadFile(wd.WorkMD())
-	if strings.Contains(string(data), "**Link**") {
-		t.Errorf("Link line should be gone entirely:\n%s", string(data))
 	}
 }

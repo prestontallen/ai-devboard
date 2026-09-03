@@ -15,8 +15,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
-	"github.com/prestontallen/ai-devboard/worklog/internal/render"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -47,8 +45,6 @@ type addOutput struct {
 	NotesPath string   `json:"notesPath,omitempty"` // populated for epic + child
 	Warnings  []string `json:"warnings"`
 }
-
-const indexNotUpdatedWarning = "INDEX.md not updated; run `worklog reindex` when convenient"
 
 // Sentinel errors for the new branches.
 var (
@@ -202,16 +198,7 @@ func runAddStandalone(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, 
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
 
-	var out addOutput
-	var err error
-	if storeWriteEnabled() {
-		out, err = runStoreAdd(wd, inputs)
-	} else {
-		out, err = applyStandalone(wd, doc, inputs)
-		if err == nil {
-			storesync.WarnAfterWrite(wd)
-		}
-	}
+	out, err := runStoreAdd(wd, inputs)
 	if err != nil {
 		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
@@ -245,67 +232,6 @@ func validateStandaloneInputs(wd model.Workdir, doc *model.WorkDoc, inputs addIn
 	return nil
 }
 
-// Kept for backward-compat with existing tests that call validateAddInputs directly.
-// Wraps validateStandaloneInputs without the notes-file check.
-func validateAddInputs(doc *model.WorkDoc, inputs addInputs) error {
-	if inputs.Title == "" {
-		return fmt.Errorf("title is required")
-	}
-	if inputs.ID == "" {
-		return fmt.Errorf("ID is required")
-	}
-	if doc.BlockByID(inputs.ID) != nil {
-		return fmt.Errorf("ID %q already exists in WORK.md", inputs.ID)
-	}
-	switch inputs.Section {
-	case "Next", "Someday":
-		// OK
-	default:
-		return fmt.Errorf("section %q is invalid (use Next or Someday)", inputs.Section)
-	}
-	return nil
-}
-
-func applyStandalone(wd model.Workdir, doc *model.WorkDoc, inputs addInputs) (addOutput, error) {
-	// `ticket` is the implied default and stays off the block, so ordinary
-	// tickets render exactly as before; spike/chore are written explicitly.
-	blockType := inputs.Type
-	if blockType == string(model.TypeTicket) {
-		blockType = ""
-	}
-	blockLines := render.FormatTicketBlock(render.BlockOptions{
-		Title:      inputs.Title,
-		ID:         inputs.ID,
-		Type:       blockType,
-		Repo:       inputs.Repo,
-		Tags:       inputs.Tags,
-		Acceptance: inputs.Acceptance,
-		State:      model.StatePending,
-	})
-
-	out, err := render.AppendToSection(doc, model.SectionName(inputs.Section), blockLines)
-	if err != nil {
-		return addOutput{}, err
-	}
-	if err := render.WriteAtomic(wd.WorkMD(), out); err != nil {
-		return addOutput{}, err
-	}
-	return addOutput{
-		Status:   "added",
-		Kind:     "ticket",
-		ID:       inputs.ID,
-		Title:    inputs.Title,
-		Section:  inputs.Section,
-		WorkMD:   wd.WorkMD(),
-		Warnings: []string{indexNotUpdatedWarning},
-	}, nil
-}
-
-// applyAdd is retained as an alias for tests that target the standalone path.
-func applyAdd(wd model.Workdir, doc *model.WorkDoc, inputs addInputs) (addOutput, error) {
-	return applyStandalone(wd, doc, inputs)
-}
-
 // --- epic path --------------------------------------------------------------
 
 func runAddEpic(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, inputs addInputs, flagJSON bool) error {
@@ -334,52 +260,9 @@ func runAddEpic(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, inputs
 			"%v: %s", ErrNotesAlreadyExists, notesPath)
 	}
 
-	var out addOutput
-	if storeWriteEnabled() {
-		var err error
-		out, err = runStoreAdd(wd, inputs)
-		if err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
-		}
-	} else {
-		// Build epic block + splice into WORK.md
-		notesRef := "notes/" + inputs.ID + ".md"
-		blockLines := render.FormatEpicBlock(render.EpicBlockOptions{
-			ID:       inputs.ID,
-			Title:    inputs.Title,
-			Repo:     inputs.Repo,
-			Tags:     inputs.Tags,
-			NotesRef: notesRef,
-		})
-		newWork, err := render.AppendToSection(doc, model.SectionName(inputs.Section), blockLines)
-		if err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
-		}
-
-		// Create notes scaffold
-		scaffold := epicScaffold(inputs.Title, inputs.ID)
-		if err := os.MkdirAll(wd.NotesDir(), 0o755); err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
-		}
-		if err := os.WriteFile(notesPath, []byte(scaffold), 0o644); err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
-		}
-
-		if err := render.WriteAtomic(wd.WorkMD(), newWork); err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "write WORK.md: %v", err)
-		}
-		storesync.WarnAfterWrite(wd)
-
-		out = addOutput{
-			Status:    "added",
-			Kind:      "epic",
-			ID:        inputs.ID,
-			Title:     inputs.Title,
-			Section:   inputs.Section,
-			WorkMD:    wd.WorkMD(),
-			NotesPath: notesPath,
-			Warnings:  []string{indexNotUpdatedWarning},
-		}
+	out, err := runStoreAdd(wd, inputs)
+	if err != nil {
+		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
 
 	if flagJSON {
@@ -391,22 +274,6 @@ func runAddEpic(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, inputs
 	fmt.Fprintln(w, style.Dim.Render("  notes: "+out.NotesPath))
 	emitWarnings(w, out.Warnings)
 	return nil
-}
-
-func epicScaffold(title, id string) string {
-	return fmt.Sprintf(`# %s
-
-<!-- Notes for epic %s. Children added via `+"`worklog add --parent %s`"+`
-     appear under ## Children as `+"`- [ ] <child-id>: <title>`"+` lines.
-     Promote to ## Now via `+"`worklog start <child-id>`"+`. Done flips
-     [ ] -> [x] automatically. -->
-
-## Background
-
-(Fill in: Jira link, plan reference, open questions.)
-
-## Children
-`, title, id, id)
 }
 
 // --- child path -------------------------------------------------------------
@@ -435,41 +302,9 @@ func runAddChild(cmd *cobra.Command, wd model.Workdir, doc *model.WorkDoc, input
 			"%v: %q already in %s", ErrIDCollisionInNotes, inputs.ID, path)
 	}
 
-	var out addOutput
-	if storeWriteEnabled() {
-		var err error
-		out, err = runStoreAdd(wd, inputs)
-		if err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
-		}
-	} else {
-		notesPath := wd.NotesFile(inputs.Parent)
-		var notesBytes []byte
-		if data, err := os.ReadFile(notesPath); err == nil {
-			notesBytes = data
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return jsonOrTextError(cmd, flagJSON, 1, "read notes: %v", err)
-		}
-
-		newBytes := render.AppendChildToNotes(notesBytes, inputs.ID, inputs.Title)
-
-		if err := os.MkdirAll(filepath.Dir(notesPath), 0o755); err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "mkdir notes: %v", err)
-		}
-		if err := os.WriteFile(notesPath, newBytes, 0o644); err != nil {
-			return jsonOrTextError(cmd, flagJSON, 1, "write notes: %v", err)
-		}
-		storesync.WarnAfterWrite(wd)
-
-		out = addOutput{
-			Status:    "added",
-			Kind:      "child",
-			ID:        inputs.ID,
-			Title:     inputs.Title,
-			Parent:    inputs.Parent,
-			NotesPath: notesPath,
-			Warnings:  []string{indexNotUpdatedWarning},
-		}
+	out, err := runStoreAdd(wd, inputs)
+	if err != nil {
+		return jsonOrTextError(cmd, flagJSON, 1, "%v", err)
 	}
 
 	if flagJSON {

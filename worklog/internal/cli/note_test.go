@@ -47,15 +47,15 @@ func invokeNote(t *testing.T, dir string, args ...string) (string, error) {
 }
 
 func TestNoteAppendBasic(t *testing.T) {
-	dir := noteFixtureDir(t)
-	out, err := invokeNote(t, dir, "auth-1", "hello")
+	dir, _, _ := storeWriteFixture(t)
+	out, err := invokeNote(t, dir, "solo", "hello")
 	if err != nil {
 		t.Fatalf("invokeNote: %v\nout: %s", err, out)
 	}
 	if !strings.Contains(out, "appended:") {
 		t.Errorf("expected 'appended:' in output, got %q", out)
 	}
-	notesData, err := os.ReadFile(filepath.Join(dir, "notes", "auth-1.md"))
+	notesData, err := os.ReadFile(filepath.Join(dir, "notes", "solo.md"))
 	if err != nil {
 		t.Fatalf("notes file missing: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestNoteAppendBasic(t *testing.T) {
 		t.Errorf("notes file missing body:\n%s", string(notesData))
 	}
 	workData, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
-	if !strings.Contains(string(workData), "  - **Notes**: notes/auth-1.md") {
+	if !strings.Contains(string(workData), "  - **Notes**: notes/solo.md") {
 		t.Errorf("WORK.md missing Notes link:\n%s", string(workData))
 	}
 }
@@ -84,7 +84,7 @@ func TestNoteAppendEmptyBodyExits64(t *testing.T) {
 }
 
 func TestNoteAppendUnknownIDExits1(t *testing.T) {
-	dir := noteFixtureDir(t)
+	dir, _, _ := storeWriteFixture(t)
 	_, err := invokeNote(t, dir, "nope", "x")
 	if err == nil {
 		t.Fatal("expected error for unknown ID")
@@ -190,11 +190,11 @@ func TestNoteEditorEnsuresFile(t *testing.T) {
 }
 
 func TestNoteReadAfterAppendJSON(t *testing.T) {
-	dir := noteFixtureDir(t)
-	if _, err := invokeNote(t, dir, "auth-1", "my note text"); err != nil {
+	dir, _, _ := storeWriteFixture(t)
+	if _, err := invokeNote(t, dir, "solo", "my note text"); err != nil {
 		t.Fatalf("append: %v", err)
 	}
-	out, err := invokeNote(t, dir, "auth-1", "--json")
+	out, err := invokeNote(t, dir, "solo", "--json")
 	if err != nil {
 		t.Fatalf("read: %v\nout: %s", err, out)
 	}

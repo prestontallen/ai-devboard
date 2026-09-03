@@ -12,20 +12,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
-func waitingTaskFile(t *testing.T, dir, worklogID string) string {
-	t.Helper()
-	p := filepath.Join(dir, devboard.RepoName(), "tkt.yaml")
-	os.MkdirAll(filepath.Dir(p), 0o755)
-	content := "schema: 1\ntitle: T\n"
-	if worklogID != "" {
-		content += "worklog: " + worklogID + "\n"
-	}
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
 // waitingOnStoreFixture builds a canonical (render-fixpoint) worklog dir
 // from workMD/archiveMD — going through convert+RenderAll first, same as
 // canonicalWorklogFixture, rather than writing hand-authored markdown
@@ -34,8 +20,8 @@ func waitingTaskFile(t *testing.T, dir, worklogID string) string {
 // hand edit. No devboard task file is pre-created: worklogID has no
 // board entry yet, and task_store.go's create-on-first-use path (the
 // same one a genuinely new ticket goes through) is what the first
-// `task waiting-on add` exercises. Migrates into a fresh store and turns
-// on store-backed writes — appendAnswerToWorklog is unconditionally
+// `task waiting-on add` exercises. Migrates into a fresh, real store —
+// every write verb, appendAnswerToWorklog included, is unconditionally
 // store-backed, so the task-file mutation must agree with it on one
 // system of record or the two writes would silently diverge.
 func waitingOnStoreFixture(t *testing.T, workMD, archiveMD string) (devboardDir, worklogDir string) {
@@ -78,39 +64,21 @@ func waitingOnStoreFixture(t *testing.T, workMD, archiveMD string) (devboardDir,
 	if _, stderr := runCLI(t, "migrate", "--dir", worklogDir, "--out", dataDir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
-	t.Setenv("WORKLOG_STORE_WRITE", "1")
 	return devboardDir, worklogDir
 }
 
-// TestWaitingOnResolveRefusesCrossRepoID covers the guard on the direct
-// resolveTaskPath call in runWaitingOnResolve (allowCreate=false) — a
-// second allowCreate=false exercise alongside untrack's, per contract
-// criterion 4.
-func TestWaitingOnResolveRefusesCrossRepoID(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	other := "other-repo"
-	if other == devboard.RepoName() {
-		other = "other-repo-2"
-	}
-	p := filepath.Join(dir, other, "shared-id.yaml")
-	os.MkdirAll(filepath.Dir(p), 0o755)
-	os.WriteFile(p, []byte("schema: 1\ntitle: T\nwaiting_on:\n  - text: q\n    who: platform\n    asked: \"2026-01-01\"\n"), 0o644)
-
-	_, _, err := runTask(t, "waiting-on", "resolve", "1", "--id", "shared-id")
-	if err == nil || !strings.Contains(err.Error(), "different repo") {
-		t.Fatalf("expected cross-repo refusal, got %v", err)
-	}
-	task := loadTask(t, p)
-	if len(task.WaitingOn) != 1 {
-		t.Fatal("other repo's waiting_on entry must survive a refused resolve")
-	}
-}
+// TestWaitingOnResolveRefusesCrossRepoID is deliberately gone (adb-cutover
+// M4 legacy retirement): it pinned the cross-repo-group refusal on the
+// direct resolveTaskPath call runWaitingOnResolve used to make. That call
+// is gone — waiting-on resolve now resolves via storeMutateTaskOrChild
+// (task_waiting.go), same as every other task<sub> mutation, which has no
+// repo-group concept at all. See task_test.go's
+// TestTaskUntrackRefusesCrossRepoID and its neighboring comment for the
+// fuller version of this point; untrack is the one command that still
+// resolves via resolveTaskPath and keeps its own cross-repo coverage.
 
 func TestWaitingOnAddRequiresWho(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	waitingTaskFile(t, dir, "")
+	dir := taskStoreFixture(t, false)
 
 	_, _, err := runTask(t, "waiting-on", "add", "question?", "--id", "tkt")
 	ec, ok := err.(exitCoder)
@@ -121,7 +89,7 @@ func TestWaitingOnAddRequiresWho(t *testing.T) {
 	if _, _, err := runTask(t, "waiting-on", "add", "question?", "--who", "platform", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task := loadTask(t, filepath.Join(dir, devboard.RepoName(), "tkt.yaml"))
+	task := loadTask(t, taskFilePath(dir))
 	w := task.WaitingOn[0]
 	if w.Who != "platform" || w.Asked == "" || w.Text != "question?" {
 		t.Fatalf("entry = %+v", w)
@@ -199,9 +167,8 @@ func TestWaitingOnResolveAnswerArchivedTicket(t *testing.T) {
 }
 
 func TestWaitingOnResolveWithoutAnswer(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := waitingTaskFile(t, dir, "")
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	runTask(t, "waiting-on", "add", "q", "--who", "y", "--id", "tkt")
 	if _, _, err := runTask(t, "waiting-on", "resolve", "1", "--id", "tkt"); err != nil {
@@ -214,9 +181,8 @@ func TestWaitingOnResolveWithoutAnswer(t *testing.T) {
 }
 
 func TestWaitingOnResolveAllIsCloseOut(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	p := waitingTaskFile(t, dir, "")
+	dir := taskStoreFixture(t, false)
+	p := taskFilePath(dir)
 
 	runTask(t, "waiting-on", "add", "q1", "--who", "a", "--id", "tkt")
 	runTask(t, "waiting-on", "add", "q2", "--who", "b", "--id", "tkt")

@@ -41,8 +41,8 @@ func TestLinkCLIRejectsReservedPRName(t *testing.T) {
 
 // A link whose name merely contains "pr" is not reserved.
 func TestLinkCLIAllowsNamesContainingPR(t *testing.T) {
-	dir := linkFixtureDir(t)
-	out, err := invokeLink(t, dir, "auth-1", "preview", "https://preview.example/1")
+	live, _, _ := storeWriteFixture(t)
+	out, err := invokeLink(t, live, "solo", "preview", "https://preview.example/1")
 	if err != nil {
 		t.Fatalf("invokeLink: %v\nout: %s", err, out)
 	}

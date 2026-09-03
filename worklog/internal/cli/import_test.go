@@ -9,18 +9,6 @@ import (
 	"testing"
 )
 
-func importFixtureDir(t *testing.T, workMD string) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "WORK.md"), []byte(workMD), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, "notes"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 func invokeImport(t *testing.T, dir string, stdin string, args ...string) (string, error) {
 	t.Helper()
 	prev := flagDir
@@ -51,10 +39,8 @@ func invokeImport(t *testing.T, dir string, stdin string, args ...string) (strin
 	return stdout.String(), err
 }
 
-var importEmptyWorkMD = "## Now\n\n## Next\n\n## Someday\n"
-
 func TestImportStdinJSON(t *testing.T) {
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	out, err := invokeImport(t, dir, `{"id":"foo-1","title":"Standalone"}`, "--json")
 	if err != nil {
 		t.Fatalf("invokeImport: %v\nout: %s", err, out)
@@ -74,7 +60,7 @@ func TestImportStdinJSON(t *testing.T) {
 }
 
 func TestImportFileJSON(t *testing.T) {
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	f, err := os.CreateTemp(t.TempDir(), "tickets-*.json")
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +87,7 @@ func TestImportFileJSON(t *testing.T) {
 }
 
 func TestImportSectionOverride(t *testing.T) {
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	out, err := invokeImport(t, dir, `{"id":"bar-1","title":"Override","section":"next"}`,
 		"--section", "someday", "--json")
 	if err != nil {
@@ -122,7 +108,7 @@ func TestImportSectionOverride(t *testing.T) {
 }
 
 func TestImportDryRun(t *testing.T) {
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	before, _ := os.ReadFile(filepath.Join(dir, "WORK.md"))
 	out, err := invokeImport(t, dir, `{"id":"dry-1","title":"Dry run"}`,
 		"--dry-run", "--json")
@@ -144,7 +130,7 @@ func TestImportDryRun(t *testing.T) {
 }
 
 func TestImportJSONResult(t *testing.T) {
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	out, err := invokeImport(t, dir,
 		`[{"id":"ok-1","title":"Good"},{"id":"","title":"No ID"}]`,
 		"--json")
@@ -167,7 +153,7 @@ func TestImportJSONResult(t *testing.T) {
 
 func TestImportExitCodes(t *testing.T) {
 	// All success → exit 0.
-	dir := importFixtureDir(t, importEmptyWorkMD)
+	dir, _, _ := storeWriteFixture(t)
 	_, err := invokeImport(t, dir, `{"id":"good-1","title":"Good"}`, "--json")
 	if err != nil {
 		t.Errorf("all-success should exit 0, got: %v", err)

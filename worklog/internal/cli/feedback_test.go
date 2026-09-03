@@ -13,6 +13,24 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
 )
 
+// entryByTrigger finds the entry with the given trigger text, failing the
+// test if it's missing or ambiguous — storeWriteFixture's shared corpus
+// carries its own pre-existing feedback entries, so a test appending one
+// new entry can no longer assume it lands alone or at index 0.
+func entryByTrigger(t *testing.T, entries []feedback.Entry, trigger string) feedback.Entry {
+	t.Helper()
+	var found []feedback.Entry
+	for _, e := range entries {
+		if e.Trigger == trigger {
+			found = append(found, e)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("trigger %q: found %d entries, want 1 (all: %+v)", trigger, len(found), entries)
+	}
+	return found[0]
+}
+
 // invokeFeedback drives the feedback cobra subcommand and captures stdout.
 func invokeFeedback(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
@@ -30,7 +48,7 @@ func invokeFeedback(t *testing.T, dir string, args ...string) (string, error) {
 }
 
 func TestFeedbackAppendBasic(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 
 	out, err := invokeFeedback(t, root, "append",
 		"--signal", "missing-feature",
@@ -123,7 +141,7 @@ func TestFeedbackListEmpty(t *testing.T) {
 }
 
 func TestFeedbackListFilter(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 
 	for _, sig := range []string{"missing-feature", "profanity", "tui-error"} {
 		if _, err := invokeFeedback(t, root, "append",
@@ -159,17 +177,18 @@ func exitCode(t *testing.T, err error) int {
 }
 
 func TestFeedbackResolve(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 	if _, err := invokeFeedback(t, root, "append",
 		"--signal", "tui-error", "--trigger", "board blew up"); err != nil {
 		t.Fatal(err)
 	}
 
 	entries, err := feedback.Parse(filepath.Join(root, "FEEDBACK.md"))
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("setup: %v, %d entries", err, len(entries))
+	if err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	ts := strconv.FormatInt(entries[0].Timestamp, 10)
+	entry := entryByTrigger(t, entries, "board blew up")
+	ts := strconv.FormatInt(entry.Timestamp, 10)
 
 	out, err := invokeFeedback(t, root, "resolve", ts, "--json")
 	if err != nil {
@@ -190,13 +209,13 @@ func TestFeedbackResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entries[0].Resolved == 0 {
+	if entryByTrigger(t, entries, "board blew up").Resolved == 0 {
 		t.Error("entry not marked resolved on disk")
 	}
 }
 
 func TestFeedbackResolveUnknownExits64(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 	if _, err := invokeFeedback(t, root, "append",
 		"--signal", "tui-error", "--trigger", "x"); err != nil {
 		t.Fatal(err)
@@ -227,7 +246,7 @@ func TestFeedbackResolveUnknownExits64(t *testing.T) {
 }
 
 func TestFeedbackResolveNonNumericExits64(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 	out, err := invokeFeedback(t, root, "resolve", "3")
 	if err == nil {
 		t.Fatalf("want an error, got none\nout: %s", out)
@@ -246,16 +265,16 @@ func TestFeedbackResolveNonNumericExits64(t *testing.T) {
 }
 
 func TestFeedbackResolveIdempotent(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
 	if _, err := invokeFeedback(t, root, "append",
 		"--signal", "profanity", "--trigger", "x"); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := feedback.Parse(filepath.Join(root, "FEEDBACK.md"))
-	if err != nil || len(entries) != 1 {
+	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	ts := strconv.FormatInt(entries[0].Timestamp, 10)
+	ts := strconv.FormatInt(entryByTrigger(t, entries, "x").Timestamp, 10)
 
 	if _, err := invokeFeedback(t, root, "resolve", ts); err != nil {
 		t.Fatal(err)
@@ -283,7 +302,27 @@ func TestFeedbackResolveIdempotent(t *testing.T) {
 }
 
 func TestFeedbackListUnresolved(t *testing.T) {
-	root := t.TempDir()
+	root, _, _ := storeWriteFixture(t)
+
+	// storeWriteFixture's shared corpus carries its own feedback entries,
+	// so every assertion below is a delta against a measured baseline
+	// rather than an absolute count.
+	countUnresolved := func(extraArgs ...string) float64 {
+		t.Helper()
+		out, err := invokeFeedback(t, root, append([]string{"--unresolved", "--json"}, extraArgs...)...)
+		if err != nil {
+			t.Fatalf("list: %v\nout: %s", err, out)
+		}
+		var result map[string]any
+		if err := json.Unmarshal([]byte(out), &result); err != nil {
+			t.Fatalf("json: %v\nout: %s", err, out)
+		}
+		count, _ := result["count"].(float64)
+		return count
+	}
+	baseUnresolved := countUnresolved()
+	baseUnresolvedMissingFeature := countUnresolved("--signal", "missing-feature")
+
 	for i, sig := range []string{"missing-feature", "tui-error"} {
 		if _, err := invokeFeedback(t, root, "append",
 			"--signal", sig, "--trigger", "entry "+strconv.Itoa(i)); err != nil {
@@ -291,37 +330,23 @@ func TestFeedbackListUnresolved(t *testing.T) {
 		}
 	}
 	entries, err := feedback.Parse(filepath.Join(root, "FEEDBACK.md"))
-	if err != nil || len(entries) != 2 {
-		t.Fatalf("setup: %v, %d entries", err, len(entries))
+	if err != nil {
+		t.Fatalf("setup: %v", err)
 	}
-	// Both entries land in the same unix second, so address the one to
-	// resolve by signal rather than by a handle they may share.
-	if _, err := invokeFeedback(t, root, "resolve",
-		strconv.FormatInt(entries[0].Timestamp, 10)); err != nil {
+	ts := entryByTrigger(t, entries, "entry 0").Timestamp
+	if _, err := invokeFeedback(t, root, "resolve", strconv.FormatInt(ts, 10)); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := invokeFeedback(t, root, "--unresolved", "--json")
-	if err != nil {
-		t.Fatalf("list: %v\nout: %s", err, out)
-	}
-	var result map[string]any
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		t.Fatalf("json: %v\nout: %s", err, out)
-	}
-	if count, _ := result["count"].(float64); count != 1 {
-		t.Errorf("count = %v, want 1", result["count"])
+	// Two new entries appended, one resolved: net +1 unresolved overall.
+	if got, want := countUnresolved(), baseUnresolved+1; got != want {
+		t.Errorf("unresolved count = %v, want %v", got, want)
 	}
 
-	// --unresolved ANDs with --signal rather than replacing it.
-	out, err = invokeFeedback(t, root, "--unresolved", "--signal", "missing-feature", "--json")
-	if err != nil {
-		t.Fatalf("list: %v\nout: %s", err, out)
-	}
-	if err := json.Unmarshal([]byte(out), &result); err != nil {
-		t.Fatalf("json: %v\nout: %s", err, out)
-	}
-	if count, _ := result["count"].(float64); count != 0 {
-		t.Errorf("count = %v, want 0 (the missing-feature entry is resolved)", result["count"])
+	// --unresolved ANDs with --signal rather than replacing it: the one
+	// new missing-feature entry ("entry 0") is now resolved, so that
+	// filtered count is back at its baseline.
+	if got, want := countUnresolved("--signal", "missing-feature"), baseUnresolvedMissingFeature; got != want {
+		t.Errorf("unresolved missing-feature count = %v, want %v (entry 0 is resolved)", got, want)
 	}
 }
