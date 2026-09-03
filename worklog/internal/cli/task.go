@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -217,6 +218,11 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON, allowCreate, force
 			code = ec.ExitCode()
 		}
 		return jsonOrTextError(cmd, asJSON, code, "%v", err)
+	}
+	// Outside devboard.Mutate's flock, same as the warn hooks below — a
+	// shared choke point for the whole task<sub> family (adb-cutover M2).
+	if wd, err := resolveWorkdir(); err == nil {
+		storesync.WarnAfterWrite(wd)
 	}
 	var warnings []string
 	for _, w := range warn {
@@ -789,6 +795,9 @@ notes, and archive entries all remain.`,
 				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
 			}
 			os.Remove(path + ".lock") // best-effort
+			if wd, err := resolveWorkdir(); err == nil {
+				storesync.WarnAfterWrite(wd)
+			}
 			rel, _ := filepath.Rel(devboard.DataDir(), path)
 			return emitTaskResult(cmd, *asJSON, taskResult{
 				File: rel, Action: "untracked", Detail: "task file removed; worklog data untouched"})

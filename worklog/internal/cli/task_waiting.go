@@ -12,6 +12,7 @@ import (
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/note"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 )
 
 // newTaskWaitingOnCmd manages the external-answer queue: questions blocked
@@ -130,6 +131,9 @@ func runWaitingOnResolve(cmd *cobra.Command, id, child string, asJSON, force boo
 	detail := "resolved"
 	if answer != "" && len(resolved) == 1 {
 		detail = appendAnswerToWorklog(cmd, worklogID, resolved[0], answer)
+	}
+	if wd, err := resolveWorkdir(); err == nil {
+		storesync.WarnAfterWrite(wd)
 	}
 
 	rel, _ := filepath.Rel(devboard.DataDir(), path)
