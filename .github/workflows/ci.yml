@@ -1,6 +1,12 @@
-# CI: formatting, vet, and tests for the worklog module on every push and PR.
+# CI: formatting, vet, and tests for the worklog module on every push and PR,
+# plus the front-end render harness.
 # release.yml only builds tags, so without this nothing checks the tree —
 # installer/deploy.go went gofmt-dirty the day it was written and survived.
+#
+# The jobs are independent on purpose. The node job asserts front-end
+# behavior and is never needed to build, test, or release the binary: the
+# vendored ESM is committed and embedded, so the Go job runs with no npm
+# present at all.
 name: ci
 
 on:
@@ -41,3 +47,21 @@ jobs:
 
       - name: test
         run: go test ./...
+
+  # Front-end render tests: vitest + happy-dom against the same untranspiled
+  # ESM the browser loads. Node is pinned via .nvmrc because vitest 5's
+  # engine range does not include every version a runner might ship.
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: test
+        run: npm test

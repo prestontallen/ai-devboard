@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Devboard · next</title>
+
+<!-- The import map is load-bearing, not a convenience: the vendored
+     hooks.module.js itself opens with a bare `import ... from "preact"`,
+     so without this it cannot resolve. Vendor filenames and these
+     specifiers move together. -->
+<script type="importmap">
+{
+  "imports": {
+    "preact": "/assets/vendor/preact.module.js",
+    "preact/hooks": "/assets/vendor/hooks.module.js",
+    "htm": "/assets/vendor/htm.module.js"
+  }
+}
+</script>
+
+<style>
+  /* Tokens are copied from index.html deliberately: the Lens Board work
+     owns unifying them, and duplicating a dozen custom properties beats
+     coupling this provisional page to the outgoing board's stylesheet. */
+  :root {
+    --void: #0e1016; --panel: #151a26; --panel2: #1b2133; --border: #28304a;
+    --ink: #dbdfe9; --dim: #8b91a7; --faint: #5b6178;
+    --signal: #7aa2f7; --go: #9ece6a; --hold: #e0af68; --halt: #f7768e;
+    --sans: system-ui, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--void); color: var(--ink); font: 15px/1.55 var(--sans);
+         padding: 1.2rem 1.5rem 4rem; max-width: 1180px; margin: 0 auto; }
+  a { color: var(--signal); text-decoration: none; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  .topbar { display: flex; align-items: baseline; gap: 1.1rem; flex-wrap: wrap; }
+  .topbar h1 { font-size: 1rem; font-weight: 600; letter-spacing: .03em; }
+  .provisional { font: .72rem var(--mono); color: var(--hold); }
+
+  /* Chip anatomy, per the Lens Board mockups. The tone classes carry the
+     kept color semantics; .zero dims rather than removes. */
+  .chiprow { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.2rem 0; }
+  .chip { display: flex; align-items: baseline; gap: .45rem; background: var(--panel);
+          border: 1px solid var(--border); border-radius: 8px; padding: .28rem .7rem; }
+  .chip b { font: 600 1.05rem var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .chip span { font-size: .68rem; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; }
+  .chip.attn { border-color: color-mix(in srgb, var(--hold) 55%, transparent); }
+  .chip.attn b { color: var(--hold); }
+  .chip.wait { border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
+  .chip.wait b { color: var(--signal); }
+  .chip.zero { opacity: .45; }
+  .chip.on { background: var(--panel2); border-color: var(--signal); }
+  .chip.on span { color: var(--ink); }
+
+  .note { color: var(--dim); font-size: .85rem; max-width: 54ch; }
+  .note code { font: .85em var(--mono); color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>devboard</h1>
+  <span class="provisional">next · provisional scaffold</span>
+</header>
+
+<div id="app"></div>
+
+<p class="note">
+  This page exists to prove the front-end stack end to end: vendored Preact and
+  HTM resolving through an import map, rendering a real component with no build
+  step. The counts below are placeholders — wiring the lenses to
+  <code>/api/tasks</code> is the Lens Board epic's work. The live board is still
+  at <a href="/">/</a>.
+</p>
+
+<script type="module">
+  import { h, render } from 'preact'
+  import { useState } from 'preact/hooks'
+  import htm from 'htm'
+  import { Chip } from '/assets/src/chip.js'
+
+  const html = htm.bind(h)
+
+  // Placeholder counts. Friction is deliberately 0 to make the dim-not-vanish
+  // behavior visible on the page, not only in the test suite.
+  const LENSES = [
+    { route: 'board',     label: 'board',     count: 4,  tone: 'neutral' },
+    { route: 'needs-you', label: 'needs you', count: 2,  tone: 'attn' },
+    { route: 'waiting',   label: 'waiting',   count: 1,  tone: 'wait' },
+    { route: 'friction',  label: 'friction',  count: 0,  tone: 'neutral' },
+    { route: 'backlog',   label: 'backlog',   count: 9,  tone: 'neutral' },
+    { route: 'done',      label: 'done',      count: 29, tone: 'neutral' },
+    { route: 'archived',  label: 'archived',  count: 3,  tone: 'neutral' },
+  ]
+
+  function ChipRow() {
+    const [route, setRoute] = useState('board')
+    return html`
+      <nav class="chiprow" aria-label="lenses">
+        ${LENSES.map((l) => html`
+          <${Chip} ...${l} key=${l.route} active=${l.route === route} onNavigate=${setRoute} />
+        `)}
+      </nav>
+    `
+  }
+
+  render(html`<${ChipRow} />`, document.getElementById('app'))
+</script>
+
+</body>
+</html>

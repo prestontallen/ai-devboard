@@ -3,7 +3,10 @@ package serve
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -376,15 +379,257 @@ func TestIndexAndRoutes(t *testing.T) {
 			t.Errorf("%s: content-type %s", path, ct)
 		}
 	}
-	for _, path := range []string{"/static/index.html", "/server.py", "/api"} {
+	// The embed widening added /next and /assets/*, so this loop grew rather
+	// than shrank. /static/index.html still 404s because assets are rooted at
+	// static/assets — the board page is reachable at exactly one URL, and
+	// nothing under /assets/ can name it.
+	for _, path := range []string{
+		"/static/index.html", "/server.py", "/api",
+		"/assets", "/assets/", "/assets/vendor/", "/assets/src/",
+		"/assets/nope.js", "/assets/index.html", "/assets/app.html",
+		"/next/", "/nextfoo",
+	} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		body := new(bytes.Buffer)
+		body.ReadFrom(resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != 404 {
 			t.Errorf("%s: got %d want 404", path, resp.StatusCode)
 		}
+		// The JSON error shape is frozen by devboard/API.md; a directory
+		// listing or a text/plain "404 page not found" would both pass a
+		// status-only check.
+		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("%s: content-type %q want application/json", path, ct)
+		}
+		if got := body.String(); got != `{"error": "not found"}` {
+			t.Errorf("%s: body %q", path, got)
+		}
+	}
+}
+
+// TestNextShell: /next serves the Preact shell, and the import map names
+// every vendored specifier. hooks.module.js itself imports bare "preact",
+// so a shell that lost the map would fail to boot in the browser while
+// every Go test stayed green.
+func TestNextShell(t *testing.T) {
+	ts := httptest.NewServer(corpusServer(t).Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/next")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := new(bytes.Buffer)
+	body.ReadFrom(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("got %d want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("content-type %q", ct)
+	}
+	disk, err := os.ReadFile("static/app.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body.Bytes(), disk) {
+		t.Error("/next is not byte-identical to static/app.html")
+	}
+	for _, want := range []string{
+		`type="importmap"`,
+		`"preact": "/assets/vendor/preact.module.js"`,
+		`"preact/hooks": "/assets/vendor/hooks.module.js"`,
+		`"htm": "/assets/vendor/htm.module.js"`,
+		`/assets/src/chip.js`,
+	} {
+		if !strings.Contains(body.String(), want) {
+			t.Errorf("shell missing %q", want)
+		}
+	}
+}
+
+// TestAssetServing: every vendored file is reachable, typed, and identical
+// to what is committed on disk.
+func TestAssetServing(t *testing.T) {
+	ts := httptest.NewServer(corpusServer(t).Handler())
+	defer ts.Close()
+
+	cases := []struct{ url, disk, ctype string }{
+		{"/assets/vendor/preact.module.js", "static/assets/vendor/preact.module.js", "text/javascript; charset=utf-8"},
+		{"/assets/vendor/hooks.module.js", "static/assets/vendor/hooks.module.js", "text/javascript; charset=utf-8"},
+		{"/assets/vendor/htm.module.js", "static/assets/vendor/htm.module.js", "text/javascript; charset=utf-8"},
+		{"/assets/vendor/preact.module.js.map", "static/assets/vendor/preact.module.js.map", "application/json"},
+		{"/assets/src/chip.js", "static/assets/src/chip.js", "text/javascript; charset=utf-8"},
+	}
+	for _, c := range cases {
+		resp, err := http.Get(ts.URL + c.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := new(bytes.Buffer)
+		body.ReadFrom(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			t.Errorf("%s: got %d want 200", c.url, resp.StatusCode)
+			continue
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != c.ctype {
+			t.Errorf("%s: content-type %q want %q", c.url, ct, c.ctype)
+		}
+		// API.md freezes "all responses carry Cache-Control: no-store".
+		// http.FileServerFS sets none, which is one reason assets are
+		// hand-served.
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Errorf("%s: cache-control %q want no-store", c.url, cc)
+		}
+		disk, err := os.ReadFile(c.disk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(body.Bytes(), disk) {
+			t.Errorf("%s: served bytes differ from %s", c.url, c.disk)
+		}
+	}
+}
+
+// TestAssetTraversal drives the handler directly: an http.Client normalizes
+// "/assets/../x" before it ever leaves the process, so going through one
+// would test the client rather than the server.
+func TestAssetTraversal(t *testing.T) {
+	h := corpusServer(t).Handler()
+	for _, path := range []string{
+		"/assets/../server.go",
+		"/assets/../../go.mod",
+		"/assets/%2e%2e/server.go",
+		"/assets/..%2fserver.go",
+		"/assets/vendor/../../index.html",
+		"/assets//etc/passwd",
+		"/assets/./vendor/htm.module.js",
+		"/assets/vendor/./htm.module.js",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		if w.Code != 404 {
+			t.Errorf("%s: got %d want 404", path, w.Code)
+		}
+		if body := w.Body.String(); body != `{"error": "not found"}` {
+			t.Errorf("%s: leaked body %q", path, body)
+		}
+	}
+}
+
+// TestMethodInvariants: the widened surface must not have taught the server
+// new methods or redirects. http.FileServerFS answers HEAD and 301-redirects
+// paths ending in /index.html; the hand-rolled handler does neither.
+func TestMethodInvariants(t *testing.T) {
+	h := corpusServer(t).Handler()
+	for _, path := range []string{"/next", "/assets/vendor/htm.module.js", "/assets/"} {
+		for _, method := range []string{http.MethodHead, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, path, nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+
+			if method == http.MethodHead {
+				// HEAD is not GET and not POST, so it lands in the same
+				// 501 arm everything else does — unchanged from before.
+				if w.Code != http.StatusNotImplemented {
+					t.Errorf("HEAD %s: got %d want 501", path, w.Code)
+				}
+				continue
+			}
+			if w.Code != http.StatusNotImplemented {
+				t.Errorf("%s %s: got %d want 501", method, path, w.Code)
+			}
+		}
+		// No route redirects.
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code >= 300 && w.Code < 400 {
+			t.Errorf("GET %s: unexpected redirect %d to %q", path, w.Code, w.Header().Get("Location"))
+		}
+	}
+}
+
+// TestEmbeddedManifest is the real guard on the embed pattern. The plain
+// //go:embed static form silently skips names beginning with "." or "_",
+// and just as silently absorbs anything else that appears under static/ —
+// a stray node_modules on a developer's machine included. Pinning the exact
+// file list is what turns either accident into a failing test.
+func TestEmbeddedManifest(t *testing.T) {
+	want := map[string]bool{
+		"static/index.html":                         true,
+		"static/app.html":                           true,
+		"static/assets/src/chip.js":                 true,
+		"static/assets/vendor/README.md":            true,
+		"static/assets/vendor/htm.module.js":        true,
+		"static/assets/vendor/hooks.module.js":      true,
+		"static/assets/vendor/hooks.module.js.map":  true,
+		"static/assets/vendor/preact.module.js":     true,
+		"static/assets/vendor/preact.module.js.map": true,
+	}
+	got := map[string]bool{}
+	err := fs.WalkDir(staticFS, "static", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			got[p] = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p := range want {
+		if !got[p] {
+			t.Errorf("embedded FS is missing %s", p)
+		}
+	}
+	for p := range got {
+		if !want[p] {
+			t.Errorf("embedded FS carries an unexpected file: %s", p)
+		}
+	}
+}
+
+// TestVendorChecksums re-derives the hashes recorded in the vendor README,
+// so a hand-edited or drifted vendored file fails offline — the release
+// path sha256-verifies its downloads, and vendored bytes deserve the same.
+func TestVendorChecksums(t *testing.T) {
+	readme, err := os.ReadFile("static/assets/vendor/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(assetsFS, "vendor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if e.IsDir() || strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		body, err := fs.ReadFile(assetsFS, "vendor/"+e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := fmt.Sprintf("%x", sha256.Sum256(body))
+		if !strings.Contains(string(readme), sum) {
+			t.Errorf("%s: sha256 %s is not recorded in the vendor README", e.Name(), sum)
+		}
+		checked++
+	}
+	if checked != 5 {
+		t.Errorf("checked %d vendored files, want 5", checked)
 	}
 }
 

@@ -23,8 +23,10 @@ schema-valid file is fully supported.
 
 ## Run
 
-The server lives in the `worklog` binary — frontend embedded, no other
-dependencies:
+The server lives in the `worklog` binary — frontend embedded, no runtime
+dependencies. The vendored Preact and HTM modules the newer front-end loads
+are committed and embedded alongside the pages, so npm is never needed to
+build, release, or run this:
 
 ```sh
 worklog serve
@@ -110,6 +112,14 @@ with the normal Go tests:
 
 ```sh
 cd worklog && go test ./internal/feedback/ ./internal/serve/
+```
+
+Front-end behavior has its own harness — vitest and happy-dom rendering the
+same untranspiled ESM the browser loads. It is dev-only: nothing about
+building, releasing, or running the binary needs npm.
+
+```sh
+npm ci && npm test   # from the repo root
 ```
 
 ## Behavior notes

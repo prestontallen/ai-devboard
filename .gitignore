@@ -1,3 +1,9 @@
 /concise-tone/
 __pycache__/
 /.contracts/
+
+# The front-end harness is dev/test-only. node_modules must never reach the
+# embed tree (go:embed rejects some of its filenames outright), the Docker
+# build context, or gofmt's walk — which is why the npm project is rooted
+# here rather than under worklog/.
+node_modules/

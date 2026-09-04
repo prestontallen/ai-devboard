@@ -12,17 +12,43 @@ be invisible on this surface.
 
 ## Surface
 
-Exactly four endpoints. Anything else is 404 `{"error": "not found"}`.
+Six endpoint groups. Anything else is 404 `{"error": "not found"}` — including
+every directory path under `/assets/`, which never lists its contents.
 
 | Endpoint | Method | Behavior |
 |---|---|---|
 | `/`, `/index.html` | GET | the embedded board page, `text/html; charset=utf-8` |
+| `/next` | GET | the Preact shell page, `text/html; charset=utf-8` — **provisional**, see below |
+| `/assets/<path>` | GET | one embedded front-end module, typed by extension |
 | `/api/tasks` | GET | full payload, see below |
 | `/events` | GET | SSE change stream |
 | `/api/archive`, `/api/unarchive` | POST | move a task file into/out of `<repo>/_archive/` |
 
-All responses carry `Cache-Control: no-store`. GET on the POST endpoints
-is 405 `{"error": "POST only"}`.
+All responses carry `Cache-Control: no-store`, `/assets/*` included. GET on
+the POST endpoints is 405 `{"error": "POST only"}`. Any other method is 501
+`{"error": "unsupported method"}`, and no route redirects.
+
+### `/next` and `/assets/*`
+
+`/next` is the Preact shell introduced by the stack scaffold
+(`adb-devboard-stack-scaffold`). It is **provisional and not frozen**: its
+markup, its route, and whether it survives at all are the Lens Board epic's
+to decide. `/` remains the board.
+
+What *is* frozen is that `/next` consumes this document's `/api/tasks`
+payload like any other client — the freeze binds it, it does not bend for it.
+
+`/assets/<path>` serves files embedded from
+`worklog/internal/serve/static/assets/`, and only those: there is no disk
+fallback and no user-supplied path reaches a filesystem. Paths are refused
+unless already canonical, so traversal attempts 404 rather than being
+normalized into a hit. Content types are assigned from an explicit extension
+table (`.js`, `.map`, `.json`, `.css`, `.html`, `.md`, `.svg`), defaulting to
+`application/octet-stream`.
+
+The asset root is `static/assets/`, not `static/`, so the board page is
+reachable at exactly one URL: `/assets/index.html` has nothing to resolve to
+and 404s, as `/static/index.html` always has.
 
 ## /api/tasks payload
 

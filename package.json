@@ -1,0 +1,18 @@
+{
+  "name": "ai-devboard-frontend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev/test-only render harness for the devboard front-end. Never required to build, test, release, or run the worklog binary: the browser gets vendored ESM from worklog/internal/serve/static/assets/vendor through an import map, and Go embeds those same files. This project exists so front-end behavior can be asserted instead of eyeballed.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@testing-library/preact": "3.2.4",
+    "happy-dom": "20.14.0",
+    "htm": "3.1.1",
+    "preact": "10.29.8",
+    "vitest": "5.0.0"
+  }
+}

@@ -11,11 +11,13 @@
 package serve
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,8 +28,40 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
 )
 
-//go:embed static/index.html
-var indexHTML []byte
+// staticFS carries every front-end byte the binary serves. The plain
+// (non-"all:") pattern silently skips names beginning with "." or "_", so
+// the guard that matters is TestEmbeddedManifest, which asserts the tree
+// holds exactly the expected files — not the pattern itself.
+//
+//go:embed static
+var staticFS embed.FS
+
+// Both pages are read out of staticFS at init rather than carrying their own
+// //go:embed directives, so neither is embedded twice.
+var (
+	indexHTML = mustEmbed("static/index.html")
+	appHTML   = mustEmbed("static/app.html")
+	// assetsFS is rooted at static/assets, so no URL under /assets/ can
+	// name either page — /assets/index.html has nothing to resolve to,
+	// which is what keeps the board reachable at exactly one URL.
+	assetsFS = mustSub("static/assets")
+)
+
+func mustEmbed(name string) []byte {
+	b, err := staticFS.ReadFile(name)
+	if err != nil {
+		panic("serve: embedded " + name + " missing: " + err.Error())
+	}
+	return b
+}
+
+func mustSub(dir string) fs.FS {
+	sub, err := fs.Sub(staticFS, dir)
+	if err != nil {
+		panic("serve: embedded " + dir + " missing: " + err.Error())
+	}
+	return sub
+}
 
 // Config carries the server's runtime settings, sourced from the same
 // DEVBOARD_* env vars the Python server honored, with native defaults
@@ -205,8 +239,11 @@ func sigsEqual(a, b map[string]fileSig) bool {
 	return true
 }
 
-// Handler returns the full route surface: /, /index.html, /api/tasks,
-// /events, /api/archive, /api/unarchive — everything else 404s.
+// Handler returns the full route surface: /, /index.html, /next,
+// /assets/*, /api/tasks, /events, /api/archive, /api/unarchive —
+// everything else 404s. /next serves the provisional Preact shell and
+// /assets/* its embedded modules; both are additive, and / still serves
+// the same board page it always has.
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -215,6 +252,8 @@ func (s *Server) Handler() http.Handler {
 			switch path {
 			case "/", "/index.html":
 				s.send(w, http.StatusOK, indexHTML, "text/html; charset=utf-8")
+			case "/next":
+				s.send(w, http.StatusOK, appHTML, "text/html; charset=utf-8")
 			case "/api/tasks":
 				body, err := json.Marshal(s.allTasks())
 				if err != nil {
@@ -228,7 +267,11 @@ func (s *Server) Handler() http.Handler {
 			case "/api/archive", "/api/unarchive":
 				s.send(w, http.StatusMethodNotAllowed, []byte(`{"error": "POST only"}`), "application/json")
 			default:
-				s.send(w, http.StatusNotFound, []byte(`{"error": "not found"}`), "application/json")
+				if strings.HasPrefix(path, "/assets/") {
+					s.asset(w, path)
+					return
+				}
+				s.notFound(w)
 			}
 		case http.MethodPost:
 			switch path {
@@ -250,6 +293,62 @@ func (s *Server) send(w http.ResponseWriter, code int, body []byte, ctype string
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	w.Write(body)
+}
+
+func (s *Server) notFound(w http.ResponseWriter) {
+	s.send(w, http.StatusNotFound, []byte(`{"error": "not found"}`), "application/json")
+}
+
+// asset serves one embedded file from static/assets.
+//
+// It is hand-rolled rather than delegating to http.FileServerFS because that
+// helper breaks four things devboard/API.md freezes: it 404s in text/plain
+// instead of the JSON error shape, sets no Cache-Control, serves a directory
+// listing for any directory without an index.html, and 301-redirects request
+// paths ending in /index.html. Routing through send instead keeps every
+// documented invariant true for free.
+//
+// Only embedded bytes are reachable — there is no disk fallback and no
+// user-supplied path reaches the filesystem.
+func (s *Server) asset(w http.ResponseWriter, urlPath string) {
+	name := strings.TrimPrefix(urlPath, "/assets/")
+	// Anything non-canonical is refused rather than normalized, so a
+	// traversal attempt can never resolve to a file it cleans down to.
+	// "" and a trailing slash both name a directory.
+	if name == "" || strings.HasSuffix(name, "/") || path.Clean(name) != name ||
+		path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
+		s.notFound(w)
+		return
+	}
+	// ReadFile fails on a directory, so directories 404 rather than list.
+	body, err := fs.ReadFile(assetsFS, name)
+	if err != nil {
+		s.notFound(w)
+		return
+	}
+	s.send(w, http.StatusOK, body, assetType(name))
+}
+
+// assetType maps the extensions actually present under static/assets. Go's
+// mime package does not register .map, and its .js answer varies by system
+// mime.types, so the table is explicit rather than inherited.
+func assetType(name string) string {
+	switch path.Ext(name) {
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".map", ".json":
+		return "application/json"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".md":
+		return "text/markdown; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 // move renames a task file into or out of <repo>/_archive/ — the server's
