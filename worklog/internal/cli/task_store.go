@@ -146,9 +146,14 @@ func resolveStoreTarget(s store.Store, id, child string) (target *store.Ticket, 
 	}
 	// Matches findOrAppendChild: naming a not-yet-rostered child creates a
 	// pending one rather than refusing.
+	rank, err := nextRank(s)
+	if err != nil {
+		return nil, "", nil, err
+	}
 	return &store.Ticket{
 		Slug: store.NormalizeSlug(child), Type: store.TypeTicket,
 		State: store.StatePending, ParentID: t.ID, Repo: t.Repo,
+		Rank: rank, RosterRank: nextRosterRankOf(kids),
 	}, child, t, nil
 }
 

@@ -139,6 +139,18 @@ func storeImportOne(ss *storeSession, in importer.Ticket, sectionOverride string
 		t.State = store.StateActive
 		t.Started = today
 	}
+	rank, err := nextRank(ss.s)
+	if err != nil {
+		return id, section, err.Error()
+	}
+	t.Rank = rank
+	if parentID != "" {
+		rosterRank, err := nextRosterRank(ss.s, parentID)
+		if err != nil {
+			return id, section, err.Error()
+		}
+		t.RosterRank = rosterRank
+	}
 
 	if err := ss.s.PutTicket(t); err != nil {
 		return id, section, err.Error()

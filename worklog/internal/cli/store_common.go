@@ -14,6 +14,61 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
+// nextRank is the Rank a newly created ticket must carry: one past the
+// highest rank among live tickets, so it renders at the END of its
+// section.
+//
+// Leaving it at the zero value is not "unranked" — it is the literal
+// rank of whichever ticket sits first in WORK.md, because convert
+// numbers document position from zero (convert/workmd.go:73). A new
+// ticket defaulting to 0 therefore *ties* the first ticket, and
+// Tickets() breaks that tie with `ORDER BY rank, slug` — so the new
+// ticket silently sorts by alphabetical luck instead of landing where
+// the human put it. Observed live: a ticket added on 2026-09-03 tied
+// adb-research-mode at rank 0 and won the slug comparison, jumping to
+// the top of ## Now.
+//
+// Archived tickets are excluded: their Rank is a position within an
+// archive month, a different numbering space that says nothing about
+// where a live ticket belongs.
+func nextRank(s store.Store) (int, error) {
+	tickets, err := s.Tickets()
+	if err != nil {
+		return 0, err
+	}
+	max := -1
+	for _, t := range tickets {
+		if !t.Archived && t.Rank > max {
+			max = t.Rank
+		}
+	}
+	return max + 1, nil
+}
+
+// nextRosterRank is nextRank for an epic's child roster. Same collision,
+// one level down: RosterRank is assigned only by convert (convert.go:161,
+// :181), so a child added through the CLI defaults to 0, ties the epic's
+// first child, and is ordered against it by slug.
+func nextRosterRank(s store.Store, parent store.ID) (int, error) {
+	kids, err := s.Children(parent)
+	if err != nil {
+		return 0, err
+	}
+	return nextRosterRankOf(kids), nil
+}
+
+// nextRosterRankOf is nextRosterRank for a caller that already holds the
+// roster, so the only copy of the "one past the highest" rule lives here.
+func nextRosterRankOf(kids []*store.Ticket) int {
+	max := -1
+	for _, k := range kids {
+		if k.RosterRank > max {
+			max = k.RosterRank
+		}
+	}
+	return max + 1
+}
+
 // storeSession is one write verb's open store handle plus the layout it
 // renders into — the shared plumbing every ticket-shaped store-backed
 // write verb (start/done/edit/pr/link/note/wait/add/import) opens once,

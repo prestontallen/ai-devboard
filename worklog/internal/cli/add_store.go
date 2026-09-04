@@ -44,6 +44,11 @@ func runStoreAdd(wd model.Workdir, inputs addInputs) (addOutput, error) {
 		Tags:  inputs.Tags,
 		State: store.StatePending,
 	}
+	rank, err := nextRank(ss.s)
+	if err != nil {
+		return addOutput{}, err
+	}
+	t.Rank = rank
 
 	if inputs.Parent != "" {
 		parent, err := ss.s.TicketBySlug(inputs.Parent)
@@ -60,6 +65,11 @@ func runStoreAdd(wd model.Workdir, inputs addInputs) (addOutput, error) {
 		// Section stays "" — a child doesn't occupy a WORK.md section
 		// until `start` promotes it, matching legacy (add --parent writes
 		// no metadata beyond id/title either).
+		rosterRank, err := nextRosterRank(ss.s, parent.ID)
+		if err != nil {
+			return addOutput{}, err
+		}
+		t.RosterRank = rosterRank
 
 		if err := ss.commit(t); err != nil {
 			return addOutput{}, err
