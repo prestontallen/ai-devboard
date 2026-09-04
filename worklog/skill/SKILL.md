@@ -30,8 +30,7 @@ should rarely have to edit a worklog file by hand.
    is `worklog edit <id>`; a task file's plan or scorecard is
    `worklog task plan|scorecard edit|remove <n>`. For an operation with no
    command, surface the limit and stop. What the CLI won't do is a
-   deliberate limit, not a gap to work around. A never-adopted machine is
-   told so: run `worklog adopt`.
+   deliberate limit, not a gap to work around.
 2. **Never auto-delete** an archive entry, a notes file, or anything else in
    the worklog. Move-then-delete during archival is allowed; standalone
    deletion is not.
@@ -68,14 +67,16 @@ Load one only when you need it.
 
 - [references/cli.md](references/cli.md) — JSON output shapes, exit codes,
   and the exact error strings each command emits. Read when parsing `--json`
-  or interpreting a refusal.
+  or reading a refusal.
 - [references/formats.md](references/formats.md) — ticket, epic, archive, and
   notes file formats. Read when *reading* the raw markdown.
 - [references/import.md](references/import.md) — the import JSON shape and
   the Jira / Linear / GitHub / Asana field mapping. Read when turning a
-  tracker ticket into a worklog block.
+  tracker ticket into a block.
 - [references/feedback-capture.md](references/feedback-capture.md) — the
   verbatim subagent prompt. Read when a friction signal has fired.
+- [references/adoption.md](references/adoption.md) — adjudicating what
+  `worklog adopt` refuses. Read when a machine has not adopted the store.
 
 ## Using the CLI
 
