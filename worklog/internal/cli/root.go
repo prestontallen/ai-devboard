@@ -29,6 +29,9 @@ var freezeExemptCommands = map[string]bool{
 	"hook":      true,
 	"serve":     true,
 	"freeze":    true,
+	// adopt acquires the freeze itself for its own write window, so it
+	// must not be blocked by the freeze it is about to take.
+	"adopt": true,
 }
 
 // topLevelName returns the name of cmd's ancestor that is a direct child of
@@ -153,6 +156,7 @@ scripts that handled validation and skill deployment.`,
 		newInstallCmd(),
 		newMigrateCmd(),
 		newVerifyCmd(),
+		newAdoptCmd(),
 		newFreezeCmd(),
 	)
 	return cmd

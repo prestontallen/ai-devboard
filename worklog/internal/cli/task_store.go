@@ -39,6 +39,9 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 	if err != nil {
 		return "", "", err
 	}
+	if err := requireAdopted(dataDir); err != nil {
+		return "", "", err
+	}
 	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
 	if err != nil {
 		return "", "", fmt.Errorf("task: opening store: %w", err)

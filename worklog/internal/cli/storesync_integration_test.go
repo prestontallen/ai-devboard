@@ -86,6 +86,17 @@ func canonicalWorklogFixture(t *testing.T) (live, devboardDataDir string) {
 // real fd is redirected through a pipe for the duration of the call.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string) {
 	t.Helper()
+	out, errOut, execErr := runCLIAllowErr(t, args...)
+	if execErr != nil {
+		t.Fatalf("worklog %v: %v\nstdout: %s\nstderr: %s", args, execErr, out, errOut)
+	}
+	return out, errOut
+}
+
+// runCLIAllowErr is runCLI for a command expected to fail: it returns the
+// error instead of failing the test, so refusal paths can be asserted.
+func runCLIAllowErr(t *testing.T, args ...string) (stdout, stderr string, execErr error) {
+	t.Helper()
 	prev := flagDir
 	t.Cleanup(func() { flagDir = prev })
 
@@ -106,15 +117,11 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string) {
 	root.SetOut(&out)
 	root.SetErr(&cobraErrOut)
 	root.SetArgs(args)
-	execErr := root.Execute()
+	execErr = root.Execute()
 
 	w.Close()
 	os.Stderr = realStderr
 	realStderrOutput := <-captured
 
-	if execErr != nil {
-		t.Fatalf("worklog %v: %v\nstdout: %s\nstderr: %s%s",
-			args, execErr, out.String(), cobraErrOut.String(), realStderrOutput)
-	}
-	return out.String(), cobraErrOut.String() + realStderrOutput
+	return out.String(), cobraErrOut.String() + realStderrOutput, execErr
 }

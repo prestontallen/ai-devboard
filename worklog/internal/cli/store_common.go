@@ -69,6 +69,27 @@ func nextRosterRankOf(kids []*store.Ticket) int {
 	return max + 1
 }
 
+// requireAdopted refuses before opening a store that does not exist yet.
+//
+// Without this the machine gets the wrong error entirely: sqlitestore.Open
+// CREATES the database when the path is absent, so the verb proceeds
+// against an empty store, Render emits a WORK.md the corpus does not
+// match, and EditedIn reports every file as "edited by hand" — on a
+// machine where nobody edited anything. Worse, the advice that refusal
+// gives ("they are build outputs; the store is the source") is actively
+// dangerous against an empty store: following it means deleting the
+// corpus. Say what is actually true instead, and name the command.
+func requireAdopted(dataDir string) error {
+	if _, err := os.Stat(migrate.OutputPath(dataDir)); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("opening store: %w", err)
+	}
+	return errWithExit(1,
+		"this machine has not adopted the store yet — no database at %s\nrun `worklog adopt` to preview the adoption, then `worklog adopt --commit`",
+		migrate.OutputPath(dataDir))
+}
+
 // storeSession is one write verb's open store handle plus the layout it
 // renders into — the shared plumbing every ticket-shaped store-backed
 // write verb (start/done/edit/pr/link/note/wait/add/import) opens once,
@@ -89,6 +110,9 @@ type storeSession struct {
 func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
 	dataDir, err := storeDataDir()
 	if err != nil {
+		return nil, err
+	}
+	if err := requireAdopted(dataDir); err != nil {
 		return nil, err
 	}
 	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
