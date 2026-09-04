@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -48,75 +47,17 @@ func impls(t *testing.T) map[string]store.Store {
 	return map[string]store.Store{"memstore": memstore.New(), "sqlite": sq}
 }
 
-// normalized strips minted identity so aggregates from two independent
-// conversions compare: IDs zeroed, ParentID replaced by the parent slug.
+// normalized is store.Canonical, kept as a one-line shim so the two
+// round-trip tests read unchanged. The whole-struct comparator it
+// replaced lived here and silently dropped every child's real
+// ExtraFields.
 func normalized(t *testing.T, s store.Store) []byte {
 	t.Helper()
-	tickets, err := s.Tickets()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bySlugOf := map[store.ID]string{}
-	for _, tk := range tickets {
-		bySlugOf[tk.ID] = tk.Slug
-	}
-	for _, tk := range tickets {
-		tk.ID = ""
-		if tk.ParentID != "" {
-			parent := bySlugOf[tk.ParentID]
-			tk.ParentID = ""
-			tk.ExtraFields = map[string]string{"parent": parent}
-		}
-		zeroIDs(tk)
-	}
-	sort.Slice(tickets, func(i, j int) bool {
-		if tickets[i].Slug != tickets[j].Slug {
-			return tickets[i].Slug < tickets[j].Slug
-		}
-		return tickets[i].Title < tickets[j].Title
-	})
-	fb, err := s.Feedback()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range fb {
-		e.ID = ""
-	}
-	out, err := json.MarshalIndent(map[string]any{"tickets": tickets, "feedback": fb}, "", " ")
+	out, err := store.Canonical(s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
-}
-
-func zeroIDs(tk *store.Ticket) {
-	for i := range tk.PlanSteps {
-		tk.PlanSteps[i].ID = ""
-	}
-	for i := range tk.Scorecard {
-		tk.Scorecard[i].ID = ""
-	}
-	for i := range tk.Decisions {
-		tk.Decisions[i].ID = ""
-	}
-	for i := range tk.CodeRefs {
-		tk.CodeRefs[i].ID = ""
-	}
-	for i := range tk.NeedsYou {
-		tk.NeedsYou[i].ID = ""
-	}
-	for i := range tk.WaitingOn {
-		tk.WaitingOn[i].ID = ""
-	}
-	for i := range tk.Links {
-		tk.Links[i].ID = ""
-	}
-	for i := range tk.Transitions {
-		tk.Transitions[i].ID = ""
-	}
-	for i := range tk.NoteEntries {
-		tk.NoteEntries[i].ID = ""
-	}
 }
 
 // TestSemanticRoundTrip is criterion 1: corpus → store → render → re-parse
