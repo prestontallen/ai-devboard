@@ -97,9 +97,7 @@ Required for standalone + epic: --title, --id.
 Required for child: --title, --id, --parent.
 
 Without flags and under a TTY (standalone only): opens a Huh form.
-Without a TTY and without required flags: fails fast with exit 64.
-
-INDEX.md is not auto-updated. Run ` + "`worklog reindex`" + ` periodically.`,
+Without a TTY and without required flags: fails fast with exit 64.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAdd(cmd,
 				flagTitle, flagID, flagRepo, flagTagsCSV,
