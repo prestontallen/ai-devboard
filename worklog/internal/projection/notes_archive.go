@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/render"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
@@ -31,10 +30,9 @@ func NotesFile(t *store.Ticket) []byte {
 	return b.Bytes()
 }
 
-// ArchiveMonth renders one archive file. Entry field order matches
-// render.FormatArchiveEntry (the CLI's normative archive shape); entries
-// group under day headings by Completed date, newest day first. Parent
-// and Children render from the single relation, never from stored fields.
+// ArchiveMonth renders one archive file. Entries group under day headings
+// by Completed date, newest day first. Parent and Children render from
+// the single relation, never from stored fields.
 func ArchiveMonth(month string, tickets, all []*store.Ticket) []byte {
 	byID := map[store.ID]*store.Ticket{}
 	for _, t := range all {
@@ -150,7 +148,3 @@ func joinCSV(vals []string) string {
 	}
 	return out
 }
-
-// keep render imported: FormatArchiveEntry documents the field order this
-// renderer mirrors; the reference keeps the two visibly coupled.
-var _ = render.FormatArchiveEntry

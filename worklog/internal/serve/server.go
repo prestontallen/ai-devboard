@@ -2,8 +2,12 @@
 // devboard/server.py, behavior-frozen against the /api/tasks contract
 // (devboard/API.md). Layout: <DataDir>/<repo>/<task>.{yaml,yml,json}, with
 // <repo>/_archive/ for archived tasks. The two POST endpoints are the only
-// writes, and both are a single validated rename under the same .lock that
-// devboard.Mutate takes — the server never writes under the worklog dir.
+// writes, and both are a single validated rename under a .lock file — the
+// server never writes under the worklog dir. adb-cutover retired
+// devboard.Mutate, the CLI-side writer that used to share this .lock
+// convention; store-backed writes (internal/cli) now serialize through
+// SQLite instead, so this .lock only ever coordinates concurrent server
+// requests with each other, not with the CLI.
 package serve
 
 import (
@@ -251,8 +255,12 @@ func (s *Server) send(w http.ResponseWriter, code int, body []byte, ctype string
 // move renames a task file into or out of <repo>/_archive/ — the server's
 // only write. The strict application/json requirement doubles as the CSRF
 // guard: cross-origin JSON needs a preflight this server never answers.
-// The rename runs under the live task path's .lock — the same lock
-// devboard.Mutate takes — so a concurrent CLI mutation can't race the move.
+// The rename runs under the live task path's .lock. That no longer
+// coordinates with the CLI (adb-cutover moved store-backed writes onto
+// SQLite's own locking, retiring devboard.Mutate's file lock as their
+// side of this), so a concurrent CLI mutation re-rendering the same file
+// is a real, uncoordinated race — pre-existing since the M3 flip, not
+// something this cleanup pass introduced or fixed.
 func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 	ctype := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
 	if ctype != "application/json" {

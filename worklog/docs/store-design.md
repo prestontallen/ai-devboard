@@ -1,9 +1,10 @@
 # Worklog store design — schema, identity, projections
 
-Deliverable of adb-schema-design (epic adb-worklog-rewrite). Status: the
-design is implemented and proven — the converter round-trips the full
-live corpus (72 tickets, 2026-09-02 snapshot) through both Store
-implementations with semantic equality and deterministic IDs.
+Deliverable of adb-schema-design (epic adb-worklog-rewrite). Status:
+**live** — the store is the system of record. `adb-cutover` (2026-09-03)
+flipped every write verb over; WORK.md/notes/archive/INDEX.md/devboard
+YAML are now rendered projections, not sources. See "Cutover" below for
+what actually shipped.
 
 ## The boundary
 
@@ -160,9 +161,10 @@ entries), and feedback entries had no re-run identity at all, so
 copy-forward would have duplicated every friction entry on every run. Both
 are fixed in `internal/convert`; see the Identity section above.
 
-Still not done here: the production cutover — freeze, rename binary, retire
-old write paths (`adb-cutover`); skill text updates for the projection
-world (`adb-skill-projection-update`); JSONL export (deferred, D9).
+Still not done here: skill text updates for the projection world
+(`adb-skill-projection-update`); JSONL export (deferred, D9). The
+production cutover itself — freeze, binary snapshot, retire old write
+paths — shipped in `adb-cutover`; see "Cutover" below.
 
 ## Verify command (internal/verify, internal/cli/verify.go)
 

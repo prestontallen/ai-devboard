@@ -237,8 +237,9 @@ func TestWriteEndpoints(t *testing.T) {
 	}
 }
 
-// TestArchiveLock: the move blocks on the same .lock devboard.Mutate takes,
-// so a concurrent CLI mutation cannot race the rename.
+// TestArchiveLock: a second move blocks on the same .lock file the first
+// one holds, so two concurrent archive/unarchive requests can't race
+// each other's rename.
 func TestArchiveLock(t *testing.T) {
 	s, dir := writeTestServer(t)
 	ts := httptest.NewServer(s.Handler())

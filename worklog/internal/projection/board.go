@@ -90,11 +90,12 @@ func fillBoard(task *devboard.Task, t *store.Ticket) {
 }
 
 // BoardYAML renders a devboard task file from canon. Key order is the
-// devboard.Task struct's own field order, which is what devboard.Mutate
-// already writes today, so a store-rendered file and a legacy-written one
-// agree byte-for-byte rather than only semantically. Unknown keys ride
-// each level's inline Extra map, so passthrough is preserved and the
-// frozen /api/tasks contract is unaffected.
+// devboard.Task struct's own field order — the same order the retired
+// devboard.Mutate used to write, kept here so a store-rendered file
+// agrees byte-for-byte with a pre-cutover one rather than only
+// semantically. Unknown keys ride each level's inline Extra map, so
+// passthrough is preserved and the frozen /api/tasks contract is
+// unaffected.
 func BoardYAML(t *store.Ticket, kids []*store.Ticket) []byte {
 	out, _ := yaml.Marshal(BoardTask(t, kids))
 	return out

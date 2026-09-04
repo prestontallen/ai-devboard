@@ -1,25 +1,21 @@
-// Package devboard writes devboard task files — the live-telemetry YAML
-// rendered by the devboard dashboard (see devboard/schema.md at the repo
-// root). Worklog is the privileged writer of these files, never a required
-// one: everything here is a silent no-op when the devboard data dir does
-// not exist, and hand-written schema-valid files remain fully supported.
+// Package devboard holds the devboard task file's wire shape (Task,
+// ChildEntry, and their sub-item types — see devboard/schema.md at the
+// repo root) plus read-side helpers for locating and grouping task files
+// on disk. Writing is store-backed now (internal/projection.BoardTask/
+// ApplyBoardTask render and apply this same shape against a
+// store.Ticket; adb-cutover M4 retired this package's own file-mutation
+// side (Mutate/OnStart/OnDone/OnPR/OnLink/SyncEpicRoster/MutateChild) —
+// there is nothing left here that writes a devboard file.
 //
 // Ownership rule (schema.md): every shared field has exactly one author;
 // mirroring flows worklog→devboard only.
 package devboard
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"gopkg.in/yaml.v3"
-
-	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
 )
 
 // Schema mirror of devboard/schema.md v1. Extra preserves unknown
@@ -353,12 +349,6 @@ func PendingNewGroup() string {
 	return repo
 }
 
-// gitBranch returns the current branch name, or "" outside a repo.
-func dirExists(p string) bool {
-	fi, err := os.Stat(p)
-	return err == nil && fi.IsDir()
-}
-
 // RepoRoot resolves the repository's working-tree root through the same git
 // common dir RepoName() uses, so the recorded path and the group name can
 // never describe different repositories. Returns "" when git cannot answer
@@ -411,241 +401,4 @@ func GitBranch() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
-}
-
-// Mutate performs a locked, atomic read-modify-write of the task file at
-// path. When the file is absent it starts from an empty schema-1 task.
-// A file that exists but fails to parse aborts before fn runs, leaving the
-// file byte-identical.
-func Mutate(path string, fn func(*Task) error) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	unlock, err := lockfile.Acquire(path + ".lock")
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	t := &Task{Schema: 1}
-	raw, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if uerr := yaml.Unmarshal(raw, t); uerr != nil {
-			return fmt.Errorf("devboard: %s is not valid YAML (file left untouched): %w", path, uerr)
-		}
-		if t.Schema == 0 {
-			t.Schema = 1
-		}
-	case errors.Is(err, os.ErrNotExist):
-		// fresh task
-	default:
-		return err
-	}
-
-	if err := fn(t); err != nil {
-		return err
-	}
-
-	out, err := yaml.Marshal(t)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".devboard-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
-}
-
-// pathFor returns the existing file for slug, or the creation path in the
-// current repo group when none exists.
-func pathFor(slug string) (string, error) {
-	if p, err := Find(slug); err != nil || p != "" {
-		return p, err
-	}
-	return filepath.Join(DataDir(), RepoName(), slug+".yaml"), nil
-}
-
-// today is stubbed in tests.
-var today = func() string { return time.Now().Format("2006-01-02") }
-
-// --- worklog lifecycle side effects -----------------------------------
-// All three are silent no-ops when devboard is not Enabled. Errors are
-// returned for the caller to WARN on — a devboard failure must never fail
-// the worklog operation itself.
-
-// OnStart guarantees a task file exists for the started ticket, carrying
-// identity fields. It does NOT set phase — phases are agent-driven.
-//
-// blockType mirrors the ticket's WORK.md Type ("spike", "chore"); empty for
-// an ordinary ticket. Like title, it is identity rather than workflow state
-// — the board reads it to pick the short research track for a spike.
-func OnStart(id, title, blockType, declaredRepo string) error {
-	if !Enabled() {
-		return nil
-	}
-	path, err := pathFor(id)
-	if err != nil {
-		return err
-	}
-	return Mutate(path, func(t *Task) error {
-		created := t.Title == "" && t.Worklog == ""
-		// "epic" belongs to SyncEpicRoster; a start must never overwrite it.
-		if blockType != "" && blockType != "ticket" && t.Type != "epic" {
-			t.Type = blockType
-		}
-		if title != "" {
-			t.Title = title
-		}
-		t.Worklog = id
-		if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" {
-			t.Session = s
-		}
-		if created {
-			if b := GitBranch(); b != "" {
-				t.Branch = b
-			}
-		}
-		// Recorded when missing, and refreshed when the recorded root has
-		// gone away — a stale path silently disables every consumer, so
-		// self-healing beats keeping the first answer forever.
-		if t.RepoPath == "" || !dirExists(t.RepoPath) {
-			if root := RepoRootFor(declaredRepo); root != "" {
-				t.RepoPath = root
-			}
-		}
-		return nil
-	})
-}
-
-// OnDone marks the task done and clears the attention queue. No-op when no
-// task file exists for the ticket.
-func OnDone(id string) error {
-	if !Enabled() {
-		return nil
-	}
-	path, err := Find(id)
-	if err != nil || path == "" {
-		return err
-	}
-	return Mutate(path, func(t *Task) error {
-		t.Phase = "done"
-		t.NeedsYou = nil
-		CloseWaitingOn(t, today())
-		return nil
-	})
-}
-
-// SyncEpicRoster ensures an epic's task file carries Type "epic", its
-// title, and an up-to-date roster: every entry in roster is upserted by
-// ID, updating only Title/State (identity) — an existing child's
-// in-flight detail (Branch/Phase/Plan/Score/... , set separately via
-// MutateChild) is never touched. Children not present in roster are left
-// as-is rather than pruned, since the notes-file scan this is sourced
-// from is expected to be append-only. Silent no-op when devboard is
-// disabled, same contract as OnStart/OnDone.
-func SyncEpicRoster(epicID, epicTitle string, roster []ChildIdentity) error {
-	if !Enabled() {
-		return nil
-	}
-	path, err := pathFor(epicID)
-	if err != nil {
-		return err
-	}
-	return Mutate(path, func(t *Task) error {
-		t.Type = "epic"
-		if epicTitle != "" {
-			t.Title = epicTitle
-		}
-		t.Worklog = epicID
-		for _, ci := range roster {
-			if idx := indexOfChild(t.Children, ci.ID); idx >= 0 {
-				if ci.Title != "" {
-					t.Children[idx].Title = ci.Title
-				}
-				t.Children[idx].State = ci.State
-			} else {
-				t.Children = append(t.Children, ChildEntry{ID: ci.ID, Title: ci.Title, State: ci.State})
-			}
-		}
-		return nil
-	})
-}
-
-// MutateChild performs a locked, atomic read-modify-write of one child's
-// entry within an epic's task file at path, identified by childID. A
-// child not yet on the roster is appended with State ChildPending before
-// fn runs — the roster sync from a real ticket start will correct its
-// identity later. Callers gate Enabled()/taskDisabled themselves, matching
-// Mutate's contract.
-func MutateChild(path, childID string, fn func(*ChildEntry) error) error {
-	return Mutate(path, func(t *Task) error {
-		idx := indexOfChild(t.Children, childID)
-		if idx < 0 {
-			t.Children = append(t.Children, ChildEntry{ID: childID, State: ChildPending})
-			idx = len(t.Children) - 1
-		}
-		return fn(&t.Children[idx])
-	})
-}
-
-// indexOfChild returns the index of the child with the given ID
-// (case-insensitive, matching worklog's ID normalization elsewhere), or -1.
-func indexOfChild(children []ChildEntry, id string) int {
-	for i, c := range children {
-		if strings.EqualFold(c.ID, id) {
-			return i
-		}
-	}
-	return -1
-}
-
-// OnPR sets (or clears, url=="") the PR link on the ticket's task file.
-// No-op when no task file exists. A thin wrapper around OnLink — PR is
-// just the one link name every ticket's CLI (worklog pr) special-cases
-// with an always-rendered WORK.md field; the devboard mirror itself has
-// no reason to duplicate the generic logic.
-func OnPR(id, url string) error {
-	return OnLink(id, "PR", url)
-}
-
-// OnLink sets (or clears, url=="") the named link on the ticket's task
-// file, leaving every other link untouched. No-op when no task file
-// exists.
-func OnLink(id, name, url string) error {
-	if !Enabled() {
-		return nil
-	}
-	path, err := Find(id)
-	if err != nil || path == "" {
-		return err
-	}
-	return Mutate(path, func(t *Task) error {
-		kept := t.Links[:0]
-		for _, l := range t.Links {
-			if l.Label != name {
-				kept = append(kept, l)
-			}
-		}
-		t.Links = kept
-		if url != "" {
-			t.Links = append(t.Links, Link{Label: name, URL: url})
-		}
-		return nil
-	})
 }

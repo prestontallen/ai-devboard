@@ -241,9 +241,9 @@ func parseListedTests(out string) []string {
 }
 
 // verifyLintHook returns the mutateTask warning hook for a scorecard verb, or
-// nil when this verb has nothing to lint. The returned function runs after the
-// mutation, outside devboard.Mutate's flock, so a package compile never blocks
-// another writer.
+// nil when this verb has nothing to lint. The returned function runs after
+// the mutation has already committed and rendered, so a toolchain query
+// here never holds anything else up.
 //
 // add and edit carry the cell on --verify. pass names an index instead, so the
 // cell is read back from the file the mutation just wrote.
