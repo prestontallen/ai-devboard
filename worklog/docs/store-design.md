@@ -3,7 +3,7 @@
 Deliverable of adb-schema-design (epic adb-worklog-rewrite). Status:
 **live** — the store is the system of record. `adb-cutover` (2026-09-03)
 flipped every write verb over; WORK.md/notes/archive/INDEX.md/devboard
-YAML are now rendered projections, not sources. See "Cutover" below for
+YAML are now rendered projections, not sources. See "Adoption" below for
 what actually shipped.
 
 ## The boundary
@@ -164,7 +164,7 @@ are fixed in `internal/convert`; see the Identity section above.
 Still not done here: skill text updates for the projection world
 (`adb-skill-projection-update`); JSONL export (deferred, D9). The
 production cutover itself — freeze, binary snapshot, retire old write
-paths — shipped in `adb-cutover`; see "Cutover" below.
+paths — shipped in `adb-cutover`; see "Adoption" below.
 
 ## Verify command (internal/verify, internal/cli/verify.go)
 
@@ -175,9 +175,20 @@ into an in-memory store, renders that store's projections into a second
 scratch dir via `RenderAll`, and reports field-level drift between the
 staged snapshot and the render — surface by surface (WORK.md, notes,
 archive, INDEX.md, FEEDBACK.md, devboard feed). It never writes to the
-live worklog or devboard directories, under any outcome; that write-back
-is deferred to `adb-cutover` (contract:
-`contracts/ai-devboard/2026-09-03-adb-projection-render.md`).
+live worklog or devboard directories, under any outcome; the write-back
+shipped separately, as `worklog adopt` (see "Adoption").
+
+Since `adb-migrate-render`, verify's guarantee is stronger than its
+surface-by-surface comparators suggest. Those comparators are hand-picked
+field views read through `internal/parse`, the LENIENT parser — `workmd`
+compares nine fields of a nineteen-field block, so `Section`, `Status`,
+`Plan`, `Source`, `Links`, `WaitingSince`, `Files`, `ActiveChildren` and
+`ExtraFields` were all invisible to it. Run now also converts the rendered
+tree back with the same STRICT converter and compares both stores whole-
+struct via `store.Canonical`. Drift carries a class: `uncanonical` means a
+live file is not what the store renders (discard and re-render);
+`renderer` means the store does not survive its own round trip (fix the
+renderer — re-rendering would bake the loss in). They need opposite fixes.
 
 `worklog verify` is unrelated to the pre-existing `worklog validate`:
 `validate` checks structural invariants over live data as it stands today
@@ -193,3 +204,62 @@ also constructs one (`memstore.New()`), by design (contract Decision #4) —
 composition root for this command, consistent with "the eventual CLI verbs
 ... wire an implementation at their composition root and nowhere else"
 above.
+
+## Adoption (internal/adopt, internal/cli/adopt.go)
+
+`worklog adopt` brings a corpus that predates the store into a state the
+store-backed write path accepts. It exists because the cutover's
+canonicalisation was performed by hand, once, on one machine, and nothing
+shipped that reproduces it — so a second machine installing a post-cutover
+binary landed in the state the cutover contract calls forbidden: the flip
+arrives before the reformat, `projection.EditedIn` reports every file as
+hand-edited, and every write refuses with no escape.
+
+A dry run is the default. `--commit` writes, behind the freeze, after a
+verbatim digest-verified snapshot of both roots. `--rollback <dir>`
+restores one later.
+
+Ordering is the safety argument. Every step before the snapshot is
+read-only, and each refuses rather than proceeding:
+
+1. **Census** (`internal/census`) — `WalkDir` over both roots, every file
+   classified, unclassified is a refusal. Every other traversal in the tree
+   is a *filter*: `ReadCorpusDir` and `listCorpusFiles` skip unrecognised
+   suffixes, `EditedIn` inspects only rendered paths. Each is right for its
+   own job and blind to a file nobody considered, which is the wrong
+   property for a step promising completeness.
+2. **Convert** — the strict parser's own refusals, unchanged. A convert
+   refusal is a corpus a human repairs by hand; nothing bypasses it.
+3. **Hazard** (`internal/hazard`) — constructs the parsers drop WITHOUT
+   refusing. This is the half a round trip structurally cannot see: a
+   construct dropped at parse time is dropped identically on both sides, so
+   the renderer never emits it, the re-parse never sees it, and the two
+   stores match while the corpus changed. Eleven detectors over raw bytes,
+   never through `convert`.
+4. **Stale rows** — a ticket in the store but not in this corpus would be
+   rendered back onto disk, resurrecting it. The store has no delete, so
+   this refuses rather than pruning.
+5. **Plan** (`BuildPlan`) — create/rewrite/keep/delete/producer/derived.
+   The delete class is why this exists rather than calling `RenderTo`:
+   `RenderTo` never prunes, so on a corpus with misfiled board files a
+   plain render leaves every stray beside its canonical twin and the
+   dashboard shows both.
+
+Only then does it snapshot, and only then write. A failure after the
+snapshot restores before returning, so a half-applied corpus is not a
+reachable end state. The post-condition is `projection.EditedIn` against
+the real store — the same function the write path gates on, not a proxy.
+
+**The unconditional guarantee is the snapshot, not the checks.** Every
+analytical claim above can be wrong and the corpus is still recoverable
+byte-exact: the snapshot is a full copy with a sha256 manifest, taken
+before the first byte, and `Restore` re-hashes afterwards and refuses to
+restore from a snapshot that does not verify. `TestRestoreSurvivesTheCheckersBeingWrong`
+truncates every file, invents new ones, rolls back, and requires
+byte-exactness. Recoverability does not depend on correctness.
+
+Adoption must never be reachable from a write — it rewrites and deletes
+live files, and `storesync.WarnAfterWrite` already calls `migrate.Run` on
+every write when `WORKLOG_STORE_SYNC` is set. That is enforced
+structurally: no package on the write path may import `internal/adopt`,
+and `migrate.Options` carries no render/adopt/apply field.

@@ -24,13 +24,14 @@ should rarely have to edit a worklog file by hand.
 ## Hard rules
 
 1. **Mutate worklog data only through `worklog` subcommands** — never via
-   Read/Edit/Write on worklog files. A store-backed write refuses outright
-   and names the file if it finds a hand-edited projection; `note --editor`
-   is the one sanctioned way to hand-write prose. Correcting a live ticket
-   is `worklog edit <id>`; correcting a task file's plan or scorecard is
+   Read/Edit/Write on worklog files. A store-backed write refuses and names
+   the file if it finds a hand-edited projection; `note --editor` is the
+   one sanctioned way to hand-write prose. Correcting a live ticket
+   is `worklog edit <id>`; a task file's plan or scorecard is
    `worklog task plan|scorecard edit|remove <n>`. For an operation with no
-   command, surface the limit and stop — suggest a CLI-compatible workflow.
-   What the CLI won't do is a deliberate limit, not a gap to work around.
+   command, surface the limit and stop. What the CLI won't do is a
+   deliberate limit, not a gap to work around. A never-adopted machine is
+   told so: run `worklog adopt`.
 2. **Never auto-delete** an archive entry, a notes file, or anything else in
    the worklog. Move-then-delete during archival is allowed; standalone
    deletion is not.
