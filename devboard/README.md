@@ -122,10 +122,28 @@ building, releasing, or running the binary needs npm.
 npm ci && npm test   # from the repo root
 ```
 
+## Two boards, for now
+
+`worklog serve` currently serves two front-ends while the Lens Board redesign
+lands (epic `adb-devboard-lens-board`):
+
+- **`/`** — the board described throughout this document. Unchanged.
+- **`/next`** — the Preact rebuild. The status bar is the router there: each
+  chip is a lens (`#/board`, `#/needs-you`, `#/waiting`, `#/friction`,
+  `#/done`, `#/archived`), zero-count chips dim instead of vanishing, stale is
+  a per-card badge rather than a chip, and there are no folds. Its counts are
+  tasks-in-lens, so a chip reading 3 means three cards; `/`'s needs-you and
+  waiting-on counts are queue *items*, so the two boards report different
+  numbers for the same data until the cutover. `/next` is read-only — no
+  archive/un-archive — and its cards are placeholders until `adb-lens-card`.
+
+Everything below describes **`/`**.
+
 ## Behavior notes
 
 - Malformed files render as an error card (filename + parse error); they
-  never take down the rest of the page.
+  never take down the rest of the page. `/next` keeps this guarantee: a
+  malformed entry stays on the board rather than being filtered out.
 - Unknown top-level fields render in an "Other" section — extend freely.
 - Tasks untouched for >2h render dimmed (likely-stale signal).
 - A missing or malformed `FEEDBACK.md` simply means no friction panel —

@@ -8,7 +8,8 @@
 <!-- The import map is load-bearing, not a convenience: the vendored
      hooks.module.js itself opens with a bare `import ... from "preact"`,
      so without this it cannot resolve. Vendor filenames and these
-     specifiers move together. -->
+     specifiers move together. Application modules under /assets/src/
+     import each other relatively and add no bare specifiers. -->
 <script type="importmap">
 {
   "imports": {
@@ -20,13 +21,14 @@
 </script>
 
 <style>
-  /* Tokens are copied from index.html deliberately: the Lens Board work
-     owns unifying them, and duplicating a dozen custom properties beats
-     coupling this provisional page to the outgoing board's stylesheet. */
+  /* Tokens are copied from index.html deliberately: adb-lens-cutover owns
+     unifying them, and duplicating a dozen custom properties beats coupling
+     this page to the outgoing board's stylesheet while both are live. */
   :root {
     --void: #0e1016; --panel: #151a26; --panel2: #1b2133; --border: #28304a;
     --ink: #dbdfe9; --dim: #8b91a7; --faint: #5b6178;
     --signal: #7aa2f7; --go: #9ece6a; --hold: #e0af68; --halt: #f7768e;
+    --spike: #bb9af7;
     --sans: system-ui, "Segoe UI", sans-serif;
     --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, monospace;
   }
@@ -38,11 +40,13 @@
 
   .topbar { display: flex; align-items: baseline; gap: 1.1rem; flex-wrap: wrap; }
   .topbar h1 { font-size: 1rem; font-weight: 600; letter-spacing: .03em; }
-  .provisional { font: .72rem var(--mono); color: var(--hold); }
+  #conn { font: .72rem var(--mono); color: var(--dim); }
+  #conn.live::before { content: "●"; color: var(--go); margin-right: .35rem; }
+  #conn.reconnecting::before,
+  #conn.offline::before { content: "●"; color: var(--halt); margin-right: .35rem; }
 
-  /* Chip anatomy, per the Lens Board mockups. The tone classes carry the
-     kept color semantics; .zero dims rather than removes. */
-  .chiprow { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.2rem 0; }
+  /* ---------- chip bar: the router ---------- */
+  .chiprow { display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.1rem 0 1rem; }
   .chip { display: flex; align-items: baseline; gap: .45rem; background: var(--panel);
           border: 1px solid var(--border); border-radius: 8px; padding: .28rem .7rem; }
   .chip b { font: 600 1.05rem var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
@@ -51,63 +55,55 @@
   .chip.attn b { color: var(--hold); }
   .chip.wait { border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
   .chip.wait b { color: var(--signal); }
+  /* Zero dims rather than vanishing: the outgoing board drops these with a
+     ternary, which makes an empty queue look identical to an untracked one. */
   .chip.zero { opacity: .45; }
   .chip.on { background: var(--panel2); border-color: var(--signal); }
   .chip.on span { color: var(--ink); }
 
-  .note { color: var(--dim); font-size: .85rem; max-width: 54ch; }
-  .note code { font: .85em var(--mono); color: var(--ink); }
+  /* ---------- board ---------- */
+  .attnline { font: .78rem var(--mono); color: var(--hold); margin: .2rem 0 1rem; }
+  .calmline { font: .78rem var(--mono); color: var(--faint); margin: .2rem 0 1rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .8rem; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: .85rem 1rem; display: flex; flex-direction: column; gap: .55rem; }
+  .card.err { border-color: color-mix(in srgb, var(--halt) 55%, transparent); }
+  .ctitle { font-weight: 600; line-height: 1.3; }
+  .crow { display: flex; gap: .35rem; flex-wrap: wrap; }
+  .badge { font: 10.5px var(--mono); color: var(--dim); border: 1px solid var(--border);
+           border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
+  .badge.attn { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 45%, transparent); }
+  .badge.wait { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
+  .badge.epic { color: var(--spike); border-color: color-mix(in srgb, var(--spike) 45%, transparent); }
+  .badge.halt { color: var(--halt); border-color: color-mix(in srgb, var(--halt) 45%, transparent); }
+  .badge.stale { color: var(--faint); }
+  .badge.phase { color: var(--dim); }
+
+  /* ---------- phone: the chip bar is the nav ---------- */
+  @media (max-width: 640px) {
+    body { padding: .9rem .9rem 3rem; }
+    .chiprow {
+      position: sticky; top: 0; z-index: 5;
+      flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+      background: var(--void); padding: .6rem 0; margin: .6rem 0;
+    }
+    .chiprow::-webkit-scrollbar { display: none; }
+    .chip { flex: none; min-height: 44px; align-items: center; padding: .4rem .8rem; }
+    .grid { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 
-<header class="topbar">
-  <h1>devboard</h1>
-  <span class="provisional">next · provisional scaffold</span>
-</header>
-
 <div id="app"></div>
-
-<p class="note">
-  This page exists to prove the front-end stack end to end: vendored Preact and
-  HTM resolving through an import map, rendering a real component with no build
-  step. The counts below are placeholders — wiring the lenses to
-  <code>/api/tasks</code> is the Lens Board epic's work. The live board is still
-  at <a href="/">/</a>.
-</p>
 
 <script type="module">
   import { h, render } from 'preact'
-  import { useState } from 'preact/hooks'
   import htm from 'htm'
-  import { Chip } from '/assets/src/chip.js'
+  import { App, defaultTransport } from '/assets/src/app.js'
 
   const html = htm.bind(h)
-
-  // Placeholder counts. Friction is deliberately 0 to make the dim-not-vanish
-  // behavior visible on the page, not only in the test suite.
-  const LENSES = [
-    { route: 'board',     label: 'board',     count: 4,  tone: 'neutral' },
-    { route: 'needs-you', label: 'needs you', count: 2,  tone: 'attn' },
-    { route: 'waiting',   label: 'waiting',   count: 1,  tone: 'wait' },
-    { route: 'friction',  label: 'friction',  count: 0,  tone: 'neutral' },
-    { route: 'backlog',   label: 'backlog',   count: 9,  tone: 'neutral' },
-    { route: 'done',      label: 'done',      count: 29, tone: 'neutral' },
-    { route: 'archived',  label: 'archived',  count: 3,  tone: 'neutral' },
-  ]
-
-  function ChipRow() {
-    const [route, setRoute] = useState('board')
-    return html`
-      <nav class="chiprow" aria-label="lenses">
-        ${LENSES.map((l) => html`
-          <${Chip} ...${l} key=${l.route} active=${l.route === route} onNavigate=${setRoute} />
-        `)}
-      </nav>
-    `
-  }
-
-  render(html`<${ChipRow} />`, document.getElementById('app'))
+  render(html`<${App} transport=${defaultTransport()} />`, document.getElementById('app'))
 </script>
 
 </body>

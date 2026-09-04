@@ -37,6 +37,16 @@ to decide. `/` remains the board.
 
 What *is* frozen is that `/next` consumes this document's `/api/tasks`
 payload like any other client — the freeze binds it, it does not bend for it.
+The lens router added no server change: `/api/tasks` and `/events` are exactly
+as specified here, and the shell derives its connection indicator purely from
+client-side `EventSource` state.
+
+`/next` routes its lenses through the URL fragment — `#/board`, `#/needs-you`,
+`#/waiting`, `#/friction`, `#/done`, `#/archived`. Those are **unfrozen
+internals**, not API: they may be renamed or restructured by the Lens Board
+epic without notice. They are namespaced with a leading slash so they never
+collide with `/`'s `#<repo>/<task>` deep links. Path-style deep links do not
+exist — `/next/<lens>` is a 404, by test.
 
 `/assets/<path>` serves files embedded from
 `worklog/internal/serve/static/assets/`, and only those: there is no disk

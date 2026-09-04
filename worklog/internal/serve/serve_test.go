@@ -445,7 +445,10 @@ func TestNextShell(t *testing.T) {
 		`"preact": "/assets/vendor/preact.module.js"`,
 		`"preact/hooks": "/assets/vendor/hooks.module.js"`,
 		`"htm": "/assets/vendor/htm.module.js"`,
-		`/assets/src/chip.js`,
+		// The shell loads one entry module and pulls the rest in transitively,
+		// so this names what /next actually requests — not whichever component
+		// happened to be first.
+		`/assets/src/app.js`,
 	} {
 		if !strings.Contains(body.String(), want) {
 			t.Errorf("shell missing %q", want)
@@ -568,7 +571,12 @@ func TestEmbeddedManifest(t *testing.T) {
 	want := map[string]bool{
 		"static/index.html":                         true,
 		"static/app.html":                           true,
+		"static/assets/src/app.js":                  true,
+		"static/assets/src/board.js":                true,
 		"static/assets/src/chip.js":                 true,
+		"static/assets/src/counts.js":               true,
+		"static/assets/src/data.js":                 true,
+		"static/assets/src/routes.js":               true,
 		"static/assets/vendor/README.md":            true,
 		"static/assets/vendor/htm.module.js":        true,
 		"static/assets/vendor/hooks.module.js":      true,
