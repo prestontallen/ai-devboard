@@ -217,7 +217,8 @@ hand-edited, and every write refuses with no escape.
 
 A dry run is the default. `--commit` writes, behind the freeze, after a
 verbatim digest-verified snapshot of both roots. `--rollback <dir>`
-restores one later.
+restores one later. For driving this on another machine, see
+[adopting-a-second-machine.md](adopting-a-second-machine.md).
 
 Ordering is the safety argument. Every step before the snapshot is
 read-only, and each refuses rather than proceeding:
