@@ -2,7 +2,9 @@
 
 Read this when you need to *read* WORK.md, an archive entry, or a notes file
 and want to know what a field means. The CLI is the only writer — never
-hand-edit these files to produce the shapes below.
+hand-edit these files to produce the shapes below. Every generated file
+opens with an HTML-comment banner marking it as such; a write that finds a
+hand-edited file refuses outright and names it.
 
 - [Ticket block](#ticket-block)
 - [Epic block](#epic-block)
@@ -76,12 +78,17 @@ In `archive/YYYY-MM.md`:
 Multiple entries on the same day share one `## YYYY-MM-DD` heading. Most
 recent day at the top of the file.
 
+When present, `Parent` and (on an epic's entry) `Children` render from the
+store's parent/child relation, never from a value stored on the entry
+itself — hand-editing either has no effect.
+
 ## Notes entry
 
 In `notes/<id>.md`. Each note is a `## YYYY-MM-DD HH:MM` heading followed by
 free-form markdown. New entries append at the bottom.
 
-An epic's notes file additionally carries a `## Children` section whose
-`- [ ] <child-id>: <title>` checkbox list is the **canonical backlog** for
-the epic. A checkbox flips to `[x]` only when the child archives, never on
-promotion to `## Now`.
+A pre-cutover epic's notes file may still carry a `## Children` checkbox
+roster. It is legacy and frozen — nothing re-derives or flips it anymore.
+The canonical backlog is the store's `ParentID` relation, rendered live as
+`**Active children**:` in the epic's WORK.md block. New epics don't
+scaffold a `## Children` section at all.

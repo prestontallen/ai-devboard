@@ -24,13 +24,13 @@ should rarely have to edit a worklog file by hand.
 ## Hard rules
 
 1. **Mutate worklog data only through `worklog` subcommands** — never via
-   Read/Edit/Write on worklog files. Correcting a live ticket is `worklog
-   edit <id>`; correcting a task file's plan or scorecard is `worklog task
-   plan|scorecard edit|remove <n>`. For an operation with no command (moving
-   a ticket between sections, rewriting an archive entry, deleting anything),
-   surface the limit and stop: suggest a CLI-compatible workflow, or ask
-   permission before touching the file. What the CLI won't do is a
-   deliberate limit, not a gap to work around.
+   Read/Edit/Write on worklog files. A store-backed write refuses outright
+   and names the file if it finds a hand-edited projection; `note --editor`
+   is the one sanctioned way to hand-write prose. Correcting a live ticket
+   is `worklog edit <id>`; correcting a task file's plan or scorecard is
+   `worklog task plan|scorecard edit|remove <n>`. For an operation with no
+   command, surface the limit and stop — suggest a CLI-compatible workflow.
+   What the CLI won't do is a deliberate limit, not a gap to work around.
 2. **Never auto-delete** an archive entry, a notes file, or anything else in
    the worklog. Move-then-delete during archival is allowed; standalone
    deletion is not.
@@ -40,11 +40,13 @@ should rarely have to edit a worklog file by hand.
    is complete" and "this is archived"; persisting it defeats the cap.
 5. **Never duplicate a repo's plan into a notes file.** Notes reference the
    in-repo plan and carry only the lean index the worklog needs.
-6. **Rebuild `INDEX.md` whenever entries are added, archived, or relocated.**
-   A stale index makes discovery unreliable.
-7. **Keep the epic↔child link consistent in three places** on every promotion
-   and archival: the child's checkbox in `notes/<epic-id>.md`, the parent's
-   `**Active children**:` in `WORK.md`, and the child's `**Parent**:` field.
+6. **`INDEX.md` stays current on its own** — every store-backed write
+   rebuilds it in the same transaction. Nothing to run by hand.
+7. **The epic↔child link is one stored relation** (the child's `ParentID`).
+   WORK.md's `**Active children**:` is a computed view of it. An older
+   epic's `notes/<id>.md` may still carry a frozen `## Children` checklist
+   from before the cutover — it no longer updates and isn't the source of
+   truth.
 
 ## Layout
 
@@ -110,10 +112,9 @@ structural. The `warnings` array is load-bearing: read it and surface
 anything that matters.
 
 **3. Starting.** `## Now` holds tickets only; starting an epic is always a
-refusal that names its startable children. Promoting a child creates its
-WORK.md block but does **not** tick the checkbox in `notes/<epic-id>.md` —
-that flips only on archival. The cap is enforced by the CLI; don't count by
-hand.
+refusal that names its startable children. Promoting a child sets its
+`ParentID`; WORK.md's Active-children view updates automatically — nothing
+to flip by hand. The cap is enforced by the CLI; don't count by hand.
 
 **4. Completing.** `--summary` and `--feedback` land permanently in the
 archive and are human-facing — draft them in the tone convention below.
@@ -123,8 +124,8 @@ is terminal — an archived epic refuses `add --parent`, `import`, and `start`
 from then on.
 
 **5. Searching.** Always cite the `file` field when relaying a hit, so the
-user can verify where it came from. An INDEX-first search can miss hits when
-the index is stale; `--deep` or a prior `reindex` removes that risk.
+user can verify where it came from. `--deep` bypasses the index if you
+suspect data written outside the CLI (a restore, an import script).
 
 **6. Notes.** Any ticket can carry a timestamped journal in `notes/<id>.md`,
 lazy-created on first use. Use `--editor` to revise past entries rather than
@@ -133,9 +134,9 @@ inside a note body** — it will be misparsed as a new entry; indent it or use
 `###`. Every epic needs a notes file; a standalone ticket only needs one once
 it accrues more than ~5 bullets of context.
 
-**7. INDEX.md.** A derived artifact: `add`, `start`, and `done` warn rather
-than update it. Run `worklog reindex` periodically — once a session, or after
-a batch of mutations.
+**7. INDEX.md.** Kept current automatically — see Hard rule 6. `worklog
+reindex` still exists for a manual rebuild (e.g. after restoring from
+backup) but isn't required in normal use.
 
 ### Tone
 
