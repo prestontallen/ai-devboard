@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +28,16 @@ func ReadCorpusDir(root string) (Corpus, error) {
 	if c.WorkMD, err = os.ReadFile(filepath.Join(root, "WORK.md")); err != nil {
 		return c, err
 	}
-	if fb, err := os.ReadFile(filepath.Join(root, "FEEDBACK.md")); err == nil {
+	// A missing FEEDBACK.md is legitimately "no feedback yet". Any OTHER
+	// read error is not, and swallowing it is destructive: the conversion
+	// would carry zero entries, and the next `feedback` write would render
+	// the file back from those zero entries — silently replacing a friction
+	// log that was merely unreadable at that moment.
+	switch fb, err := os.ReadFile(filepath.Join(root, "FEEDBACK.md")); {
+	case err == nil:
 		c.Feedback = fb
+	case !os.IsNotExist(err):
+		return c, fmt.Errorf("FEEDBACK.md: %w", err)
 	}
 	if months, err := os.ReadDir(filepath.Join(root, "archive")); err == nil {
 		for _, m := range months {

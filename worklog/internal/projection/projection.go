@@ -63,9 +63,14 @@ func Render(s store.Store) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(fb) > 0 {
-		out["FEEDBACK.md"] = FeedbackMD(fb)
-	}
+	// Always emitted, even with zero entries. Gating on len(fb) made
+	// FEEDBACK.md invisible to BOTH EditedIn and RenderTo whenever the
+	// store happened to hold no feedback — so a hand-edited or
+	// merely-unread friction log was neither protected from a re-render
+	// nor rewritten by one, until the first entry arrived and replaced it
+	// wholesale. A projection's existence is a property of the surface,
+	// not of its row count.
+	out["FEEDBACK.md"] = FeedbackMD(fb)
 
 	for _, t := range tickets {
 		if !t.BoardTracked || t.ParentID != "" {
