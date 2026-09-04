@@ -47,7 +47,7 @@ func TestVerifyCleanCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rep, err := Run(memstore.New(), migrate.Sources{
+	rep, err := Run(memstore.New(), memstore.New(), migrate.Sources{
 		WorklogDir:  canonical,
 		DevboardDir: filepath.Join(canonical, "devboard"),
 	})
@@ -82,7 +82,7 @@ func TestVerifySingleStagedRead(t *testing.T) {
 	}
 	t.Cleanup(func() { stageFunc = orig })
 
-	if _, err := Run(memstore.New(), corpusSources(t)); err != nil {
+	if _, err := Run(memstore.New(), memstore.New(), corpusSources(t)); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
@@ -98,7 +98,7 @@ func TestVerifyDetectsTornRead(t *testing.T) {
 	stageFunc = func(src migrate.Sources, dst string) error { return torn }
 	t.Cleanup(func() { stageFunc = orig })
 
-	_, err := Run(memstore.New(), corpusSources(t))
+	_, err := Run(memstore.New(), memstore.New(), corpusSources(t))
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
@@ -124,7 +124,7 @@ func TestVerifyNeverWritesLiveDirs(t *testing.T) {
 	os.RemoveAll(filepath.Join(worklogDir, "devboard"))
 
 	before := checksumTree(t, live)
-	if _, err := Run(memstore.New(), migrate.Sources{WorklogDir: worklogDir, DevboardDir: devboardDir}); err != nil {
+	if _, err := Run(memstore.New(), memstore.New(), migrate.Sources{WorklogDir: worklogDir, DevboardDir: devboardDir}); err != nil {
 		t.Fatal(err)
 	}
 	after := checksumTree(t, live)

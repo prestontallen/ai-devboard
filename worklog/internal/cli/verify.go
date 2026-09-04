@@ -50,8 +50,12 @@ func runVerify(cmd *cobra.Command, asJSON bool) error {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
 
-	s := memstore.New()
-	rep, err := verify.Run(s, migrate.Sources{
+	// Two stores: the corpus is converted into the first, and the
+	// render is converted back into the second so verify can compare them
+	// whole-struct (the oracle). verify stays interface-only, so the
+	// composition root supplies both.
+	s, s2 := memstore.New(), memstore.New()
+	rep, err := verify.Run(s, s2, migrate.Sources{
 		WorklogDir:  wd.Root,
 		DevboardDir: devboard.DataDir(),
 	})

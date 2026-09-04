@@ -27,6 +27,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/verify"
 )
@@ -70,7 +71,7 @@ func AfterWrite(wd model.Workdir) (*verify.Report, error) {
 	}
 	defer s.Close()
 
-	rep, err := verify.Run(s, src)
+	rep, err := verify.Run(s, memstore.New(), src)
 	if err != nil {
 		return nil, fmt.Errorf("storesync: verify: %w", err)
 	}
