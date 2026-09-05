@@ -13,17 +13,17 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
-// phaseOrder mirrors the dev-context skill's phases in workflow order, plus
-// "done". A spike uses the subset intake → research → present → done.
-// It is the single source for both the lookup map and the error message, so
-// the two cannot drift.
-var phaseOrder = []string{
-	"intake", "clarify", "research", "contract", "plan",
-	"implementing", "verify", "present", "ship", "done",
-}
+// phaseOrder is store.Phases: the CLI validates against the same vocabulary
+// the store enforces on write (store/semantics.go), rather than keeping a
+// second list that could accept a phase PutTicket then rejects. It feeds both
+// the lookup map and the error message, so those two cannot drift either.
+//
+// A spike uses the subset intake → research → present → done.
+var phaseOrder = store.Phases
 
 // phaseAliases accepts the spelling the dev-context skill actually prescribes
 // where it differs from the stored name. The stored value stays canonical, so
