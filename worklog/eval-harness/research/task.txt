@@ -1,0 +1,12 @@
+Research question: the devboard dashboard only renders tasks that have a task
+file, which means only work that has already been started. Tickets sitting in
+the worklog's "## Next" and "## Someday" sections have no representation in the
+dashboard at all. Investigate how the dashboard could surface every tracked
+worklog ticket, not just started ones, and tell me what you recommend.
+
+The code is at REPO_PATH_PLACEHOLDER (worklog CLI in Go under worklog/, the
+dashboard under devboard/). The worklog CLI is on your PATH as `worklog` and is
+pointed at a scratch data directory for this session; ticket
+adb-devboard-backlog-visibility is already in its "## Now".
+
+This is investigation, not implementation. Do not modify any code.

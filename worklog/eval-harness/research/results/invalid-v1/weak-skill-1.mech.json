@@ -1,0 +1,128 @@
+{
+  "arm": "weak-skill",
+  "label": "1",
+  "model": "sonnet",
+  "skills_installed": true,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 2,
+    "bare_file_refs": 17,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 11,
+    "worklog_status_calls": 2,
+    "trailing_questions": 0,
+    "report_chars": 3264
+  },
+  "result_summary": {
+    "duration_api_ms": 120340,
+    "stop_reason": "end_turn",
+    "session_id": "db790a85-06b0-4748-893d-5d919c7cabd4",
+    "total_cost_usd": 0.4988422,
+    "usage": {
+      "input_tokens": 30,
+      "cache_creation_input_tokens": 61633,
+      "cache_read_input_tokens": 833911,
+      "output_tokens": 8432,
+      "output_tokens_details": {
+        "thinking_tokens": 4741
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 61633,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1209,
+          "cache_read_input_tokens": 81158,
+          "cache_creation_input_tokens": 715,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 715
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1078,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001148,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 30,
+        "outputTokens": 8432,
+        "cacheReadInputTokens": 833911,
+        "cacheCreationInputTokens": 61633,
+        "webSearchRequests": 0,
+        "costUSD": 0.4976942,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 26,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "No prior friction entries on this. I have a complete picture now. Here's what I found and what I'd recommend.\n\n## What's going on\n\n- Task files (the only thing devboard reads) are created solely by `worklog start`'s `OnStart` side effect (`worklog/internal/devboard/devboard.go:392`) — so by construction, only `## Now`/`## Waiting` tickets ever get one. `## Next` and `## Someday` tickets never go through `start`, so they never get a file and are structurally invisible to the board.\n- WORK.md's `## Waiting` tickets *do* already have task files (they were started before being parked), so they already render as cards — the real gap is `Next` + `Someday` only.\n- The devboard container already has a **read-only mount of the worklog data dir** (`devboard/compose.yaml:8`, `/worklog`) — it's already used for `notes/<id>.md` and `FEEDBACK.md`. It does **not** ship the `worklog` binary (per `devboard/README.md`), so `FEEDBACK.md` is parsed a second time in Python (`server.py:_parse_feedback`), deliberately mirroring the Go parser in `internal/feedback/feedback.go`. This is exactly the established pattern for surfacing worklog-owned data devboard doesn't own.\n- Next/Someday blocks carry real metadata already (id, title, repo, tags, acceptance, notes ref) via the same `- [ ] **ID** — Title` / indented `**Field**:` format `parse/work.go` reads — but nothing resembling in-flight state (no phase, plan, branch, session). They don't fit the existing card model at all.\n\n## Recommendation\n\nDon't synthesize task files for backlog tickets (that would mean writing into the writable `/data` mount from unstarted, non-agent-owned tickets — mixes \"live telemetry\" with \"static backlog,\" and duplicates state that WORK.md already owns). Instead:\n\n1. **Parse WORK.md directly in `server.py`**, mirroring `_parse_feedback`'s approach: reuse the `## <section>` / `- [ ] **ID** — Title` / `  - **Field**: value` regexes from `parse/work.go`, scoped to just `Next` and `Someday`. Add it to `_snapshot()` so edits hot-reload like everything else.\n2. **Render it as a new collapsed band**, not cards — same shape as the Friction panel (`frictionHTML`/`viewBoard` in `index.html`): a `Backlog · N` fold, probably with `Next` and a nested `Someday · N` sub-fold (dimmed), each row showing title, repo chip, tags — no phase track, no meters, since none of that exists yet.\n3. **Read-only with a copy-command affordance**, matching the friction \"resolve\" button pattern: a `⧉ start cmd` button that copies `worklog start <id>`, rather than devboard writing to WORK.md itself (mount is read-only by design).\n4. **Pin it with a test** the same way `test_server.py` pins the feedback parser against the Go format, so the two parsers can't silently drift.\n\nThis costs no new mount, no schema change, and no new writer — it slots into two patterns the codebase already established (the read-only mirror-parse, and the collapsed-band-not-card rendering for state that isn't a task-in-flight).\n\nOne naming wrinkle worth flagging to whoever implements this: WORK.md's `## Waiting` section (a *parked, already-started* ticket) is unrelated to a task file's `waiting_on` field (external-question queue) — same word, different concept. Worth a comment in the code so it isn't conflated.",
+    "ttft_ms": 4353,
+    "type": "result",
+    "duration_ms": 119945,
+    "uuid": "1f08ea8c-4d19-4d1c-9b69-a7402254219e",
+    "ttft_stream_ms": 1873,
+    "time_to_request_ms": 101,
+    "queued_turn_count": 0
+  }
+}

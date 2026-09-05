@@ -1,0 +1,128 @@
+{
+  "arm": "weak-bare",
+  "label": "2",
+  "model": "sonnet",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 0,
+    "bare_file_refs": 17,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 5,
+    "worklog_status_calls": 3,
+    "trailing_questions": 0,
+    "report_chars": 3229
+  },
+  "result_summary": {
+    "duration_api_ms": 103973,
+    "stop_reason": "end_turn",
+    "session_id": "4c539ccc-015b-4988-87cb-241eb446e3ac",
+    "total_cost_usd": 0.4897128,
+    "usage": {
+      "input_tokens": 42,
+      "cache_creation_input_tokens": 49642,
+      "cache_read_input_tokens": 1064164,
+      "output_tokens": 7708,
+      "output_tokens_details": {
+        "thinking_tokens": 4117
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 49642,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1225,
+          "cache_read_input_tokens": 67727,
+          "cache_creation_input_tokens": 2155,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2155
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1078,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001148,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 42,
+        "outputTokens": 7708,
+        "cacheReadInputTokens": 1064164,
+        "cacheCreationInputTokens": 49642,
+        "webSearchRequests": 0,
+        "costUSD": 0.48856479999999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 21,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Good — confirms the precedent. I have everything needed for the recommendation.\n\n## Findings\n\n**Root cause:** Devboard task files (`<data>/<repo>/<slug>.yaml`) are only ever created by `worklog start` (`devboard.OnStart`) or `worklog add --type epic` (`SyncEpicRoster`) — both explicitly scoped to in-flight work (`worklog/internal/cli/task.go`: *\"task mutates the devboard task file... for in-flight work\"*). `server.py`'s `_all_tasks()` only scans that data dir. Tickets in WORK.md's `## Next` / `## Someday` sections never get a task file, so they're structurally invisible to the board — this is a deliberate ownership boundary (worklog owns backlog state; devboard task files are disposable \"live telemetry\"), not a bug.\n\n**The data already exists and is already reachable:**\n- `worklog status --json` shows Next/Someday blocks carry full structured data: `id`, `title`, `type`, `repo`, `tags`, `acceptance`, etc. — I confirmed this by adding sample tickets in the scratch worklog dir.\n- WORK.md's format is simple and line-oriented (`parse/work.go`: `- [ ] **id** — title` + indented `**Field**: value` metadata) — comparable in complexity to `FEEDBACK.md`, which `server.py` already parses independently in Python (`_parse_feedback()`) without needing the Go binary.\n- Crucially, `compose.yaml` already mounts the whole worklog data dir read-only at `/worklog` (for `notes/` and `FEEDBACK.md`). WORK.md sits right next to those — **no new mount or config is needed**, just a new parse function.\n\n## Recommendation\n\nAdd a read-only \"Backlog\" surface sourced by parsing WORK.md's `## Next`/`## Someday` sections directly in `server.py`, mirroring the existing `_parse_feedback()` pattern:\n\n1. **Server**: a `_parse_workmd_backlog()` reading `WORKLOG_DIR/WORK.md`, extracting Next/Someday blocks (id, title, section, repo, tags, type, acceptance) via the same two regexes the Go parser uses. Add it to `_all_tasks()`'s response as a new `backlog` key, and add `WORK.md`'s path to `_snapshot()` so it hot-reloads over SSE like everything else.\n2. **Frontend**: a new collapsed band in `index.html` (same style as the friction band), e.g. `Backlog · N`, grouped Next-then-Someday, showing lightweight rows (title, repo chip, tags) — deliberately *not* full cards, since there's no phase/plan/scorecard yet to show. No detail page, no archive action — just visibility.\n3. **Test coverage**: pin the new parser with unit tests in `test_server.py`, following the precedent already set for `_parse_feedback`, since the Python parser is a second independent implementation of the Go format and can drift.\n\n**Why not** instead have `worklog add`/`start` write a stub devboard task file for Next/Someday tickets too: that would break the documented ownership rule (task files = in-flight telemetry, silent no-op until `start`), pollute the phase-track UI with tickets that have no phase, and add devboard-write side effects to a code path (`add`) that today has none. Parsing WORK.md read-only in the server keeps worklog as the sole system of record and requires zero changes to the Go CLI.\n\n*(Note: I added a few sample Next/Someday/epic tickets to the scratch worklog dir while investigating — scratch data only, no code touched.)*",
+    "ttft_ms": 2060,
+    "type": "result",
+    "duration_ms": 103524,
+    "uuid": "004c5608-bdc2-434d-8bfe-02cd9f7448af",
+    "ttft_stream_ms": 942,
+    "time_to_request_ms": 109,
+    "queued_turn_count": 0
+  }
+}

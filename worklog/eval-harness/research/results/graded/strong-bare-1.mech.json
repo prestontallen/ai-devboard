@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "1",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 6,
+    "bare_file_refs": 29,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 9,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 6369
+  },
+  "result_summary": {
+    "duration_api_ms": 132427,
+    "stop_reason": "end_turn",
+    "session_id": "a986a355-fcee-4634-9dbf-fd39cffc2143",
+    "total_cost_usd": 1.5885169999999997,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 43867,
+      "cache_read_input_tokens": 276699,
+      "output_tokens": 8663,
+      "output_tokens_details": {
+        "thinking_tokens": 4415
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 43867,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 2669,
+          "cache_read_input_tokens": 53813,
+          "cache_creation_input_tokens": 1741,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1741
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1078,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001148,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 18,
+        "outputTokens": 8663,
+        "cacheReadInputTokens": 276699,
+        "cacheCreationInputTokens": 43867,
+        "webSearchRequests": 0,
+        "costUSD": 1.587369,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 15,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Investigation complete. Here's what I found and what I recommend.\n\n## TL;DR\n\nRecommend having the devboard **server parse `WORK.md` directly from the worklog mount it already has**, expose the backlog sections in `/api/tasks`, and render them as lightweight collapsed rows — not as task cards, and not by having the worklog CLI write stub task files. Everything needed is already in place: the mount, the SSE change-watcher, a blessed precedent for re-parsing a worklog-owned file in Python, and a `Repo:` field on tickets for grouping.\n\n## Why the gap exists\n\nA devboard task file is only ever created by `worklog start` (`OnStart` in `worklog/internal/devboard/devboard.go:392`) — it's explicitly \"disposable live telemetry\" for in-flight work, with worklog as the system of record (`devboard/schema.md`). Tickets in `## Next` and `## Someday` exist only as blocks in `WORK.md`, so `server.py`'s scan of `<data-root>/<repo>/*.yaml` never sees them. The same blindness covers a `## Now`/`## Waiting` ticket whose task file is missing (started while the devboard dir didn't exist, or untracked via `worklog task untrack`) — worth fixing in the same stroke.\n\n## What makes the read-side fix cheap\n\n- **The data is already mounted.** `server.py` reads `notes/<id>.md` and `FEEDBACK.md` from `WORKLOG_DIR` (read-only); `WORK.md` sits at the root of that same mount. No new mount, no new write path, and the \"rendered, never copied\" rule is preserved.\n- **There's an explicit precedent for a second parser.** The container ships no `worklog` binary, so `server.py` already re-implements the FEEDBACK.md parser (`_parse_feedback`, `server.py:125`), permissively, pinned by `test_server.py`, with the README documenting that the two sides extend independently. A WORK.md reader follows the identical pattern, and the needed subset is small and stable: `## Section` headings, `- [ ] **ID** — Title` bullet lines, and indented `**Field**:` metadata (see the three regexes at `worklog/internal/parse/work.go:17-21`). You only need `id`, `title`, `section`, `repo`, `type`, `tags`, `parent` — skip unknown fields like the feedback reader does.\n- **Hot-reload is one line.** Add a `WORK.md` stat to `_snapshot()` (`server.py:43`) next to the existing `FEEDBACK.md` stat, and section moves ripple to the browser over the existing SSE stream within ~2s.\n- **Tickets carry a repo hint.** `worklog add` has an optional `--repo`/form field mirrored into the block's `**Repo**:` metadata, and the convention (git-repo basename) matches devboard's grouping-directory names from `RepoName()`. So most backlog rows can be attached to the right repo group; repo-less ones need a fallback.\n\n## Recommended design\n\n**API**: add a `backlog` key to `/api/tasks` carrying every parsed `WORK.md` block — `{id, title, section, state, repo, type, tags, parent, started}` — in document order (WORK.md order within a section is the priority order; the line-oriented parse preserves it). Ship all sections, not just Next/Someday, and let the **frontend do the join**: it already holds every task card (including archived), so it can subtract blocks whose id matches some card's `worklog:` field. That keeps the Python parser dumb and automatically makes an un-mirrored Now/Waiting ticket visible with a \"no task file\" hint. A ticket disappearing from the backlog panel and appearing as a card the moment `worklog start` runs falls out for free — no lifecycle code.\n\n**Frontend**: render backlog rows in the existing `bandfold`/`fold` idiom (`index.html:448`), collapsed by default like `Friction · N` and `Archived · N` — these are not cards; they have no plan/scorecard/phase and shouldn't inflate the grid or stats. Two reasonable placements: a row-strip per repo group (`Queued · N`, Next before Someday, with a section chip), plus a global fold for rows whose `Repo:` is empty or matches no group. I'd lean per-repo with a global \"unassigned\" fold, mirroring how the ticket data actually distributes.\n\n**What to exclude**: epic children never get WORK.md blocks in Next/Someday (`add.go:45` — `WorkMD` is \"empty for child\"); pending children already render on the epic card's `children[]` roster, so there's no double-listing hazard as long as you only render top-level blocks. `## Waiting` tickets were necessarily started, so the join will almost always subtract them.\n\n**Tests**: extend `test_server.py` to pin the WORK.md reader the way it pins the feedback reader — including the malformed-file case (a bad `WORK.md` should mean \"no backlog panel\", never a broken page, same contract as feedback).\n\n## Alternatives considered\n\n- **Worklog writes stub task files for backlog tickets** (`worklog add` → YAML with a `queued` marker): rejected. It inverts the schema's ownership philosophy — task files are disposable telemetry, worklog the record — and buys a pile of lifecycle machinery: create/delete/reorder syncing, section moves, back-fill when the devboard dir is created later, and permanent desync whenever the human edits `WORK.md` by hand (a supported workflow). It would also blur the \"a task file means started work\" invariant the archive/stats/attention UI leans on.\n- **Ship the `worklog` binary in the container and shell out to `status`/JSON**: rejected — couples the Python image to the Go build; the README documents no-binary-in-container as a deliberate choice with the dual-parser pattern as the sanctioned answer.\n- **Go side writes a derived `backlog.json` into the devboard data dir on every mutation**: avoids the Python parser, but re-imports the staleness problem (hand-edits to WORK.md desync until the next CLI run) and needs a hook on every mutating command — while the live file is already sitting on the mount.\n\n## Caveats\n\n- The Python/Go parser duplication is real drift risk; mitigate by parsing only the minimal field subset, skipping unknowns, and pinning with tests — the same bet FEEDBACK.md already makes, and the WORK.md block grammar has a validator (`worklog validate`) keeping it disciplined on the Go side.\n- `Repo:` is optional and free-text, so the repo join is best-effort; the unassigned fold is the honest fallback rather than guessing.\n- The `_parse_task` guard style (`\"/\" not in wl`) should be applied consistently if any backlog field is ever used to build a path — for the recommended design nothing is, since backlog rows are display-only.",
+    "ttft_ms": 4071,
+    "type": "result",
+    "duration_ms": 131949,
+    "uuid": "27889c8b-1368-4851-8ce6-593f9bd8c436",
+    "ttft_stream_ms": 2201,
+    "time_to_request_ms": 103,
+    "queued_turn_count": 0
+  }
+}

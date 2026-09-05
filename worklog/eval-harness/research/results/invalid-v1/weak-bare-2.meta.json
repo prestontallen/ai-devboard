@@ -1,0 +1,10 @@
+{
+  "arm": "weak-bare",
+  "label": "2",
+  "model": "sonnet",
+  "skills_installed": false,
+  "data_dir": "/tmp/tmp.268Cj7sC87",
+  "repo": "/tmp/tmp.6iLyGHwF51/ai-devboard",
+  "exit_code": 0,
+  "notes_written": "# Sample epic idea\n\n<!-- Notes for epic sample-epic-1. Children added via `worklog add --parent sample-epic-1`\n     appear under ## Children as `- [ ] <child-id>: <title>` lines.\n     Promote to ## Now via `worklog start <child-id>`. Done flips\n     [ ] -> [x] automatically. -->\n\n## Background\n\n(Fill in: Jira link, plan reference, open questions.)\n\n## Children"
+}

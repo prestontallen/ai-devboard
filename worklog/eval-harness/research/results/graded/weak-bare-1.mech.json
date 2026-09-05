@@ -1,0 +1,128 @@
+{
+  "arm": "weak-bare",
+  "label": "1",
+  "model": "sonnet",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 1,
+    "bare_file_refs": 22,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 9,
+    "worklog_status_calls": 1,
+    "trailing_questions": 0,
+    "report_chars": 4002
+  },
+  "result_summary": {
+    "duration_api_ms": 91015,
+    "stop_reason": "end_turn",
+    "session_id": "54556310-d4ff-4710-acd6-b8a2213b86af",
+    "total_cost_usd": 0.43833140000000004,
+    "usage": {
+      "input_tokens": 26,
+      "cache_creation_input_tokens": 56922,
+      "cache_read_input_tokens": 693442,
+      "output_tokens": 7075,
+      "output_tokens_details": {
+        "thinking_tokens": 3689
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 56922,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 3674,
+          "cache_read_input_tokens": 74899,
+          "cache_creation_input_tokens": 2263,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2263
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1078,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001153,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 26,
+        "outputTokens": 7075,
+        "cacheReadInputTokens": 693442,
+        "cacheCreationInputTokens": 56922,
+        "webSearchRequests": 0,
+        "costUSD": 0.43717839999999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 19,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Findings\n\n**Why the gap exists:** the dashboard (`devboard/server.py`) only ever reads `<DEVBOARD_DATA>/<repo>/*.yaml` task files. Those files are created by `worklog start` → `devboard.OnStart()` (`worklog/internal/devboard/devboard.go:392`), which is the *only* code path that ever creates one. A ticket sitting in `## Next` or `## Someday` in `WORK.md` has never been started, so `OnStart` has never run, so no task file exists, so the dashboard has literally nothing to iterate over for it. This is intentional per `schema.md`'s ownership model (\"worklog→devboard only,\" task files as disposable in-flight telemetry) — it's not a bug, it's a scope gap.\n\n**What's already in place that makes this easy:**\n- `server.py` already mounts the worklog data dir read-only as `WORKLOG_DIR` and already parses one file from it directly in Python (`FEEDBACK.md`, via `_parse_feedback()`) rather than shelling out to the `worklog` binary — the README is explicit that this is deliberate: \"the container ships no `worklog` binary.\" `WORK.md` lives at the root of that same mount (`Workdir.WorkMD()`), so reading it needs no new mount, just a new parse function following the same precedent.\n- The Go side already exposes exactly the right shape: `worklog status --json` (`internal/cli/status.go`) emits `Now`/`Waiting`/`Next`/`Someday` as structured blocks — `id`, `title`, `type`, `parent`, `repo`, `tags`, `started`, `pr`, `acceptance`, `notesRef`, `activeChildren`, etc. That's a stable, already-versioned contract for exactly this data; the Python parser would just be a lightweight re-implementation of the same `WORK.md` block grammar (`internal/parse/work.go`, `internal/model/block.go`), mirroring how `FEEDBACK.md`'s Go writer and Python reader are already kept in sync independently.\n- `_snapshot()` (the mtime-diff loop driving SSE hot-reload) already needs one more `os.stat(WORK.md)` entry to make backlog changes hot-reload too — trivial addition to an existing mechanism.\n\n## Recommendation\n\nExtend `server.py` to parse `WORK.md`'s `## Next` and `## Someday` sections directly (same \"duplicate a narrow reader in Python\" pattern as `FEEDBACK.md`), and surface them in `/api/tasks` as a separate lightweight list — not as full cards. A Next/Someday ticket has no branch, session, plan, scorecard, or phase, so forcing it through `cardHTML()` would either show a mostly-empty card or invite fields that don't apply yet. Instead:\n\n- Add a `backlog` (or `next`/`someday`) array to the JSON payload, grouped by the block's `Repo` field the same way task files are grouped by directory today.\n- Render it as a collapsed band/fold on the board view, same visual language as the existing \"Waiting on others\" and \"Needs you\" folds — title, id, type badge (epic/spike/chore), tags, parent — with **no detail page**, since there's no task file to link to. Maybe a \"not started\" hint or a copy-`worklog start <id>` button, mirroring the existing `resumeBtn`/`copyCmd` affordances.\n\n**Why not the alternative** (have `worklog add`/`edit` write a stub devboard file for every Next/Someday ticket, not just started ones): it multiplies write paths (`add`, `edit`, section-move, `done`, delete-from-WORK.md all now need to keep a stub file in sync) and creates two competing authorities for \"is this ticket alive\" — WORK.md's section placement vs. a YAML file's presence/phase — which is exactly what schema.md's \"one author per field\" rule is designed to avoid. Parsing `WORK.md` read-only for display keeps worklog as the sole source of truth and touches zero write paths.\n\n**Scope note:** `## Waiting` tickets already have task files (they were started, then paused), so they're already covered by the existing card rendering — the real gap is only `Next`/`Someday`, matching the ticket title.\n\nRough size: a `_parse_workmd()` function in `server.py` (~40-60 lines, block-grammar parser) + one `_snapshot()` line + a small `index.html` render function and CSS for the new fold. No Go changes needed at all.",
+    "ttft_ms": 1797,
+    "type": "result",
+    "duration_ms": 90496,
+    "uuid": "758148b2-d052-4c1f-b15a-346fef265d3c",
+    "ttft_stream_ms": 1048,
+    "time_to_request_ms": 91,
+    "queued_turn_count": 0
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "2",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 4,
+    "bare_file_refs": 29,
+    "worklog_note_calls": 2,
+    "subagents_spawned": 0,
+    "read_search_calls": 4,
+    "worklog_status_calls": 3,
+    "trailing_questions": 0,
+    "report_chars": 4227
+  },
+  "result_summary": {
+    "duration_api_ms": 139101,
+    "stop_reason": "end_turn",
+    "session_id": "ab93a9bc-e953-421b-b2ec-0ef7f0d29895",
+    "total_cost_usd": 1.7935189999999999,
+    "usage": {
+      "input_tokens": 24,
+      "cache_creation_input_tokens": 44831,
+      "cache_read_input_tokens": 439707,
+      "output_tokens": 9116,
+      "output_tokens_details": {
+        "thinking_tokens": 4063
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 44831,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1567,
+          "cache_read_input_tokens": 56176,
+          "cache_creation_input_tokens": 342,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 342
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1077,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001152,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 24,
+        "outputTokens": 9116,
+        "cacheReadInputTokens": 439707,
+        "cacheCreationInputTokens": 44831,
+        "webSearchRequests": 0,
+        "costUSD": 1.7923669999999998,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 18,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Recommendation: parse WORK.md in the devboard server itself — no worklog CLI changes needed\n\nThe gap exists because a devboard task file is only ever created by `worklog start` (`OnStart` in `worklog/internal/devboard/devboard.go:392`), and the server's `_all_tasks()` (`devboard/server.py:177`) only walks `DEVBOARD_DATA/<repo>/*.yaml`. A ticket in \"## Next\" or \"## Someday\" exists solely as a markdown block in WORK.md, so the board has literally no data source that could show it.\n\nThe key thing I found is that the fix doesn't require any new plumbing: **the devboard container already mounts the entire worklog data dir read-only at `/worklog`** (`compose.yaml`), because it renders `notes/<id>.md` and parses `FEEDBACK.md` from there. WORK.md sits at the root of that same mount, and `_parse_feedback()` (`server.py:125`) is an existing, deliberate precedent for the server permissively parsing worklog-CLI-authored markdown — its docstring spells out the tolerance philosophy (skip unknown fields, any failure yields an empty list, never take down the page).\n\n### What I'd build\n\n- **Server**: a `_parse_worklog_backlog()` in the same style as `_parse_feedback()`. The WORK.md grammar is small and stable — three regexes in the Go parser (`worklog/internal/parse/work.go`): `## <Section>` headings, `- [ ] **ID** — Title` block starts, and indented `  - **Field**: value` metadata. Each block already carries `**Repo**:`, `**Type**:` (epic/spike/chore), `**Parent**:`, `**Tags**:`, and `**Notes**:`, so the board gets repo grouping and type chips for free, with no git resolution.\n- **API**: expose it as a new top-level key in `/api/tasks` (e.g. `\"backlog\"`), *not* folded into `repos[].tasks` — those entries have files behind them and feed the archive/unarchive endpoints, which rename real files.\n- **Frontend**: a collapsed band like the existing Friction and Done bands (`fold(...)` in `static/index.html`) — \"Backlog · N\", split Next/Someday, small rows rather than full phase-track cards, with repo and type chips.\n- **Dedupe**: hide any parsed entry whose id matches a live task file's `worklog` field. If you parse all sections (including Now), this also surfaces started tickets whose task file is missing (deleted by hand, or started before devboard was enabled) — which gets you to \"every tracked worklog ticket\" rather than just the backlog. Waiting tickets already appear, since they were started and keep their task file.\n- **Hot reload**: add one `os.stat` of WORK.md to `_snapshot()` (`server.py:43`), which already stats `FEEDBACK.md`; section moves then push over the existing SSE stream.\n\nRough size: ~60–80 lines of Python, ~40 of JS, plus cases in `test_server.py`.\n\n### Alternatives I considered and rejected\n\n- **CLI mirrors backlog tickets into stub task files** (e.g. on `add`/`import`). This fights the architecture on several fronts: `schema.md` defines a task file as \"disposable live telemetry\" with WORK.md as the system of record, and today *existence of a task file means the ticket was started* — the UI, `Find`, and `OnDone` all lean on that. It also creates an orphan problem (WORK.md is legitimately hand-editable, so deleted/moved tickets would need a reconcile pass), muddies archive semantics, and `RepoName()` resolves from git cwd, which is meaningless for backlog items added from anywhere.\n- **Server shells out to `worklog status --json`.** The JSON is exactly the right shape and would avoid a second parser, but the shipped container is `python:3.12-alpine` with no Go binary, and schema.md's doctrine is that the worklog binary is \"never a required\" dependency of the board. A CLI-written JSON snapshot has the same staleness problem as stub files: hand edits to WORK.md wouldn't appear until the next CLI invocation.\n\nThe one real cost of the recommended approach is a second implementation of the WORK.md grammar (Go + Python). Given the grammar is three regexes and the feedback parser already accepted the identical trade, I think that's the right price for zero writes, zero sync state, and the board always reflecting WORK.md live.\n\nI've appended these findings to the spike's worklog notes (`worklog note adb-devboard-backlog-visibility`); no code was modified.",
+    "ttft_ms": 5038,
+    "type": "result",
+    "duration_ms": 138533,
+    "uuid": "4c01ab87-fdf4-43ba-892c-815d1169348f",
+    "ttft_stream_ms": 4614,
+    "time_to_request_ms": 88,
+    "queued_turn_count": 0
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "arm": "weak-skill",
+  "label": "2",
+  "model": "sonnet",
+  "skills_installed": true,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 2,
+    "bare_file_refs": 23,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 9,
+    "worklog_status_calls": 2,
+    "trailing_questions": 0,
+    "report_chars": 4563
+  },
+  "result_summary": {
+    "duration_api_ms": 138613,
+    "stop_reason": "end_turn",
+    "session_id": "d445c6e3-b4ca-4726-851a-56626515cb4c",
+    "total_cost_usd": 0.5591384,
+    "usage": {
+      "input_tokens": 34,
+      "cache_creation_input_tokens": 62534,
+      "cache_read_input_tokens": 967302,
+      "output_tokens": 11432,
+      "output_tokens_details": {
+        "thinking_tokens": 6344
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 62534,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1682,
+          "cache_read_input_tokens": 82061,
+          "cache_creation_input_tokens": 713,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 713
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1079,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001154,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 34,
+        "outputTokens": 11432,
+        "cacheReadInputTokens": 967302,
+        "cacheCreationInputTokens": 62534,
+        "webSearchRequests": 0,
+        "costUSD": 0.5579844,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 29,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Findings\n\n**Why nothing shows up today:** the devboard is a pure file-scanner. `server.py:_all_tasks()` walks `<DEVBOARD_DATA>/<repo>/*.yaml` and nothing else — it never looks at WORK.md. A task file is only ever created by `worklog start` (`devboard.OnStart`, `worklog/internal/devboard/devboard.go:392`) or hand-authored. So a ticket sitting in `## Next`/`## Someday` genuinely has no artifact anywhere for the dashboard to find, by design — `devboard/schema.md` states the ownership model explicitly: task files are \"disposable live telemetry,\" worklog (WORK.md) is \"the system of record,\" and mirroring flows one-way, worklog → devboard.\n\n**The data is already sitting in the mount, unread.** `WORK.md` lives at the root of the worklog data dir, right beside `notes/` and `FEEDBACK.md` — and that whole directory is already mounted read-only into the devboard container at `/worklog` (`devboard/compose.yaml`). `server.py` already has one precedent for parsing worklog-owned markdown itself: `_parse_feedback()` re-implements the `FEEDBACK.md` format in Python \"because the container ships no `worklog` binary\" (per `devboard/README.md`). Backlog visibility is the same shape of problem.\n\n**Go already has the exact query, JSON-shaped.** `worklog status --json` (`worklog/internal/cli/status.go`) returns Now/Waiting/Next/Someday as structured blocks (`id`, `title`, `type`, `repo`, `tags`, `acceptance`, …) straight from the canonical WORK.md parser. I confirmed it live — with `adb-devboard-backlog-visibility` in `## Now`, it correctly emits all four sections. The binary just isn't present inside the devboard container.\n\n**A partial version of this problem is already half-solved for epics.** `devboardSyncEpic` (`worklog/internal/cli/devboard_hooks.go:116`) writes *every* child in an epic's notes-file roster onto the epic's task file — including ones still `pending` — but only gets triggered after the *first* sibling starts. An epic with zero started children is invisible for the same reason top-level backlog tickets are.\n\n## Recommendation\n\nAdd a **read-only \"Backlog\" panel** to the dashboard, sourced by having `server.py` parse `## Next`/`## Someday` out of the mounted `WORK.md`, the same way it already parses `FEEDBACK.md`. Concretely:\n\n- Extend `_snapshot()` to watch `WORK.md`'s mtime (one more `os.stat`, same pattern as the `FEEDBACK.md` watch) so edits hot-reload like everything else.\n- Add a `_parse_worklog_sections()` next to `_parse_feedback()`: pull out `## Next`/`## Someday` blocks (title, id, type, repo, tags, acceptance — the same fields `status.go`'s `jsonBlock` exposes) and return them under a new `backlog` key in the `/api/tasks` payload.\n- Render it as a collapsed fold, styled like the existing Friction/Attention folds (`devboard/static/index.html` already has that visual language) — compact rows, no plan/scorecard/decisions chrome, since backlog tickets carry none of that. No \"start\" button: the worklog mount is read-only by design, and devboard's only sanctioned write today is the archive/unarchive rename, so this must stay display-only.\n\n**Why not the alternatives:**\n- *Ship the `worklog` binary into the devboard image and shell out to `--dir /worklog status --json`* gets you the canonical parser for free, but adds a cross-compiled Go build stage to what's currently a plain Python/PyYAML container, plus a subprocess call on every poll. The codebase already chose *not* to do this for `FEEDBACK.md` even though the same tradeoff existed there — I'd follow that precedent rather than break it.\n- *Auto-create a stub task file for every Next/Someday ticket* inverts the ownership model the schema doc is explicit about: task files would stop meaning \"someone is actively working on this,\" `worklog add`/edits would need to keep files in sync with section moves and deletions, and archiving (the dashboard's one write action) would get confusing semantics for a ticket that was never started. This is more moving parts for a worse invariant.\n\n**Scope note:** this only covers WORK.md's `## Next`/`## Someday`. Pending epic children (sitting in `notes/<epic>.md`, invisible until a sibling starts) are the same underlying gap but a separate fix — worth a follow-up ticket rather than folding into this one.\n\nI've logged this recommendation as a decision on `adb-devboard-backlog-visibility` and moved it to the `present` phase (both silent no-ops here since this session's devboard data dir doesn't exist). No code was changed. Let me know if you want this turned into an implementation ticket/contract.",
+    "ttft_ms": 3177,
+    "type": "result",
+    "duration_ms": 138018,
+    "uuid": "0a6ee6c1-838e-4119-adcb-0c3f5ae2de69",
+    "ttft_stream_ms": 962,
+    "time_to_request_ms": 81,
+    "queued_turn_count": 0
+  }
+}

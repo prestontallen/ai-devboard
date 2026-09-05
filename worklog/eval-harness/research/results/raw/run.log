@@ -1,0 +1,24 @@
+run: arm=weak-bare label=1 model=sonnet skills=0 repo=/tmp/tmp.Ok162PRXfY/ai-devboard
+run: arm=strong-bare label=1 model=claude-fable-5 skills=0 repo=/tmp/tmp.LGvpBReh60/ai-devboard
+run: arm=weak-skill label=1 model=sonnet skills=1 repo=/tmp/tmp.BRyfY7VhLu/ai-devboard
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/strong-bare-1.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-skill-1.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-bare-1.jsonl (rc=0)
+run: arm=weak-bare label=2 model=sonnet skills=0 repo=/tmp/tmp.6iLyGHwF51/ai-devboard
+run: arm=strong-bare label=2 model=claude-fable-5 skills=0 repo=/tmp/tmp.Jqon6X7fpR/ai-devboard
+run: arm=weak-skill label=2 model=sonnet skills=1 repo=/tmp/tmp.RxJcWZwCMG/ai-devboard
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-bare-2.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/strong-bare-2.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-skill-2.jsonl (rc=0)
+run: arm=strong-bare label=1 model=claude-fable-5 skills=0 repo=/tmp/tmp.yLmyMvEK86/ai-devboard
+run: arm=weak-bare label=1 model=sonnet skills=0 repo=/tmp/tmp.H6okmNqEQO/ai-devboard
+run: arm=weak-skill label=1 model=sonnet skills=1 repo=/tmp/tmp.lbyOiCDlrq/ai-devboard
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-bare-1.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/strong-bare-1.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-skill-1.jsonl (rc=0)
+run: arm=weak-skill label=2 model=sonnet skills=1 repo=/tmp/tmp.cjysa3Wg4s/ai-devboard
+run: arm=strong-bare label=2 model=claude-fable-5 skills=0 repo=/tmp/tmp.cgMDfdcWG9/ai-devboard
+run: arm=weak-bare label=2 model=sonnet skills=0 repo=/tmp/tmp.86rdtu4kgV/ai-devboard
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-bare-2.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/weak-skill-2.jsonl (rc=0)
+done: /home/preston/ai-devboard/worklog/eval-harness/research/results/raw/strong-bare-2.jsonl (rc=0)

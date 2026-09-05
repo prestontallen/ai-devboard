@@ -1,0 +1,10 @@
+{
+  "arm": "strong-bare",
+  "label": "2",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "data_dir": "/tmp/tmp.eQqrAmPl8g",
+  "repo": "/tmp/tmp.Jqon6X7fpR/ai-devboard",
+  "exit_code": 0,
+  "notes_written": ""
+}

@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "1",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 2,
+    "bare_file_refs": 27,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 8,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 5762
+  },
+  "result_summary": {
+    "duration_api_ms": 113294,
+    "stop_reason": "end_turn",
+    "session_id": "1ef18b0e-d109-412c-8a5c-eec02311a0be",
+    "total_cost_usd": 1.488365,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 41732,
+      "cache_read_input_tokens": 272648,
+      "output_tokens": 7595,
+      "output_tokens_details": {
+        "thinking_tokens": 3429
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 41732,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 3379,
+          "cache_read_input_tokens": 50387,
+          "cache_creation_input_tokens": 3032,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 3032
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1077,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001147,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 18,
+        "outputTokens": 7595,
+        "cacheReadInputTokens": 272648,
+        "cacheCreationInputTokens": 41732,
+        "webSearchRequests": 0,
+        "costUSD": 1.487218,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 15,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "I have the full picture now. Here's my investigation report.\n\n## TL;DR\n\nThe dashboard should read `WORK.md` directly from the worklog mount it already has, the same way it already reads `FEEDBACK.md` and `notes/*.md` — server-side, read-only, permissively parsed in Python. That surfaces every tracked ticket (Now/Waiting/Next/Someday) with zero changes to the worklog CLI and no new files or writes anywhere. I'd render unstarted tickets as a collapsed \"Backlog\" fold (the existing Friction-panel idiom), not as full cards.\n\n## Why the gap exists\n\nTask files are created only by `devboard.OnStart` (`worklog/internal/devboard/devboard.go:392`), which fires from `worklog start`. That's by design: `schema.md` defines a task file as \"disposable live telemetry\" for in-flight work, with worklog as the system of record. `_all_tasks()` in `devboard/server.py:177` scans only `DEVBOARD_DATA`, so a ticket sitting in `## Next` or `## Someday` — which exists only as a block in `WORK.md` — has no representation.\n\n## The load-bearing facts\n\n1. **The data is already mounted.** `compose.yaml` mounts the worklog dir read-only at `/worklog`, and `server.py` already reads two things from it: `notes/<id>.md` (rendered into task cards) and `FEEDBACK.md` (the Friction panel). `WORK.md` sits at the root of that same mount, one `open()` away.\n2. **There is explicit precedent for a second parser.** The README says it outright: the FEEDBACK.md format \"is owned by the Go side; `server.py` parses it a second time because the container ships no `worklog` binary,\" with permissive skip-unknown parsing and `test_server.py` pinning the format. WORK.md would be the second instance of the same pattern.\n3. **The format is small and stable.** The Go parser (`worklog/internal/parse/work.go`) is three regexes: `^## heading`, `- [ |~|x] **ID** — Title`, and `  - **Field**: value`. `worklog validate` enforces the structure, so the Python mirror can be ~40–50 lines and deliberately lossy.\n4. **Blocks already carry a `**Repo**:` field** (`model.Block.Repo` — the scratch ticket has `**Repo**: ai-devboard`), which maps onto the dashboard's repo-directory grouping, and an ID that is exactly the task-file join key (`worklog:`). So backlog rows can be grouped by repo and de-duplicated against existing cards.\n\n## Recommendation\n\n**Parse WORK.md in `server.py` and ship the sections in the `/api/tasks` payload.** Concretely:\n\n- Add a `_parse_worklog()` sibling to `_parse_feedback()`: same permissive style, any failure yields an empty result (backlog is a side panel; it must never take down the page). Emit something like `\"worklog\": {\"sections\": [{\"name\": \"Next\", \"tickets\": [{id, title, state, type, repo, parent, tags, started}]}]}` in the JSON.\n- Add `WORK.md` to `_snapshot()` (one stanza next to the FEEDBACK.md one) so adding/promoting a ticket hot-reloads over SSE within the usual ~2s.\n- In the frontend, render tickets whose ID has **no** matching task file as a collapsed **\"Backlog · N\"** fold — Next first, then Someday, each row showing title, repo chip, type badge, and a copy button for `worklog start <id>` (mirroring the Friction panel's copy-`worklog feedback resolve` button, since the mount is read-only and starting work is a CLI act).\n- Free bonus from the same data: tickets that *do* have task files can get a section badge on their existing card (\"Now\", \"Waiting\"), and a Waiting ticket's `Waiting since` date is available too. Also a mismatch signal — a task file whose `worklog:` ID no longer appears in WORK.md at all is orphaned telemetry, which the board currently can't detect.\n\nSizing: roughly 50 lines of Python, a `test_server.py` case pinning the WORK.md reader, and a Friction-sized frontend fold. No Go changes, no schema change (the addition is a new top-level API key, and unknown fields are already tolerated end-to-end).\n\n## Alternatives I considered and would reject\n\n**Write task files at `add` time** (extend `OnStart` to an `OnAdd`). This inverts the documented ownership model — task files would stop meaning \"started work,\" the grid floods with contentless cards, and lifecycle gets messy: what does archiving a backlog card mean when the ticket still sits in `## Someday`? Who deletes the file if the ticket is edited out of WORK.md by hand? Also `RepoName()` resolves from the cwd at command time, which is right for `start` (you're in the repo) but often wrong for `add` (you triage from anywhere). And it misses tickets added by hand-editing WORK.md, which the system explicitly supports (`worklog validate` exists precisely because the markdown is human-editable).\n\n**Have worklog export a backlog snapshot file** into the devboard data dir on every mutating command. Avoids the duplicate parser, but every hand-edit of WORK.md silently strands the snapshot, it needs a hook on every mutating code path plus `reindex`, and it adds a derived-artifact class to a data dir whose contract is currently clean. The notes and Friction panels already established the better pattern: read the system of record live through the read-only mount.\n\n**Shell out to `worklog status --json` from the server.** The JSON wire type exists (`cli/status.go`) and would reuse the Go parser, but the Docker container deliberately ships no `worklog` binary, and the README records that as a considered decision for FEEDBACK.md. Not worth changing the container contract over a 3-regex format.\n\nOne caveat to note for implementation: the `**Repo**:` field is optional free text, so backlog rows without one need an \"unassigned\" bucket (or just live in a single global fold, which is why I'd start with one global Backlog fold rather than per-repo placement — it also keeps the \"live telemetry\" grid visually distinct from the \"not started\" list).",
+    "ttft_ms": 2722,
+    "type": "result",
+    "duration_ms": 112611,
+    "uuid": "6ac03006-8d21-4ba9-bd20-79f59deaaa26",
+    "ttft_stream_ms": 1672,
+    "time_to_request_ms": 87,
+    "queued_turn_count": 0
+  }
+}

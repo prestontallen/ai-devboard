@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "2",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 3,
+    "bare_file_refs": 24,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 9,
+    "worklog_status_calls": 2,
+    "trailing_questions": 0,
+    "report_chars": 5762
+  },
+  "result_summary": {
+    "duration_api_ms": 133635,
+    "stop_reason": "end_turn",
+    "session_id": "23574d62-23a3-4b09-a1b6-8aa992c25e14",
+    "total_cost_usd": 1.6971889999999998,
+    "usage": {
+      "input_tokens": 24,
+      "cache_creation_input_tokens": 43330,
+      "cache_read_input_tokens": 391251,
+      "output_tokens": 8759,
+      "output_tokens_details": {
+        "thinking_tokens": 4217
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 43330,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 4055,
+          "cache_read_input_tokens": 52390,
+          "cache_creation_input_tokens": 2627,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2627
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1078,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001148,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 24,
+        "outputTokens": 8759,
+        "cacheReadInputTokens": 391251,
+        "cacheCreationInputTokens": 43330,
+        "webSearchRequests": 0,
+        "costUSD": 1.6960410000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 18,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "I have the full picture now. Let me verify one last detail — how `worklog start` finds an existing file (relevant to a stub-file approach's archive collision) — I already saw `Find()` only scans repo dirs, not `_archive/`. I'm ready to report.\n\n## TL;DR\n\nRecommend the **read-side fix**: teach the devboard server to parse `WORK.md` from the worklog mount it already has, and render not-yet-started tickets as a collapsed \"Backlog\" band — exactly the pattern the board already uses for `FEEDBACK.md`. No new writers, no sync, no schema change. The alternative (having `worklog add` write stub task files) duplicates state and has a concrete lifecycle bug waiting in it.\n\n## Why the gap exists\n\nDevboard task files are created in exactly one place: `OnStart` in `worklog/internal/devboard/devboard.go:392`, called from `worklog start`. Nothing runs at `worklog add`, so a ticket in `## Next` or `## Someday` never gets a file, and the server (`devboard/server.py`) only knows about files. The server's `_all_tasks()` reads three things: task YAML files, `notes/<id>.md`, and `FEEDBACK.md` — never `WORK.md`.\n\n## The key enabling fact\n\nThe container **already mounts the entire worklog data dir** read-only at `/worklog` (`devboard/compose.yaml:8`). `WORK.md` is sitting inside that mount, unread. Surfacing the backlog requires no new mounts, no worklog binary in the container, and no writes anywhere — it's purely additional read-side parsing.\n\nThere's also strong precedent for exactly this move: `server.py` already re-implements the Go feedback format as a deliberately permissive second parser (`_parse_feedback`, mirroring `internal/feedback/feedback.go`), and the README documents that duplication as an accepted pattern (\"the container ships no worklog binary\"; unknown fields skipped so the two sides evolve independently). Notes are likewise \"rendered, never copied.\" A `_parse_worklog()` is the third instance of the same idiom.\n\n## Recommended design\n\n**Server** (`server.py`):\n- Add `_parse_worklog()`: parse `/worklog/WORK.md` into sections → blocks. The grammar is small and stable — the entire Go parser (`internal/parse/work.go`) is four regexes: `## Heading`, `- [ |~|x] **ID** — Title`, and `  - **Field**: value` metadata lines. A permissive ~40-line Python reader suffices. Same failure contract as feedback: any read/parse problem yields an empty list, never a 500.\n- Emit it in `/api/tasks` as a new top-level key (e.g. `\"worklog\": {\"sections\": [...]}`) with per-block `id, title, state, section, repo, tags, acceptance, notes_ref`. Unknown metadata fields skipped.\n- Add `WORK.md` to `_snapshot()` so `worklog add`/`start`/`done` hot-reload the board over SSE like note edits already do.\n\n**Frontend** (`static/index.html`):\n- Join on ticket id: a worklog block whose id matches an existing task file's `id` or `task.worklog` field is suppressed (it's already a real card). Everything else renders in a collapsed **`Backlog · N`** band, following the existing `Friction · N` / `Done · N` fold pattern — Next before Someday, preserving WORK.md order (order is priority in the worklog).\n- Each row: id, title, repo chip, tags, and a **copy-`worklog start <id>` button**, mirroring the friction panel's copy-`worklog feedback resolve` button. The worklog mount is read-only by design, so the board never becomes an actuator — the CLI stays the only writer, and the ownership model in `schema.md` is untouched.\n- `## Blocked` and `## Waiting` sections ride along for free if you want them.\n\nA useful side effect: a `## Now` ticket that has *no* task file (started before devboard was enabled, or with `DEVBOARD_DATA` absent) also surfaces in the band instead of silently vanishing — the current invisible-work bug becomes visible.\n\n**One wrinkle to decide:** I'd keep backlog rows in their own band rather than merging ghost cards into the repo card groups. The block's `**Repo**:` metadata doesn't reliably equal the devboard group directory — in the real data, `nole-docker-net` has `Repo: prestontallen/nole` while the devboard group would be `nole` (from `RepoName()`'s git basename). A basename heuristic could work later; the band avoids the question for v1.\n\n## Why not the write-side alternatives\n\n**Stub task files at `worklog add`:** duplicates WORK.md state into N files and inherits every sync problem — deletion/GC when a ticket is done or removed without ever starting, drift when WORK.md is hand-edited, invisibility for tickets added before devboard was enabled (you'd need a `worklog sync` backfill command too). It also pollutes the card grid with dozens of empty cards, and there's a concrete bug in waiting: if a user archives a backlog stub and later runs `worklog start`, `Find()` (`devboard.go:182`) doesn't look in `_archive/`, so `OnStart` would create a *second* file for the same ticket alongside the archived one. It also can't know the repo group at `add` time — `RepoName()` resolves via the cwd's git repo, and `add` is often run from anywhere. Finally, it contradicts the documented semantics: schema.md calls a task file \"disposable live telemetry\" for in-flight work; the worklog is the system of record.\n\n**Snapshot file (`worklog` CLI writes a `backlog.json` into the devboard data dir on every mutation):** better than N stubs, but still a second copy of state with staleness on hand edits, and it requires hooking every mutating command — all to deliver data the server can already read directly from the mount.\n\n## Effort sketch\n\nRoughly: ~50 lines in `server.py` (parser + snapshot + payload key), a `test_server.py` case pinning the parser (same style as the feedback tests), and a modest frontend addition reusing the existing `fold`/band machinery. No Go changes, no schema.md changes, no migration.",
+    "ttft_ms": 4423,
+    "type": "result",
+    "duration_ms": 133094,
+    "uuid": "0d6f5d6f-2513-4c08-bca4-244f31f5b414",
+    "ttft_stream_ms": 3092,
+    "time_to_request_ms": 91,
+    "queued_turn_count": 0
+  }
+}
