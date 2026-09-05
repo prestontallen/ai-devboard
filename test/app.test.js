@@ -99,13 +99,19 @@ test('a malformed task renders as an error card rather than disappearing', async
   await mount()
   const err = document.querySelector('.card.err')
   expect(err).toBeTruthy()
-  expect(err.textContent).toContain('unparseable')
+  expect(err.textContent).toContain('ai-devboard/broken.yaml')
+  expect(err.textContent).toContain('unclosed') // the raw parse error, not a label
 })
 
-test('stale is a per-card badge and never a chip', async () => {
+// Amended 2026-09-05: the real card marks staleness the way / does — card
+// dimming, an aged dot, and "— stale" in the age line. The .badge.stale this
+// once asserted belonged to the placeholder card, now deleted.
+test('stale shows as card dimming and an aged dot, never as a chip', async () => {
   await mount()
-  const stale = [...document.querySelectorAll('.badge.stale')]
+  const stale = [...document.querySelectorAll('.card.stale')]
   expect(stale).toHaveLength(1)
+  expect(stale[0].querySelector('.dot.old')).toBeTruthy()
+  expect(stale[0].textContent).toContain('— stale')
   expect(chip('stale')).toBe(null)
 })
 

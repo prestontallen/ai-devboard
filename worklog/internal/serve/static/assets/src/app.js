@@ -32,13 +32,16 @@ export function ChipBar({ counts, route }) {
 /** Only the Board lens has a body in this ticket; the rest are placeholders
  *  that adb-lens-views fills in. They still route, so the nav is honest about
  *  where you are. */
-function Lens({ route, db, now }) {
-  if (route === 'board') return html`<${BoardLens} db=${db} now=${now} />`
+function Lens({ route, db, now, isDesktop }) {
+  if (route === 'board') return html`<${BoardLens} db=${db} now=${now} isDesktop=${isDesktop} />`
   return html`<p class="calmline">the ${label(route)} lens is not built yet</p>`
 }
 
 export function App({ transport, load, now, matchPhone }) {
   const route = useRoute()
+  // happy-dom resolves hover/pointer media queries from navigator.maxTouchPoints,
+  // which is fixed per environment, so desktop-ness is injected rather than
+  // sniffed — otherwise neither branch is testable in one file.
   const isPhone = () =>
     matchPhone ? matchPhone() : typeof matchMedia === 'function' && matchMedia(PHONE).matches
 
@@ -64,7 +67,7 @@ export function App({ transport, load, now, matchPhone }) {
       </header>
       <${ChipBar} counts=${counts} route=${route} />
       <main data-testid="lens" data-lens=${route}>
-        <${Lens} route=${route} db=${db} now=${now} />
+        <${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} />
       </main>
     </div>`
 }

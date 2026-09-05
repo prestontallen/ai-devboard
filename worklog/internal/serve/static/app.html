@@ -66,18 +66,77 @@
   .calmline { font: .78rem var(--mono); color: var(--faint); margin: .2rem 0 1rem; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: .8rem; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-          padding: .85rem 1rem; display: flex; flex-direction: column; gap: .55rem; }
+          padding: .85rem 1rem; display: flex; flex-direction: column; gap: .6rem;
+          color: inherit; }
+  .card.attn { border-color: color-mix(in srgb, var(--hold) 55%, transparent); }
   .card.err { border-color: color-mix(in srgb, var(--halt) 55%, transparent); }
-  .ctitle { font-weight: 600; line-height: 1.3; }
-  .crow { display: flex; gap: .35rem; flex-wrap: wrap; }
-  .badge { font: 10.5px var(--mono); color: var(--dim); border: 1px solid var(--border);
-           border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
-  .badge.attn { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 45%, transparent); }
-  .badge.wait { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, transparent); }
-  .badge.epic { color: var(--spike); border-color: color-mix(in srgb, var(--spike) 45%, transparent); }
+  .card.stale { opacity: .82; }
+  .head { display: flex; align-items: flex-start; gap: .4rem; flex-wrap: wrap; }
+  .ctitle { font-weight: 600; line-height: 1.3; min-width: 0; flex-grow: 1; }
+  .errmsg { font: 11px var(--mono); color: var(--halt); overflow-wrap: anywhere; }
+
+  /* max-width + ellipsis is the actual fix for the title-overflow bug that
+     helped kill the per-child-cards attempt: a badge can carry unbounded text
+     (an epic's real title), and without this a long one forces the title into
+     an unreadably narrow column instead of truncating itself. */
+  .badge { flex: none; font: 10.5px var(--mono); color: var(--dim);
+           border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px;
+           white-space: nowrap; max-width: 220px; overflow: hidden;
+           text-overflow: ellipsis; }
+  .badge.repo { margin-left: auto; }
+  .badge.wait { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border)); }
+  .badge.epic { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border)); font-weight: 600; }
+  .badge.spike { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 45%, var(--border)); font-weight: 600; }
   .badge.halt { color: var(--halt); border-color: color-mix(in srgb, var(--halt) 45%, transparent); }
-  .badge.stale { color: var(--faint); }
-  .badge.phase { color: var(--dim); }
+
+  /* The strongest attention signal on the board is filled, not outlined —
+     amber ground with dark ink, both keep-list hexes. */
+  .flag { flex: none; font: 600 10.5px var(--mono); color: #14100a; background: var(--hold);
+          border-radius: 5px; padding: 3px 7px; white-space: nowrap;
+          max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- phase track ---------- */
+  .track { display: flex; gap: 3px; }
+  .track i { flex-grow: 1; height: 5px; border-radius: 3px; background: var(--panel2); }
+  .track i.on { background: color-mix(in srgb, var(--signal) 55%, transparent); }
+  .track i.now { background: var(--signal); box-shadow: 0 0 8px color-mix(in srgb, var(--signal) 60%, transparent); }
+  .phase-lbl { font: 11px var(--mono); color: var(--signal); margin-top: .25rem; }
+  .phase-lbl small { color: var(--faint); }
+  .phase-lbl.unknown { color: var(--faint); }
+
+  /* ---------- meters ---------- */
+  .meters { display: flex; flex-direction: column; gap: .4rem; }
+  .meter .lbl { display: flex; justify-content: space-between; font: 10.5px var(--mono); color: var(--dim); }
+  .meter .lbl b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .meter .bar { height: 4px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin-top: 3px; }
+  .meter .bar i { display: block; height: 100%; background: var(--go); }
+  .pips { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+  .pips .lbl { font: 10.5px var(--mono); color: var(--dim); margin-right: .25rem; }
+  .pip { width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--faint);
+         display: grid; place-items: center; font: 700 8px var(--mono); }
+  .pip.pass { border-color: var(--go); color: var(--go); background: color-mix(in srgb, var(--go) 20%, transparent); }
+  .pip.fail { border-color: var(--halt); color: var(--halt); background: color-mix(in srgb, var(--halt) 22%, transparent); }
+
+  /* ---------- epic roster ---------- */
+  .roster { display: flex; gap: .3rem; flex-wrap: wrap; }
+  .rosterempty { font: 11px var(--mono); color: var(--faint); }
+  .childchip { font: 10.5px var(--mono); color: var(--dim); border: 1px solid var(--border);
+               border-radius: 5px; padding: 2px 7px; white-space: nowrap;
+               max-width: 220px; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  .childchip.active { color: var(--signal); border-color: color-mix(in srgb, var(--signal) 45%, var(--border)); }
+  .childchip.done { color: var(--go); }
+
+  /* ---------- foot ---------- */
+  .foot { display: flex; align-items: center; gap: .45rem; font: 11px var(--mono);
+          color: var(--dim); border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+          padding-top: .5rem; }
+  .foot .sp { margin-left: auto; }
+  .foot .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--go); flex: none; }
+  .foot .dot.old { background: var(--faint); }
+  .foot .wl { color: var(--faint); max-width: 190px; overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; }
+  .act { background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
+         border-radius: 999px; padding: 3px 11px; font: 500 11.5px var(--mono); cursor: pointer; }
 
   /* ---------- phone: the chip bar is the nav ---------- */
   @media (max-width: 640px) {

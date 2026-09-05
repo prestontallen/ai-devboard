@@ -23,23 +23,39 @@ export const DB = {
     {
       repo: 'ai-devboard',
       tasks: [
-        // in flight, needs you, and stale
+        // in flight, needs you, and stale. `implementing` is the real enum
+        // member; `implement` would render on the unknown-phase branch.
         {
           id: 'router', file: 'ai-devboard/router.yaml', mtime: old,
-          task: { title: 'Lens router', phase: 'implement', needs_you: [{ type: 'checkpoint', text: 'approve' }] },
+          task: {
+            title: 'Lens router', phase: 'implementing', worklog: 'adb-lens-router',
+            session: 'sess-abc123',
+            needs_you: [{ type: 'checkpoint', text: 'approve' }],
+            plan: [{ text: 'one', state: 'done' }, { text: 'two', state: 'done' }, { text: 'three' }],
+            scorecard: [
+              { text: 'a', status: 'pass' }, { text: 'b', status: 'fail' }, { text: 'c' },
+            ],
+          },
         },
-        // in flight, waiting on someone else
+        // in flight, waiting on someone else; scalar plan/scorecard entries,
+        // which a hand-written file may legally carry
         {
           id: 'ledger', file: 'ai-devboard/ledger.yaml', mtime: fresh,
-          task: { title: 'Contract ledger', phase: 'plan', waiting_on: [{ text: 'q', who: 'platform' }] },
+          task: {
+            title: 'Contract ledger', phase: 'plan', type: 'ticket',
+            waiting_on: [{ text: 'q', who: 'platform' }],
+            plan: ['bare string step', 'another'],
+            scorecard: ['bare criterion'],
+          },
         },
-        // an epic: its queues live on children, never on the top level
+        // an epic: its queues live on children, never on the top level. One
+        // child deliberately carries no `state`.
         {
           id: 'lens-board', file: 'ai-devboard/lens-board.yaml', mtime: fresh,
           task: {
             title: 'Lens Board', type: 'epic',
             children: [
-              { id: 'a', title: 'child a', needs_you: [{ type: 'question', text: 'which?' }] },
+              { id: 'a', title: 'child a', state: 'active', needs_you: [{ type: 'question', text: 'which?' }] },
               { id: 'b', title: 'child b', waiting_on: [{ text: 'w', who: 'them' }] },
             ],
           },
@@ -56,3 +72,25 @@ export const DB = {
 }
 
 export const EMPTY = { repos: [], feedback: [] }
+
+/** Single-task builders for card tests. Kept out of DB so the count
+ *  assertions in counts.test.js stay valid. */
+export const task = (over = {}) => ({
+  repo: 'ai-devboard', id: 'sample', file: 'ai-devboard/sample.yaml', mtime: fresh,
+  ...over,
+  task: { title: 'A sample task', phase: 'implementing', ...(over.task || {}) },
+})
+
+export const SPIKE = task({ id: 'spike', task: { title: 'A spike', type: 'spike', phase: 'research' } })
+export const SPIKE_OFF_TRACK = task({ id: 'spikeoff', task: { title: 'Spike off track', type: 'spike', phase: 'verify' } })
+export const NO_PHASE = task({ id: 'nophase', task: { title: 'No phase', phase: undefined } })
+export const OFF_ENUM = task({ id: 'offenum', task: { title: 'Off enum', phase: 'brainstorming' } })
+export const CHORE = task({ id: 'chore', task: { title: 'A chore', type: 'chore' } })
+export const LONG = task({
+  id: 'long',
+  task: {
+    title: 'A deliberately very long task title that must keep its column and not be squeezed by a neighbouring badge',
+    type: 'epic',
+    children: [{ id: 'kid', title: 'An extremely long child title that would otherwise stretch its chip without bound', state: 'active' }],
+  },
+})
