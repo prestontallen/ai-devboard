@@ -190,14 +190,26 @@ type WaitingItem struct {
 	Extra  map[string]any `yaml:",inline"`
 }
 
+// UnansweredAtClose is the decision text an outstanding waiting_on entry
+// becomes when its task closes. Exported so both close-out paths phrase it
+// identically — this package's file-shape one below, and the store-backed
+// done path, which holds a store.Ticket and so cannot call CloseWaitingOn.
+func UnansweredAtClose(text, who string) string {
+	return "unanswered at close: " + text + " (" + who + ")"
+}
+
 // CloseWaitingOn converts every remaining waiting_on entry into an
 // "unanswered at close" decision and clears the list, so closing a task
-// never silently drops an outstanding question. Shared by the ticketed
-// done path (OnDone) and the ticketless CLI path (waiting-on resolve all).
+// never silently drops an outstanding question.
+//
+// Caller: the ticketless CLI path (waiting-on resolve all). The ticketed
+// done path was the other one, through this package's OnDone, until
+// adb-cutover retired it; it now closes out store-side in
+// cli.runStoreDone against the same UnansweredAtClose phrasing.
 func CloseWaitingOn(t *Task, when string) {
 	for _, w := range t.WaitingOn {
 		t.Decision = append(t.Decision, Decision{
-			What: "unanswered at close: " + w.Text + " (" + w.Who + ")",
+			What: UnansweredAtClose(w.Text, w.Who),
 			When: when,
 		})
 	}

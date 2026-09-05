@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/done"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
@@ -64,6 +65,7 @@ func runStoreDone(wd model.Workdir, in done.Inputs, today string) (done.Output, 
 	t.Summary = strings.TrimSpace(in.Summary)
 	t.ArchiveFeedback = trimAll(in.Feedback)
 	t.TimeSpent = strings.TrimSpace(in.Time)
+	closeOut(t, completed)
 	if err := ensureParentBoardTracked(ss, t); err != nil {
 		return done.Output{}, err
 	}
@@ -99,6 +101,36 @@ func runStoreDone(wd model.Workdir, in done.Inputs, today string) (done.Output, 
 		EpicCompletable: epicCompletable,
 	}, nil
 }
+
+// closeOut finishes a ticket the way dev-context's Devboard sync section
+// says done finishes one: "phase done, queue cleared".
+//
+// The store path never inherited this. adb-cutover M4 retired the
+// file-side devboard.OnDone, which had owned it, and nothing replaced it —
+// so a closed ticket kept whatever phase it died in (leaving it on the
+// board's in-flight grid indefinitely), kept any needs-you flag, and
+// dropped outstanding waiting-on questions with no record at all. The
+// last of those is the one that loses information, which is why closing
+// converts each open question into a dated decision rather than deleting
+// it. New decisions carry a zero Ident; PutTicket mints identity for them,
+// the same way ApplyBoardTask's newly-added items are minted.
+//
+// Epics are deliberately excluded: an epic has no meaningful phase of its
+// own (devboard/schema.md, "Epic files"), and its queues live on children.
+func closeOut(t *store.Ticket, when string) {
+	t.Phase = phaseDone
+	t.NeedsYou = nil
+	for _, w := range t.WaitingOn {
+		t.Decisions = append(t.Decisions, store.Decision{
+			What: devboard.UnansweredAtClose(w.Text, w.Who),
+			When: when,
+		})
+	}
+	t.WaitingOn = nil
+}
+
+// phaseDone is the canonical terminal phase (store.Phases).
+const phaseDone = "done"
 
 // runStoreDoneEpic archives an epic: refuse if any child is still open
 // (State != done — the store-level equivalent of the legacy notes-file
