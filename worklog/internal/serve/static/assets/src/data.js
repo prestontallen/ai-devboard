@@ -43,6 +43,10 @@ export function useBoardData({ transport, load = fetchTasks, onFirstPayload } = 
   const [db, setDb] = useState({ repos: [], feedback: [] })
   const [status, setStatus] = useState('offline')
   const first = useRef(true)
+  // A successful archive POST makes the server emit an SSE tick, so the board
+  // normally redraws itself. `refresh` is exposed for when it does not: with
+  // the transport down, a moved card would sit there looking un-moved.
+  const again = useRef(() => {})
 
   useEffect(() => {
     let live = true
@@ -59,6 +63,7 @@ export function useBoardData({ transport, load = fetchTasks, onFirstPayload } = 
         // Server briefly away; the transport's reconnect retriggers this.
       }
     }
+    again.current = refresh
     refresh()
     const teardown = transport
       ? transport({ onStatus: (s) => live && setStatus(s), onChange: refresh })
@@ -66,5 +71,5 @@ export function useBoardData({ transport, load = fetchTasks, onFirstPayload } = 
     return () => { live = false; if (teardown) teardown() }
   }, [transport, load])
 
-  return { db, status }
+  return { db, status, refresh: () => again.current() }
 }

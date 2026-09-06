@@ -3,6 +3,7 @@ import htm from 'htm'
 import { isError, isStale, isEpic, needsYou, waitingOn, phaseOf } from './counts.js'
 import { phasesFor, phaseIndex, planStats, checkStatuses, ago, itemText } from './phases.js'
 import { copyText } from './clipboard.js'
+import { MoveButton } from './archive.js'
 
 const html = htm.bind(h)
 
@@ -111,7 +112,10 @@ function Roster({ task, onChild }) {
     </div>`
 }
 
-export function Card({ task, now, isDesktop = true, onChild }) {
+/** `onMove` is an optional slot, not a second card: Done and Archived pass one
+ *  and get the control, Board passes none and is unchanged. A parallel card
+ *  renderer is what adb-epic-per-child-cards died of. */
+export function Card({ task, now, isDesktop = true, onChild, onMove }) {
   if (isError(task)) {
     return html`
       <article class="card err">
@@ -149,6 +153,7 @@ export function Card({ task, now, isDesktop = true, onChild }) {
         <span class="sp" />
         ${k.worklog ? html`<span class="wl">☰ ${k.worklog}</span>` : null}
         <${Resume} task=${task} isDesktop=${isDesktop} />
+        ${onMove ? html`<${MoveButton} task=${task} onMove=${onMove} />` : null}
       </div>
     </a>`
 }

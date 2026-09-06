@@ -138,6 +138,82 @@
   .act { background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
          border-radius: 999px; padding: 3px 11px; font: 500 11.5px var(--mono); cursor: pointer; }
 
+  /* ---------- queue panels: needs-you and waiting ----------
+     One panel shape for both lenses, laid out on named grid areas so the phone
+     re-flows it without a second DOM. The `age` area is drawn even when nothing
+     fills it: needs_you entries carry no timestamp until adb-needs-you-since,
+     and an unfilled grid area costs nothing. */
+  .qlist { display: flex; flex-direction: column; gap: .8rem; }
+  .qpanel { background: var(--panel); border-radius: 10px; padding: .9rem 1.05rem;
+            display: grid; gap: .3rem .8rem; align-items: center;
+            grid-template-columns: auto 1fr auto auto;
+            grid-template-areas: "kind what age cta" "detail detail detail detail";
+            border: 1px solid color-mix(in srgb, var(--hold) 55%, transparent); }
+  /* Amber is the summons. Waiting is a status, not a summons: signal blue on
+     the badge, never --hold on the frame, so it cannot compete for the glance. */
+  .qpanel.wait { border-color: var(--border); }
+
+  .qkind { grid-area: kind; font: 500 10.5px var(--mono); text-transform: uppercase;
+           letter-spacing: .06em; padding: 3px 8px; border-radius: 5px; white-space: nowrap;
+           max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
+  .qkind.checkpoint { color: var(--hold); background: color-mix(in srgb, var(--hold) 14%, transparent); }
+  .qkind.question { color: var(--signal); background: color-mix(in srgb, var(--signal) 14%, transparent); }
+  .qkind.wait { color: var(--signal);
+                border: 1px solid color-mix(in srgb, var(--signal) 45%, var(--border)); }
+
+  .qwhat { grid-area: what; min-width: 0; }
+  .qtext { display: block; font-weight: 600; line-height: 1.35; }
+  .qsub { display: block; color: var(--dim); font-size: .82rem; }
+  .qsub a { color: var(--dim); }
+  .qsub a:hover { color: var(--signal); }
+  .qchild { color: var(--signal); }
+
+  .qage { grid-area: age; justify-self: end; font: 600 10.5px var(--mono); color: var(--dim);
+          border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; white-space: nowrap; }
+
+  /* pre-wrap, not plain pre: `detail` is a commit summary or a scout note, so
+     its own newlines matter but its long lines are prose. Left as `pre` it
+     clips a one-line summary at the panel edge with nothing to show there is
+     more — which is what a real browser showed and happy-dom could not. */
+  .qdetail { grid-area: detail; background: var(--void); border: 1px solid var(--border);
+             border-radius: 8px; padding: .6rem .8rem; margin-top: .4rem; overflow-x: auto;
+             white-space: pre-wrap; overflow-wrap: anywhere;
+             font: 12px/1.55 var(--mono); color: var(--ink); }
+
+  .qcta { grid-area: cta; display: flex; gap: .5rem; align-items: center; }
+  .cta { background: var(--panel2); border: 1px solid var(--border); color: var(--ink);
+         border-radius: 999px; padding: 4px 14px; font: 500 11.5px var(--mono);
+         cursor: pointer; white-space: nowrap; }
+  .cta.go { border-color: var(--go); color: var(--go); }
+  /* Drawn but not wired: adb-checkpoint-answer-endpoint. Dimmed rather than
+     hidden, so what ships is the layout that endpoint lands into. */
+  .cta[disabled] { opacity: .45; cursor: not-allowed; }
+  .qlink { font: 500 11.5px var(--mono); white-space: nowrap; }
+  .qlink.dead { color: var(--faint); cursor: not-allowed; }
+  .act.bad { border-color: var(--halt); color: var(--halt); }
+
+  /* ---------- friction: the global FEEDBACK.md log ----------
+     Deliberately uncoloured. A review queue, not something blocking you, so it
+     borrows no attention tone at all. */
+  .frlist { display: flex; flex-direction: column; gap: .6rem; }
+  .frrow { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+           padding: .75rem 1rem; display: grid; gap: .3rem .8rem; align-items: center;
+           grid-template-columns: auto 1fr auto;
+           grid-template-areas: "kind what cta" "detail detail detail" "note note note"; }
+  .frsig { grid-area: kind; font: 500 10.5px var(--mono); text-transform: uppercase;
+           letter-spacing: .06em; color: var(--dim); border: 1px solid var(--border);
+           border-radius: 5px; padding: 3px 8px; white-space: nowrap; }
+  .fnote { grid-area: note; font-size: .82rem; color: var(--dim); }
+  .sigcounts { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .2rem; }
+  .sigcount { font: 10.5px var(--mono); color: var(--dim); border: 1px solid var(--border);
+              border-radius: 5px; padding: 2px 8px; }
+  .sigcount b { color: var(--ink); }
+  .frdone { margin-top: .8rem; display: flex; flex-direction: column; gap: .6rem; }
+  .frdone .frrow { opacity: .6; }
+  .frdonehead { font: .72rem var(--mono); color: var(--faint); text-transform: uppercase;
+                letter-spacing: .1em; padding-top: .6rem;
+                border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+
   /* ---------- phone: the chip bar is the nav ---------- */
   @media (max-width: 640px) {
     body { padding: .9rem .9rem 3rem; }
@@ -149,6 +225,25 @@
     .chiprow::-webkit-scrollbar { display: none; }
     .chip { flex: none; min-height: 44px; align-items: center; padding: .4rem .8rem; }
     .grid { grid-template-columns: 1fr; }
+
+    /* The panel stacks: badge and age share the top line, then the text, then
+       the detail, then full-width thumb targets. Same DOM, different areas. */
+    .qpanel {
+      grid-template-columns: auto 1fr;
+      grid-template-areas: "kind age" "what what" "detail detail" "cta cta";
+      align-items: start;
+    }
+    .frrow {
+      grid-template-columns: auto 1fr;
+      grid-template-areas: "kind cta" "what what" "detail detail" "note note";
+      align-items: start;
+    }
+    .qcta { margin-top: .5rem; }
+    /* 44px minimum, and each control takes its share of the width rather than
+       hugging a corner. */
+    .qpanel .cta { flex: 1 1 0; min-height: 44px; display: grid; place-items: center;
+                   border-radius: 10px; font-size: 13px; }
+    .frrow .qcta { margin-top: 0; justify-self: end; }
   }
 </style>
 </head>

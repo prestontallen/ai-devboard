@@ -131,11 +131,15 @@ lands (epic `adb-devboard-lens-board`):
 - **`/next`** — the Preact rebuild. The status bar is the router there: each
   chip is a lens (`#/board`, `#/needs-you`, `#/waiting`, `#/friction`,
   `#/done`, `#/archived`), zero-count chips dim instead of vanishing, stale is
-  a per-card badge rather than a chip, and there are no folds. Its counts are
-  tasks-in-lens, so a chip reading 3 means three cards; `/`'s needs-you and
-  waiting-on counts are queue *items*, so the two boards report different
-  numbers for the same data until the cutover. `/next` is read-only — no
-  archive/un-archive — and its cards are placeholders until `adb-lens-card`.
+  a per-card badge rather than a chip, and there are no folds. Every chip
+  counts what its lens draws: the four card lenses count tasks, needs-you
+  counts the panels it renders — one per queue item, so it agrees with `/`'s
+  needs-you number and not with a task count — and friction counts unresolved
+  FEEDBACK.md entries. Card grids run newest-first: attention has its own
+  route, so the grid does not hoist it the way `/` does. Archive and
+  un-archive work from the Done and Archived lenses. Approve and answer are
+  drawn but inert until `adb-checkpoint-answer-endpoint` gives them an endpoint
+  to call, and task detail still lives at `/`, so cards link across.
 
 Everything below describes **`/`**.
 

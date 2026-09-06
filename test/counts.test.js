@@ -6,13 +6,15 @@ import {
 
 const byId = (id) => flatten(DB).find((t) => t.id === id)
 
-test('counts are tasks-in-lens, not queue items', () => {
-  // router and lens-board each have one needs-you task; the epic contributes
-  // one task, not the two entries its children hold between them. board is 4,
-  // not 3: the malformed entry stays in flight so it cannot silently vanish.
+test('every count is what its lens draws', () => {
+  // Card lenses count tasks; needs-you counts the panels it renders, so it is
+  // 3 — two entries on `router` plus one on the epic's child — where a task
+  // count would say 2. waiting still counts tasks: its two entries sit on two
+  // different tasks. board is 4, not 3: the malformed entry stays in flight so
+  // it cannot silently vanish.
   expect(lensCounts(DB)).toEqual({
     board: 4,
-    'needs-you': 2,
+    'needs-you': 3,
     waiting: 2,
     friction: 1,
     done: 1,

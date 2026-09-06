@@ -1,12 +1,17 @@
 /**
  * Task classification and lens counts.
  *
- * Counting grammar: five lenses count TASKS — a chip is a route, so "3" has to
- * mean "you will see 3 things here". The outgoing board mixes units (in-flight
- * counts tasks while needs-you sums queue items across tasks), which is exactly
- * what made the phone default-route rule ambiguous. Friction is the one
- * exception and counts unresolved FEEDBACK.md entries, because it is a global
- * log rather than a set of tasks.
+ * Counting grammar: a chip is a route, so "3" has to mean "you will see 3
+ * things here". What that unit is follows the lens. Four lenses render cards
+ * and count TASKS. Needs-you renders one panel per queue ITEM, so it counts
+ * items — the same rule applied, not an exception to it. Friction counts
+ * unresolved FEEDBACK.md entries, because it is a global log rather than a
+ * set of tasks.
+ *
+ * The outgoing board mixed units without meaning to (in-flight counted tasks
+ * while needs-you summed items), which is what made the phone default-route
+ * rule ambiguous. The fix was never "always count tasks" — it was "count what
+ * the lens draws".
  *
  * Every helper guards `error` before touching `task`: a malformed file yields
  * an entry with `error` and no `task`/`mtime` at all (devboard/API.md), so an
@@ -53,7 +58,9 @@ export function lensCounts(db) {
   const feedback = ((db && db.feedback) || []).filter((e) => !e.resolved)
   return {
     board: open.length,
-    'needs-you': open.filter((t) => needsYou(t).length > 0).length,
+    // Items, not tasks: the needs-you lens draws a panel per entry, and one
+    // task can hold several. See the counting grammar above.
+    'needs-you': open.reduce((n, t) => n + needsYou(t).length, 0),
     waiting: open.filter((t) => waitingOn(t).length > 0).length,
     friction: feedback.length,
     done: live.filter(isDone).length,

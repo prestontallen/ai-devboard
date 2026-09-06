@@ -2,6 +2,11 @@ import { h } from 'preact'
 import htm from 'htm'
 import { Chip } from './chip.js'
 import { BoardLens } from './board.js'
+import { NeedsYouLens } from './needs.js'
+import { WaitingLens } from './waiting.js'
+import { FrictionLens } from './friction.js'
+import { DoneLens, ArchivedLens } from './done.js'
+import { archiveAction } from './archive.js'
 import { lensCounts, TONES } from './counts.js'
 import { LENSES, PHONE, useRoute, navigate, defaultRoute } from './routes.js'
 import { useBoardData, sseTransport } from './data.js'
@@ -29,15 +34,27 @@ export function ChipBar({ counts, route }) {
     </nav>`
 }
 
-/** Only the Board lens has a body in this ticket; the rest are placeholders
- *  that adb-lens-views fills in. They still route, so the nav is honest about
- *  where you are. */
-function Lens({ route, db, now, isDesktop }) {
-  if (route === 'board') return html`<${BoardLens} db=${db} now=${now} isDesktop=${isDesktop} />`
-  return html`<p class="calmline">the ${label(route)} lens is not built yet</p>`
+/** Every route has a body. A lens takes the whole payload rather than a
+ *  pre-filtered slice, because which tasks belong to it IS the lens — putting
+ *  that decision out here would spread one lens across two files.
+ *
+ *  `backlog` is absent by design (routes.js): it needs a server half, and
+ *  arrives with adb-lens-backlog. */
+const LENS = {
+  board: BoardLens,
+  'needs-you': NeedsYouLens,
+  waiting: WaitingLens,
+  friction: FrictionLens,
+  done: DoneLens,
+  archived: ArchivedLens,
 }
 
-export function App({ transport, load, now, matchPhone }) {
+function Lens({ route, db, now, isDesktop, onMove }) {
+  const View = LENS[route] || BoardLens
+  return html`<${View} db=${db} now=${now} isDesktop=${isDesktop} onMove=${onMove} />`
+}
+
+export function App({ transport, load, now, matchPhone, onMove }) {
   const route = useRoute()
   // happy-dom resolves hover/pointer media queries from navigator.maxTouchPoints,
   // which is fixed per environment, so desktop-ness is injected rather than
@@ -56,8 +73,14 @@ export function App({ transport, load, now, matchPhone }) {
     if (lens) navigate(lens)
   }
 
-  const { db, status } = useBoardData({ transport, load, onFirstPayload })
+  const { db, status, refresh } = useBoardData({ transport, load, onFirstPayload })
   const counts = lensCounts(db)
+
+  // A successful move emits an SSE tick server-side, which redraws the board on
+  // its own; the explicit refresh is what keeps the lens honest when the
+  // transport is down, and it is why the action is wrapped rather than passed
+  // straight through.
+  const move = (kind, task) => (onMove || defaultMove)(kind, task).then(refresh)
 
   return html`
     <div>
@@ -67,9 +90,10 @@ export function App({ transport, load, now, matchPhone }) {
       </header>
       <${ChipBar} counts=${counts} route=${route} />
       <main data-testid="lens" data-lens=${route}>
-        <${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} />
+        <${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} onMove=${move} />
       </main>
     </div>`
 }
 
 export const defaultTransport = sseTransport
+const defaultMove = archiveAction()

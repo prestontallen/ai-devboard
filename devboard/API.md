@@ -39,7 +39,10 @@ What *is* frozen is that `/next` consumes this document's `/api/tasks`
 payload like any other client — the freeze binds it, it does not bend for it.
 The lens router added no server change: `/api/tasks` and `/events` are exactly
 as specified here, and the shell derives its connection indicator purely from
-client-side `EventSource` state.
+client-side `EventSource` state. Neither did the lens views: the archive and
+un-archive controls on `#/done` and `#/archived` POST to the same two write
+endpoints documented below, with the same body and the same `Content-Type`
+requirement — no new endpoint, and no change to the existing ones.
 
 `/next` routes its lenses through the URL fragment — `#/board`, `#/needs-you`,
 `#/waiting`, `#/friction`, `#/done`, `#/archived`. Those are **unfrozen
