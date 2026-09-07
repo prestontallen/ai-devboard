@@ -3,6 +3,7 @@ import htm from 'htm'
 import { needsRows } from './rows.js'
 import { ago } from './phases.js'
 import { copyText } from './clipboard.js'
+import { hashForTask } from './routes.js'
 
 const html = htm.bind(h)
 
@@ -15,11 +16,10 @@ const PENDING = 'not wired up yet — needs adb-checkpoint-answer-endpoint'
 const KINDS = { checkpoint: 'checkpoint', question: 'question' }
 const kindOf = (entry) => KINDS[entry.type] || 'question'
 
-/** A child's route is `#<repo>/<epic>/<child>`, the epic's is `#<repo>/<id>` —
- *  the legacy grammar, which still lives on the outgoing board at `/`. Detail
- *  moves here with adb-devboard-contract-ledger; until then a row links across
- *  rather than nowhere. */
-const rowHref = (r) => (r.childId ? `/#${r.repo}/${r.id}/${r.childId}` : `/#${r.repo}/${r.id}`)
+/** A plain task's row opens detail in this app. A child's still crosses to `/`
+ *  on the legacy `#<repo>/<epic>/<child>` grammar, because child detail is
+ *  adb-lens-epic-detail. */
+const rowHref = (r) => (r.childId ? `/#${r.repo}/${r.id}/${r.childId}` : hashForTask(r.repo, r.id))
 
 export function QueuePanel({ row, now, isDesktop }) {
   const kind = kindOf(row.entry)

@@ -44,8 +44,9 @@ un-archive controls on `#/done` and `#/archived` POST to the same two write
 endpoints documented below, with the same body and the same `Content-Type`
 requirement — no new endpoint, and no change to the existing ones.
 
-`/next` routes its lenses through the URL fragment — `#/board`, `#/needs-you`,
-`#/waiting`, `#/friction`, `#/done`, `#/archived`. Those are **unfrozen
+`/next` routes through the URL fragment — `#/board`, `#/needs-you`,
+`#/waiting`, `#/friction`, `#/done`, `#/archived`, and task detail at
+`#/task/<repo>/<id>` (repo and id percent-encoded). Those are **unfrozen
 internals**, not API: they may be renamed or restructured by the Lens Board
 epic without notice. They are namespaced with a leading slash so they never
 collide with `/`'s `#<repo>/<task>` deep links. Path-style deep links do not

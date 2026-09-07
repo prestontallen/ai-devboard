@@ -90,3 +90,44 @@ test('a failed archive leaves the lens standing', async () => {
   await waitFor(() => expect(screen.getByTestId('move').textContent).toContain('failed'))
   expect(main().querySelector('.card')).toBeTruthy()
 })
+
+// ---- the task detail route (adb-devboard-contract-ledger) ----
+
+test('a task hash renders detail, and no chip claims to be current', async () => {
+  await mount()
+  await go('task/ai-devboard/router')
+  expect(screen.getByTestId('detail').dataset.task).toBe('ai-devboard/router')
+  expect(screen.queryAllByTestId('qpanel')).toHaveLength(0)
+  expect(document.querySelectorAll('.chip[aria-current]')).toHaveLength(0)
+  // The chip bar stays: detail is a view in this app, not a page away from it.
+  expect(document.querySelectorAll('.chip')).toHaveLength(LENSES.length)
+})
+
+test('the crumb returns to the board', async () => {
+  await mount()
+  await go('task/ai-devboard/router')
+  expect(document.querySelector('.crumb').getAttribute('href')).toBe('#/board')
+})
+
+// The blocker: defaultRoute asked only about lenses, so a task link opened cold
+// on a phone would have been redirected to needs-you before it ever painted.
+test('a task deep link opened on a phone stays on the task', async () => {
+  location.hash = '#/task/ai-devboard/router'
+  await mount({ matchPhone: () => true })
+  expect(location.hash).toBe('#/task/ai-devboard/router')
+  expect(screen.getByTestId('detail')).toBeTruthy()
+})
+
+test('the phone rule still redirects when no route was asked for', async () => {
+  location.hash = ''
+  await mount({ matchPhone: () => true })
+  expect(location.hash).toBe('#/needs-you')
+})
+
+test('a card click lands on that task, and back returns to the lens', async () => {
+  await mount()
+  const card = document.querySelector('.card[href^="#/task/"]')
+  await act(async () => { location.hash = card.getAttribute('href').slice(1) })
+  await settle()
+  expect(screen.getByTestId('detail')).toBeTruthy()
+})

@@ -24,10 +24,14 @@ test('a card renders title, repo, track, phase label, meter and pips', () => {
   expect(c.querySelector('.foot .age')).toBeTruthy()
 })
 
-test('a card links into the existing detail view on /', () => {
+test('a plain task links into this app, an epic still crosses to /', () => {
   const t = task({ repo: 'ai-devboard', id: 'sample' })
-  expect(detailHref(t)).toBe('/#ai-devboard/sample')
-  expect(one({ task: t }).getAttribute('href')).toBe('/#ai-devboard/sample')
+  expect(detailHref(t)).toBe('#/task/ai-devboard/sample')
+  expect(one({ task: t }).getAttribute('href')).toBe('#/task/ai-devboard/sample')
+  // Epic detail is a roster of children with independent plans, and that route
+  // is adb-lens-epic-detail. Linking it inward would land nowhere useful.
+  const e = task({ repo: 'ai-devboard', id: 'epic', task: { title: 'E', type: 'epic' } })
+  expect(detailHref(e)).toBe('/#ai-devboard/epic')
 })
 
 // ---------- scalar tolerance: a shipped guarantee the port nearly lost ----------
@@ -215,6 +219,7 @@ test('two repos holding the same task id render as independent cards', () => {
   const { container } = render(h(BoardLens, { db, now: NOW }))
   const cards = [...container.querySelectorAll('.card')]
   expect(cards).toHaveLength(2)
-  expect(cards.map((c) => c.getAttribute('href'))).toEqual(['/#alpha/task', '/#beta/task'])
+  expect(cards.map((c) => c.getAttribute('href')))
+    .toEqual(['#/task/alpha/task', '#/task/beta/task'])
   expect(cards.map((c) => c.querySelector('.ctitle').textContent)).toEqual(['Alpha task', 'Beta task'])
 })

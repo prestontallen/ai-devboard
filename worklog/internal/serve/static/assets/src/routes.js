@@ -23,13 +23,45 @@ export function hashForLens(lens) {
 }
 
 /**
+ * Task detail: `#/task/<repo>/<id>`.
+ *
+ * Same leading-slash namespace as the lenses, deliberately. The outgoing
+ * board's `#<repo>/<task>` grammar keeps meaning what it always did (a link
+ * out to `/`), so nothing has to guess which board a pasted hash was copied
+ * from. repo and id are the ones the payload carries, so both are matched
+ * loosely and compared, never parsed for meaning.
+ */
+export function taskFromHash(hash) {
+  const m = /^#\/task\/([^/]+)\/([^/]+)$/.exec(hash || '')
+  if (!m) return null
+  try {
+    return { repo: decodeURIComponent(m[1]), id: decodeURIComponent(m[2]) }
+  } catch {
+    // A malformed %-escape must not take the page down; it is simply not a route.
+    return null
+  }
+}
+
+export function hashForTask(repo, id) {
+  return `#/task/${encodeURIComponent(repo)}/${encodeURIComponent(id)}`
+}
+
+/** Any hash this app resolves to a view of its own. The lens set and the task
+ *  route are two grammars but one question: did the user ask for something
+ *  specific? */
+export const isOwnRoute = (hash) => !!(routeFromHash(hash) || taskFromHash(hash))
+
+/**
  * Which lens to open on first paint. An explicit hash always wins — returning
  * null means "leave it alone". Otherwise a phone with something waiting opens
  * on needs-you, because on a phone you are checking whether you are needed,
  * not reading a work breakdown.
  */
 export function defaultRoute({ hash, phone, needsYou }) {
-  if (routeFromHash(hash)) return null
+  // Every route this app owns counts as explicit, not just the lenses. Asking
+  // only about lenses would bounce a pasted task link off a phone straight to
+  // needs-you, with every test still green.
+  if (isOwnRoute(hash)) return null
   return phone && needsYou > 0 ? 'needs-you' : 'board'
 }
 
@@ -51,4 +83,23 @@ export function useRoute(fallback = 'board') {
 
 export function navigate(lens) {
   location.hash = hashForLens(lens)
+}
+
+/**
+ * The view to render: a lens, or a task. Derived from the hash on every
+ * hashchange for the same reason `useRoute` is — a state-held route freezes
+ * the address bar and breaks back/forward.
+ */
+export function useView(fallback = 'board') {
+  const read = () => {
+    const task = taskFromHash(location.hash)
+    return task ? { kind: 'task', task, lens: null } : { kind: 'lens', task: null, lens: routeFromHash(location.hash) || fallback }
+  }
+  const [view, setView] = useState(read)
+  useEffect(() => {
+    const on = () => setView(read())
+    addEventListener('hashchange', on)
+    return () => removeEventListener('hashchange', on)
+  }, [fallback])
+  return view
 }

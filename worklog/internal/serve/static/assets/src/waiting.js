@@ -2,6 +2,7 @@ import { h } from 'preact'
 import htm from 'htm'
 import { waitRows, askedDays, byAsked } from './rows.js'
 import { safeHref } from './clipboard.js'
+import { hashForTask } from './routes.js'
 
 const html = htm.bind(h)
 
@@ -30,7 +31,7 @@ export function WaitRow({ row, now }) {
       <div class="qwhat">
         <b class="qtext">${row.entry.text || ''}</b>
         <small class="qsub">
-          <a href=${row.childId ? `/#${row.repo}/${row.id}/${row.childId}` : `/#${row.repo}/${row.id}`}>
+          <a href=${row.childId ? `/#${row.repo}/${row.id}/${row.childId}` : hashForTask(row.repo, row.id)}>
             ${row.taskTitle}
           </a>
           ${row.childTitle ? html` · <span class="qchild">${row.childTitle}</span>` : null}

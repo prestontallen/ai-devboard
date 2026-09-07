@@ -214,6 +214,156 @@
                 letter-spacing: .1em; padding-top: .6rem;
                 border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 
+  /* ---------- task detail ---------- */
+  .crumb { display: inline-block; font: .78rem var(--mono); color: var(--dim); margin-bottom: .9rem; }
+  .crumb:hover { color: var(--signal); }
+  .hero { display: flex; flex-direction: column; gap: .7rem; margin-bottom: 1.4rem; }
+  .hero h1 { font-size: 1.5rem; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; }
+  .metarow { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+  .heroacts { display: flex; gap: .5rem; }
+
+  /* The card's track compressed to bare segments for want of room. Detail has
+     the room, and the labels are why you came. */
+  .stepper { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 4px; }
+  .sstep i { display: block; height: 5px; border-radius: 3px; background: var(--panel2); }
+  .sstep span { display: block; font: 10.5px var(--mono); color: var(--faint); margin-top: .3rem;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sstep.on i { background: color-mix(in srgb, var(--signal) 55%, transparent); }
+  .sstep.now i { background: var(--signal); box-shadow: 0 0 8px color-mix(in srgb, var(--signal) 60%, transparent); }
+  .sstep.now span { color: var(--signal); }
+  .stepper-note { font: 11px var(--mono); color: var(--faint); margin-top: .3rem; }
+
+  /* ---------- the contract ledger ----------
+     Plan and scorecard are task STATE; decisions, code and links are evidence.
+     The frame is what says so. */
+  .ledger { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+            overflow: hidden; margin-bottom: 1.8rem; }
+  .ledgerhead { display: flex; align-items: baseline; gap: .9rem; flex-wrap: wrap;
+                padding: .8rem 1.1rem; background: var(--panel2);
+                border-bottom: 1px solid var(--border); }
+  .ledgerhead .lbl { font: 600 11px var(--mono); text-transform: uppercase;
+                     letter-spacing: .13em; color: var(--dim); }
+  .ledgerhead .phase { font: 500 11.5px var(--mono); color: var(--signal); border-radius: 999px;
+                       border: 1px solid color-mix(in srgb, var(--signal) 40%, transparent);
+                       padding: .1rem .55rem; }
+  .ledgerhead .inphase { font: 11.5px var(--mono); color: var(--faint); }
+  .ratios { margin-left: auto; display: flex; gap: .5rem; flex-wrap: wrap; }
+  .ratio { display: flex; align-items: baseline; gap: .4rem; font: 11px var(--mono);
+           text-transform: uppercase; letter-spacing: .08em; color: var(--dim);
+           background: var(--panel); border: 1px solid var(--border);
+           border-radius: 7px; padding: .2rem .55rem; }
+  .ratio b { font: 600 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .ratio.done b { color: var(--go); }
+  .ratio.open b { color: var(--hold); }
+  /* A failure has to be readable from the header, not only from the row. */
+  .ratio.bad { border-color: color-mix(in srgb, var(--halt) 55%, transparent); }
+  .ratio.bad b { color: var(--halt); }
+
+  /* `ltrack`, not `track`: the card's phase track already owns `.track` and is
+     `display:flex`, which laid the ledger's two columns out as one row. Only a
+     real browser showed it — the class names never collide in the DOM tree. */
+  .tracks { display: grid; grid-template-columns: 1fr 1fr; }
+  .ltrack { padding: 1.1rem 1.2rem 1.3rem; min-width: 0; }
+  .ltrack + .ltrack { border-left: 1px solid var(--border); }
+  .ltrackhead { display: flex; align-items: baseline; gap: .6rem; margin-bottom: 1rem; }
+  .ltrackhead h3 { font: 600 11.5px var(--mono); text-transform: uppercase;
+                   letter-spacing: .13em; color: var(--dim); }
+  .ltrackhead .hint { font: 11px var(--mono); color: var(--faint); margin-left: auto; }
+  .tracknote { font: 11.5px var(--mono); color: var(--faint); }
+
+  /* plan: a connected rail, because the steps are ordered */
+  .steps { list-style: none; padding: 0; display: flex; flex-direction: column; }
+  .step { position: relative; padding: 0 0 .85rem 1.85rem; }
+  .step:last-child { padding-bottom: 0; }
+  .step::before { content: ""; position: absolute; left: 6px; top: 1.15rem; bottom: -.1rem;
+                  width: 1px; background: var(--border); }
+  .step:last-child::before { display: none; }
+  .step.done::before { background: color-mix(in srgb, var(--go) 45%, var(--border)); }
+  .node { position: absolute; left: 0; top: .28rem; width: 13px; height: 13px; border-radius: 50%;
+          border: 1.5px solid var(--faint); background: var(--panel);
+          display: grid; place-items: center; font: 700 8.5px var(--mono); line-height: 1; }
+  .step.done .node { background: var(--go); border-color: var(--go); }
+  .step.done .node::after { content: "✓"; color: var(--void); }
+  .step.doing .node { border-color: var(--signal);
+                      box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 18%, transparent); }
+  .step.blocked .node { border-color: var(--hold); background: var(--hold); }
+  .step.blocked .node::after { content: "!"; color: var(--void); }
+  .step .tx { font-size: 13.5px; color: var(--ink); }
+  .step.done .tx { color: var(--dim); }
+  .step.doing .tx { font-weight: 500; }
+  .step .n { font: 500 10.5px var(--mono); color: var(--faint);
+             font-variant-numeric: tabular-nums; margin-right: .5rem; }
+  .step .why { display: block; font: 11.5px var(--mono); color: var(--hold); margin-top: .2rem; }
+
+  /* scorecard: independent squares, because criteria are unordered */
+  .checks { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .7rem; }
+  .check { display: flex; gap: .65rem; align-items: flex-start; }
+  .box { flex: none; width: 14px; height: 14px; margin-top: .2rem; border-radius: 3px;
+         border: 1.5px solid var(--faint); display: grid; place-items: center;
+         font-size: 9px; line-height: 1; font-weight: 700; }
+  .check.pass .box { background: color-mix(in srgb, var(--go) 22%, transparent);
+                     border-color: var(--go); color: var(--go); }
+  .check.pass .box::after { content: "✓"; }
+  .check.fail .box { background: color-mix(in srgb, var(--halt) 25%, transparent);
+                     border-color: var(--halt); color: var(--halt); }
+  .check.fail .box::after { content: "✕"; }
+  .check.open .box { border-style: dashed; border-color: var(--hold); }
+  .check .body { min-width: 0; }
+  .check .n { font: 500 10.5px var(--mono); color: var(--faint);
+              font-variant-numeric: tabular-nums; margin-right: .45rem; }
+  .check .tx { font-size: 13.5px; color: var(--ink); }
+  .check.pass .tx { color: var(--dim); }
+  /* A criterion without a visible verification is an opinion. */
+  .check .vf { display: block; font: 11.5px var(--mono); color: var(--faint);
+               margin-top: .2rem; overflow-wrap: anywhere; }
+  .check.fail { margin: 0 -.6rem; padding: .45rem .6rem; border-radius: 6px;
+                background: color-mix(in srgb, var(--halt) 9%, transparent);
+                box-shadow: inset 2px 0 0 var(--halt); }
+  .check.fail .tx { font-weight: 500; }
+  .check.fail .vf { color: var(--halt); }
+  .check.open .vf { color: var(--hold); }
+
+  /* An empty scorecard above tier 1 means the work has no agreed done. */
+  .empty { border: 1px dashed color-mix(in srgb, var(--hold) 45%, var(--border));
+           border-radius: 8px; padding: .8rem .9rem;
+           background: color-mix(in srgb, var(--hold) 7%, transparent); }
+  .empty .t { font-size: 13px; color: var(--hold); }
+  .empty .s { display: block; font: 11.5px var(--mono); color: var(--faint); margin-top: .25rem; }
+
+  /* ---------- the record ---------- */
+  .record { display: flex; flex-direction: column; gap: 1.4rem; }
+  .sec h3 { font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: .13em;
+            color: var(--dim); margin-bottom: .7rem; }
+  .sec h3 .count { color: var(--ink); }
+  .sec.warn h3 { color: var(--hold); }
+  .tl { display: flex; flex-direction: column; gap: .6rem; }
+  .ev { border-left: 2px solid var(--border); padding-left: .8rem; }
+  .ev b { font-weight: 600; font-size: 13.5px; }
+  .ev small { display: block; font-size: 12.5px; color: var(--dim); }
+  .ev .when { font: 11px var(--mono); color: var(--faint); }
+  .codeblock { border: 1px solid var(--border); border-radius: 8px; padding: .6rem .8rem;
+               margin-bottom: .5rem; }
+  .codeblock .path { font: 11.5px var(--mono); color: var(--signal); }
+  .codeblock .lang { font: 10.5px var(--mono); color: var(--faint); margin-left: .5rem; }
+  .codeblock .cnote { font-size: 13px; color: var(--dim); margin-top: .25rem; }
+  .fold summary { cursor: pointer; font: 11.5px var(--mono); color: var(--dim); }
+  .fold pre { background: var(--void); border: 1px solid var(--border); border-radius: 8px;
+              padding: .6rem .8rem; margin-top: .5rem; overflow-x: auto;
+              font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .notes { margin-top: 1.6rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+  .mdbody { margin-top: .6rem; }
+  .mdbody h3, .mdbody h4, .mdbody h5, .mdbody h6 { margin: 1rem 0 .35rem; font-size: .95rem; }
+  .mdbody p { margin: .45rem 0; font-size: 13.5px; color: var(--dim); }
+  .mdbody ul { margin: .35rem 0 .35rem 1.1rem; font-size: 13.5px; color: var(--dim); }
+  .mdbody code { font: .9em var(--mono); color: var(--ink); }
+  .mdbody b { color: var(--ink); }
+  .plain { list-style: none; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
+  .plain .mk { color: var(--faint); margin-right: .4rem; }
+  .plain .dead { color: var(--faint); cursor: not-allowed; }
+  .kv { border-collapse: collapse; font-size: 12.5px; }
+  .kv td { border: 1px solid var(--border); padding: .3rem .55rem; vertical-align: top; }
+  .kv td:first-child { font: 11.5px var(--mono); color: var(--dim); white-space: nowrap; }
+
   /* ---------- phone: the chip bar is the nav ---------- */
   @media (max-width: 640px) {
     body { padding: .9rem .9rem 3rem; }
@@ -244,6 +394,20 @@
     .qpanel .cta { flex: 1 1 0; min-height: 44px; display: grid; place-items: center;
                    border-radius: 10px; font-size: 13px; }
     .frrow .qcta { margin-top: 0; justify-self: end; }
+
+    /* The ledger's tracks stack, and the SCORECARD goes first: on a phone you
+       are checking whether something needs you, not reading a work breakdown.
+       Source order is plan-then-scorecard, so the order lives here. */
+    .tracks { grid-template-columns: 1fr; }
+    .ltrack + .ltrack { border-left: 0; border-top: 1px solid var(--border); }
+    .ltrack.score { order: 1; border-top: 0; }
+    .ltrack.plan { order: 2; border-top: 1px solid var(--border); }
+    .hero h1 { font-size: 1.25rem; }
+    /* Ten phase labels do not fit in 390px — they collide and the last one
+       clips. The segments still show progress, and the phase itself is named
+       twice below: in the hero's chips and in the ledger header. */
+    .stepper { gap: 3px; }
+    .sstep span { display: none; }
   }
 </style>
 </head>

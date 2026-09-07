@@ -6,9 +6,10 @@ import { NeedsYouLens } from './needs.js'
 import { WaitingLens } from './waiting.js'
 import { FrictionLens } from './friction.js'
 import { DoneLens, ArchivedLens } from './done.js'
+import { DetailView } from './detail.js'
 import { archiveAction } from './archive.js'
 import { lensCounts, TONES } from './counts.js'
-import { LENSES, PHONE, useRoute, navigate, defaultRoute } from './routes.js'
+import { LENSES, PHONE, useView, navigate, defaultRoute } from './routes.js'
 import { useBoardData, sseTransport } from './data.js'
 
 const html = htm.bind(h)
@@ -55,7 +56,8 @@ function Lens({ route, db, now, isDesktop, onMove }) {
 }
 
 export function App({ transport, load, now, matchPhone, onMove }) {
-  const route = useRoute()
+  const view = useView()
+  const route = view.lens
   // happy-dom resolves hover/pointer media queries from navigator.maxTouchPoints,
   // which is fixed per environment, so desktop-ness is injected rather than
   // sniffed — otherwise neither branch is testable in one file.
@@ -89,8 +91,11 @@ export function App({ transport, load, now, matchPhone, onMove }) {
         <span id="conn" class=${status} data-testid="conn">${status}</span>
       </header>
       <${ChipBar} counts=${counts} route=${route} />
-      <main data-testid="lens" data-lens=${route}>
-        <${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} onMove=${move} />
+      <main data-testid="lens" data-lens=${route || 'task'}>
+        ${view.kind === 'task'
+          ? html`<${DetailView} db=${db} repo=${view.task.repo} id=${view.task.id}
+                                now=${now} isDesktop=${!isPhone()} onMove=${move} />`
+          : html`<${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} onMove=${move} />`}
       </main>
     </div>`
 }

@@ -139,7 +139,17 @@ lands (epic `adb-devboard-lens-board`):
   route, so the grid does not hoist it the way `/` does. Archive and
   un-archive work from the Done and Archived lenses. Approve and answer are
   drawn but inert until `adb-checkpoint-answer-endpoint` gives them an endpoint
-  to call, and task detail still lives at `/`, so cards link across.
+  to call.
+
+  A plain task's detail lives here now, at `#/task/<repo>/<id>`: a hero, then
+  the **contract ledger** — plan as a connected rail because its steps are
+  ordered, the scorecard as independent squares because its criteria are not,
+  under one header carrying the phase and both ratios — then the record beneath
+  it (queues, risk scout, decisions, code, links, unknown keys, worklog notes).
+  Outstanding and failed checks sort above passing ones, every criterion shows
+  its verify line, and an empty scorecard above tier 1 reads as a warning rather
+  than neutral emptiness. Epic and child detail are still on `/`, so those cards
+  and rows keep linking across until `adb-lens-epic-detail`.
 
 Everything below describes **`/`**.
 

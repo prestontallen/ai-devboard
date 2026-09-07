@@ -4,6 +4,7 @@ import { isError, isStale, isEpic, needsYou, waitingOn, phaseOf } from './counts
 import { phasesFor, phaseIndex, planStats, checkStatuses, ago, itemText } from './phases.js'
 import { copyText } from './clipboard.js'
 import { MoveButton } from './archive.js'
+import { hashForTask } from './routes.js'
 
 const html = htm.bind(h)
 
@@ -16,7 +17,12 @@ const html = htm.bind(h)
  *  live in the detail view, not behind a per-card toggle, because per-card
  *  expand state is what `openFolds` existed to rescue on the old board. */
 
-export const detailHref = (task) => `/#${task.repo}/${task.id}`
+/** Plain tasks open in this app. Epics still cross to `/`: their detail is a
+ *  roster of children with independent plans, and that route is
+ *  adb-lens-epic-detail, not built yet. Linking them inward would land on a
+ *  view that cannot render them. */
+export const detailHref = (task) =>
+  isEpic(task) ? `/#${task.repo}/${task.id}` : hashForTask(task.repo, task.id)
 
 /** Interactive controls sit inside the card's anchor, so each one must stop the
  *  click from also navigating the card — exactly as index.html does. */
