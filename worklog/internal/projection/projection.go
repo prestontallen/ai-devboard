@@ -34,11 +34,44 @@ func banner(b *bytes.Buffer) { b.WriteString(Banner + "\n") }
 // reindex over this output, so the projection IS that code's output
 // rather than a reimplementation of it.
 func Render(s store.Store) (map[string][]byte, error) {
+	files, _, err := render(s)
+	return files, err
+}
+
+// RenderSnapshot returns every projection of s plus, for each rendered
+// board file, the BoardRenderedAt stamp of the ticket it renders — the
+// store's own answer to "what would be on disk, and how fresh is it".
+// Read-only: it writes neither files nor stamps. This is what the serve
+// layer's store shadow consumes (adb-store-serve-shadow): one renderer
+// produces both the files and the store-served payload, so the shadow
+// diff measures desync, never renderer disagreement.
+func RenderSnapshot(s store.Store) (files map[string][]byte, boardStamps map[string]int64, err error) {
+	fs, owners, err := render(s)
+	if err != nil {
+		return nil, nil, err
+	}
+	stamps := make(map[string]int64, len(owners))
+	for rel, o := range owners {
+		stamps[rel] = o.at
+	}
+	return fs, stamps, nil
+}
+
+// boardOwner ties a rendered board file to the ticket whose render it is,
+// carrying the stamp read at render time so stampBoardRendered can skip
+// the Touch when the file's mtime already matches.
+type boardOwner struct {
+	id store.ID
+	at int64
+}
+
+func render(s store.Store) (map[string][]byte, map[string]boardOwner, error) {
 	tickets, err := s.Tickets()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := map[string][]byte{"WORK.md": WorkMD(tickets)}
+	owners := map[string]boardOwner{}
 
 	for _, t := range tickets {
 		if t.NotesPreamble == "" && len(t.NoteEntries) == 0 {
@@ -62,7 +95,7 @@ func Render(s store.Store) (map[string][]byte, error) {
 
 	fb, err := s.Feedback()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Always emitted, even with zero entries. Gating on len(fb) made
 	// FEEDBACK.md invisible to BOTH EditedIn and RenderTo whenever the
@@ -79,7 +112,7 @@ func Render(s store.Store) (map[string][]byte, error) {
 		}
 		kids, err := s.Children(t.ID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		// A child never gets its own top-level file (see the skip above),
 		// so its own BoardTracked flag doesn't gate anything here — the
@@ -97,9 +130,11 @@ func Render(s store.Store) (map[string][]byte, error) {
 		if t.BoardArchived {
 			dir += "/_archive"
 		}
-		out[dir+"/"+t.Slug+".yaml"] = boardmap.BoardYAML(t, kids)
+		rel := dir + "/" + t.Slug + ".yaml"
+		out[rel] = boardmap.BoardYAML(t, kids)
+		owners[rel] = boardOwner{id: t.ID, at: t.BoardRenderedAt}
 	}
-	return out, nil
+	return out, owners, nil
 }
 
 // Layout locates the two directories the projections actually split
@@ -125,12 +160,39 @@ func (l Layout) path(rel string) string {
 	return filepath.Join(l.WorklogDir, filepath.FromSlash(rel))
 }
 
-// RenderTo writes every projection of s into the two directories l names.
+// RenderTo writes every projection of s into the two directories l names,
+// then syncs each board-tracked ticket's BoardRenderedAt to its rendered
+// file's mtime. The stamp mirrors the file: writeIfChanged skips a
+// byte-identical render, so an untouched file keeps its mtime and the
+// stamp does not move; a changed one gets a new mtime and the stamp
+// follows. Syncing to the mtime rather than time.Now is what makes a
+// store-served /api/tasks mtime equal the file-served one exactly, and it
+// backfills tickets from before the column existed on their next write
+// (adb-store-serve-shadow). RenderAll is the pure variant.
 func RenderTo(s store.Store, l Layout) error {
-	files, err := Render(s)
+	files, owners, err := render(s)
 	if err != nil {
 		return err
 	}
+	if err := writeFiles(files, l); err != nil {
+		return err
+	}
+	for rel, owner := range owners {
+		st, err := os.Stat(l.path(rel))
+		if err != nil {
+			return fmt.Errorf("stamping %s: %w", rel, err)
+		}
+		if mt := st.ModTime().UnixNano(); mt != owner.at {
+			if err := s.TouchBoardRendered(owner.id, mt); err != nil {
+				return fmt.Errorf("stamping %s: %w", rel, err)
+			}
+		}
+	}
+	return nil
+}
+
+// writeFiles is RenderTo's write loop, shared with RenderAll.
+func writeFiles(files map[string][]byte, l Layout) error {
 	for rel, content := range files {
 		if err := writeIfChanged(l.path(rel), content); err != nil {
 			return err
@@ -175,8 +237,17 @@ func boardSibling(rel string) string {
 	return dir + "/" + archiveSegment + "/" + file
 }
 
-// RenderAll writes every projection of s under a single root.
-func RenderAll(s store.Store, root string) error { return RenderTo(s, SingleRoot(root)) }
+// RenderAll writes every projection of s under a single root, WITHOUT
+// stamping BoardRenderedAt — it is the scratch-dir variant: verify
+// renders into a temp dir for comparison and must not write the store,
+// nor adopt real stamps from scratch-file mtimes.
+func RenderAll(s store.Store, root string) error {
+	files, _, err := render(s)
+	if err != nil {
+		return err
+	}
+	return writeFiles(files, SingleRoot(root))
+}
 
 // EditedFiles reports the projections under root whose bytes differ from
 // what s renders right now, newline-sorted — the files someone hand-edited

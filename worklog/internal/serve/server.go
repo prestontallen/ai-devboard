@@ -73,6 +73,16 @@ type Config struct {
 	Addr         string
 	Port         int
 	ScanInterval time.Duration
+
+	// StoreShadow mirrors DEVBOARD_STORE_SHADOW=1: on every /api/tasks
+	// request, additionally build the payload from the store's own
+	// rendering (LoadStoreSnapshot) and log where the two disagree. The
+	// response is always the file-built payload — shadow mode is invisible
+	// on the wire (devboard/API.md). Resolved once here rather than read
+	// from the env per request, so embedded Servers built with an explicit
+	// Config (verify, the projection tests) are immune to the process
+	// environment (adb-store-serve-shadow).
+	StoreShadow bool
 }
 
 // ConfigFromEnv resolves DEVBOARD_DATA, DEVBOARD_WORKLOG, DEVBOARD_PORT and
@@ -99,6 +109,7 @@ func ConfigFromEnv() Config {
 			cfg.ScanInterval = time.Duration(f * float64(time.Second))
 		}
 	}
+	cfg.StoreShadow = os.Getenv("DEVBOARD_STORE_SHADOW") == "1"
 	return cfg
 }
 
@@ -140,6 +151,33 @@ type Server struct {
 	// after a 200 and an empty log. An error here now fails the request
 	// with the file untouched (adb-archive-store-desync).
 	MutateBoard func(repo, id string, archived bool) (owned bool, err error)
+
+	// LoadStoreSnapshot, if set and cfg.StoreShadow is on, is called once
+	// per /api/tasks request to fetch the store's own rendering of the
+	// projection surfaces. Injected by the CLI layer for the same cycle
+	// reason as MutateBoard. It must open and close the store within the
+	// call — a held handle breaks `worklog migrate`'s db swap — and a
+	// (nil, nil) return means "no store on this machine": the shadow is
+	// then a silent no-op, and the loader must never have created the
+	// database, because an empty store minted by a read makes every CLI
+	// write refuse from then on (adb-store-serve-shadow).
+	LoadStoreSnapshot func() (*StoreSnapshot, error)
+
+	// shadowLastErr and shadowLastReport dedupe shadow logging: a
+	// persistent failure or an unchanged disagreement logs once, not once
+	// per poll of a board that refetches on every change event.
+	shadowLastErr    string
+	shadowLastReport string
+}
+
+// StoreSnapshot is the store's own rendering of every projection surface,
+// as projection.RenderSnapshot returns it: Files maps slash-separated
+// relative path (WORK.md, notes/<slug>.md, devboard/<repo>/<slug>.yaml,
+// FEEDBACK.md) to content, and BoardMTimes maps each board file to the
+// BoardRenderedAt stamp of the ticket it renders, unix nanoseconds.
+type StoreSnapshot struct {
+	Files       map[string][]byte
+	BoardMTimes map[string]int64
 }
 
 func New(cfg Config) *Server {
@@ -270,7 +308,14 @@ func (s *Server) Handler() http.Handler {
 			case "/next", "/next/":
 				http.Redirect(w, r, "/", http.StatusPermanentRedirect)
 			case "/api/tasks":
-				body, err := json.Marshal(s.allTasks())
+				payload := s.allTasks()
+				// Shadow mode is invisible on the wire: it runs after the
+				// real payload is built, never modifies it, and its own
+				// failures are contained (devboard/API.md stays frozen).
+				if s.cfg.StoreShadow && s.LoadStoreSnapshot != nil {
+					s.runShadow(payload)
+				}
+				body, err := json.Marshal(payload)
 				if err != nil {
 					s.send(w, http.StatusInternalServerError,
 						[]byte(`{"error": "encoding failed"}`), "application/json")

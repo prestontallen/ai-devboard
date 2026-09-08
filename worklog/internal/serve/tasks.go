@@ -95,6 +95,13 @@ var backlogSections = []model.SectionName{model.SectionNext, model.SectionSomeda
 // and because reaching for the store would put a second reader (and its
 // locking) inside a process whose whole job is to render.
 //
+// That decision was knowingly revisited — not contradicted — by
+// adb-store-serve-shadow: shadow.go's store reader exists to measure
+// whether serving from the store is safe, behind a flag, per request,
+// with the file path still serving every byte. If the epic's flip lands,
+// this comment's rationale retires with the file read; until then it
+// stands.
+//
 // Any problem yields empty sections, never an error: the backlog is one
 // lens among seven, and a malformed or absent WORK.md must not take the
 // whole board down — the same rule parseFeedback follows.

@@ -24,9 +24,12 @@ var migration1 string
 //go:embed schema2.sql
 var migration2 string
 
+//go:embed schema3.sql
+var migration3 string
+
 // migrations are applied in order inside one transaction each; index+1 is
 // the resulting PRAGMA user_version.
-var migrations = []string{migration1, migration2}
+var migrations = []string{migration1, migration2, migration3}
 
 type SQLite struct {
 	db *sql.DB
@@ -84,6 +87,24 @@ func (s *SQLite) migrate() error {
 }
 
 func (s *SQLite) Close() error { return s.db.Close() }
+
+// TouchBoardRendered is the column's sole writer — PutTicket's explicit
+// column list omits board_rendered_at on purpose, so this single UPDATE
+// is the only statement that can move the stamp.
+func (s *SQLite) TouchBoardRendered(id store.ID, at int64) error {
+	res, err := s.db.Exec("UPDATE tickets SET board_rendered_at = ? WHERE id = ?", at, string(id))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return store.NotFound("ticket " + string(id))
+	}
+	return nil
+}
 
 func jstr(v any) string {
 	raw, _ := json.Marshal(v)
@@ -363,7 +384,7 @@ SELECT id, slug, title, type, state, rank, roster_rank, section, parent_id, repo
   archived, completed, summary, time_spent, archive_feedback, archive_month,
   board_tracked, board_archived, tier, complexity, phase, branch, session,
   repo_path, scout_mode, scout_why, scout_when, notes_preamble, extra,
-  extra_fields
+  extra_fields, board_rendered_at
 FROM tickets WHERE id = ?`, string(id)).Scan(
 		&idS, &slugCol, &t.Title, &t.Type, &t.State, &t.Rank, &t.RosterRank, &t.Section, &parent,
 		&t.Repo, &tags, &t.Started, &t.WaitingSince, &pr, &t.Source, &files,
@@ -371,7 +392,7 @@ FROM tickets WHERE id = ?`, string(id)).Scan(
 		&t.Summary, &t.TimeSpent, &afb, &t.ArchiveMonth, &t.BoardTracked,
 		&t.BoardArchived, &t.Tier, &t.Complexity, &t.Phase, &t.Branch,
 		&t.Session, &t.RepoPath, &scoutMode, &scoutWhy, &when,
-		&t.NotesPreamble, &extra, &extraFields)
+		&t.NotesPreamble, &extra, &extraFields, &t.BoardRenderedAt)
 	if err == sql.ErrNoRows {
 		return nil, store.NotFound("ticket " + string(id))
 	}

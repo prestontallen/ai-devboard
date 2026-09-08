@@ -115,6 +115,17 @@ type Ticket struct {
 	RepoPath      string
 	Scout         *Scout
 
+	// BoardRenderedAt is when this ticket's rendered board file bytes
+	// last changed, unix nanoseconds (0 = never rendered). It mirrors
+	// the file mtime the /api/tasks payload reports, which is why a
+	// byte-identical re-render must not advance it (writeIfChanged
+	// deliberately skips the write). TouchBoardRendered is its SOLE
+	// writer: PutTicket ignores the field, so an aggregate read before
+	// another process's render and written back after cannot regress
+	// the stamp. Not journaled — render freshness is infrastructure,
+	// not a field change the human made.
+	BoardRenderedAt int64
+
 	// Notes file: preamble (title line, scaffold comment, Background
 	// prose) verbatim; entries in NoteEntries.
 	NotesPreamble string
@@ -297,6 +308,12 @@ type Store interface {
 
 	// Journal returns an entity's field-change history oldest-first.
 	Journal(entity ID) ([]FieldChange, error)
+
+	// TouchBoardRendered stamps BoardRenderedAt — its sole writer, kept
+	// out of PutTicket so a stale aggregate written back can never
+	// regress the stamp, and so the render layer can stamp without
+	// re-journaling the aggregate. NotFound for an unknown id.
+	TouchBoardRendered(id ID, at int64) error
 
 	Close() error
 }

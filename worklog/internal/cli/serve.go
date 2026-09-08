@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/serve"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
 // newServeCmd wires the devboard dashboard server. Configuration is
@@ -40,9 +45,40 @@ over LAN.`,
 				}
 				return storeArchiveMove(wd, id, archived)
 			}
+			srv.LoadStoreSnapshot = loadStoreSnapshot
 			return srv.ListenAndServe()
 		},
 	}
+}
+
+// loadStoreSnapshot is the shadow's read path (DEVBOARD_STORE_SHADOW=1),
+// injected for the same cycle reason as MutateBoard. Three obligations
+// (adb-store-serve-shadow): stat before open, because sqlitestore.Open
+// creates and migrates — a shadow read on a store-less machine would mint
+// an empty db and every CLI write would then refuse; open and close per
+// request, because a held handle breaks `worklog migrate`'s db swap; and
+// render in memory only — RenderSnapshot writes neither files nor stamps.
+func loadStoreSnapshot() (*serve.StoreSnapshot, error) {
+	dataDir, err := storeDataDir()
+	if err != nil {
+		return nil, err
+	}
+	path := migrate.OutputPath(dataDir)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, nil // not adopted: silent no-op, never create the db
+	} else if err != nil {
+		return nil, err
+	}
+	ss, err := sqlitestore.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer ss.Close()
+	files, stamps, err := projection.RenderSnapshot(ss)
+	if err != nil {
+		return nil, err
+	}
+	return &serve.StoreSnapshot{Files: files, BoardMTimes: stamps}, nil
 }
 
 // storeArchiveMove records a dashboard archive/unarchive in the store — the

@@ -80,10 +80,28 @@ func (m *Mem) PutTicket(t *store.Ticket) error {
 	}
 
 	stored := clone(t)
+	// PutTicket never writes BoardRenderedAt (TouchBoardRendered is its
+	// sole writer) — mirror sqlitestore, whose column list omits it: a
+	// new row gets the DEFAULT, an update keeps the stored value.
+	stored.BoardRenderedAt = 0
+	if prev != nil {
+		stored.BoardRenderedAt = prev.BoardRenderedAt
+	}
 	m.tickets[t.ID] = stored
 	if slug != "" {
 		m.bySlug[slug] = t.ID
 	}
+	return nil
+}
+
+func (m *Mem) TouchBoardRendered(id store.ID, at int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tickets[id]
+	if !ok {
+		return store.NotFound("ticket " + string(id))
+	}
+	t.BoardRenderedAt = at
 	return nil
 }
 

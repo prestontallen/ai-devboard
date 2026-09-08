@@ -25,6 +25,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 	t.Run("ChildrenSingleRelation", func(t *testing.T) { testChildren(t, open(t)) })
 	t.Run("TicketsOrderByRank", func(t *testing.T) { testTicketRank(t, open(t)) })
 	t.Run("ChildrenOrderByRosterRank", func(t *testing.T) { testRosterRank(t, open(t)) })
+	t.Run("BoardRenderedAtTouchOnly", func(t *testing.T) { testBoardRenderedAt(t, open(t)) })
 }
 
 // testRosterRank: Children() honors RosterRank, so an epic's roster keeps
@@ -84,6 +85,48 @@ func testTicketRank(t *testing.T, s store.Store) {
 	}
 	if got[0].Rank != 0 || got[2].Rank != 2 {
 		t.Fatalf("Rank did not round-trip: %d, %d", got[0].Rank, got[2].Rank)
+	}
+}
+
+// testBoardRenderedAt: TouchBoardRendered is the field's sole writer.
+// PutTicket must ignore the incoming value both on create and on update —
+// otherwise an aggregate read before another process's render and written
+// back after would silently regress the stamp (adb-store-serve-shadow).
+// memstore clones by JSON round-trip and would inherit the field for
+// free, so the ignore behavior is asserted explicitly per implementation.
+func testBoardRenderedAt(t *testing.T, s store.Store) {
+	tk := base("brt")
+	tk.BoardRenderedAt = 999 // must not survive the Put
+	got := put(t, s, tk)
+	if got.BoardRenderedAt != 0 {
+		t.Fatalf("PutTicket wrote BoardRenderedAt on create: got %d, want 0", got.BoardRenderedAt)
+	}
+
+	if err := s.TouchBoardRendered(got.ID, 42); err != nil {
+		t.Fatalf("TouchBoardRendered: %v", err)
+	}
+	got, err := s.Ticket(got.ID)
+	if err != nil {
+		t.Fatalf("Ticket: %v", err)
+	}
+	if got.BoardRenderedAt != 42 {
+		t.Fatalf("BoardRenderedAt after touch = %d, want 42", got.BoardRenderedAt)
+	}
+
+	got.BoardRenderedAt = 7 // stale value riding an aggregate write
+	if err := s.PutTicket(got); err != nil {
+		t.Fatalf("PutTicket: %v", err)
+	}
+	got, err = s.Ticket(got.ID)
+	if err != nil {
+		t.Fatalf("Ticket: %v", err)
+	}
+	if got.BoardRenderedAt != 42 {
+		t.Fatalf("PutTicket moved the stamp: got %d, want 42", got.BoardRenderedAt)
+	}
+
+	if err := s.TouchBoardRendered(store.NewID(), 1); !store.IsNotFound(err) {
+		t.Fatalf("TouchBoardRendered(unknown) = %v, want NotFound", err)
 	}
 }
 

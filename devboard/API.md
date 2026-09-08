@@ -10,6 +10,13 @@ The point of the freeze: the storage layer under this server will change
 (adb-worklog-rewrite). The JSON below is the boundary — storage swaps must
 be invisible on this surface.
 
+That change is underway. With `DEVBOARD_STORE_SHADOW=1`, every
+`/api/tasks` request also builds the payload from the store's own
+rendering and logs where the two disagree (`worklog/internal/serve/shadow.go`,
+adb-store-serve-shadow). Shadow mode is invisible on this surface: the
+response is always the file-built payload, byte for byte, flag set or not
+— a shadow failure is contained to a log line, never a 500.
+
 ## Surface
 
 Six endpoint groups. Anything else is 404 `{"error": "not found"}` — including
