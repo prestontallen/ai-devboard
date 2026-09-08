@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // This file ports internal/devboard/repopath_test.go's coverage
@@ -51,11 +51,9 @@ func repoPathFixture(t *testing.T, declaredRepo string) (dir string) {
 	if err := os.MkdirAll(devDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dataDir := filepath.Join(t.TempDir(), "migration")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir
@@ -196,11 +194,7 @@ func TestRepoPathAbsentOutsideAGitRepo(t *testing.T) {
 // guard would then (correctly) refuse to touch.
 func setStoreRepoPath(t *testing.T, worklogDir, slug, repoPath string) {
 	t.Helper()
-	dataDir, err := storeDataDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
+	s, err := sqlitestore.Open(storepath.DB(worklogDir))
 	if err != nil {
 		t.Fatal(err)
 	}

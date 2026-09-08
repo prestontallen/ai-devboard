@@ -73,9 +73,8 @@ func epicChildFreshStoreFixture(t *testing.T) (live string) {
 	}
 
 	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "absent"))
-	dataDir := filepath.Join(t.TempDir(), "migration")
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", live, "--out", dataDir); strings.Contains(stderr, "error") {
+	t.Setenv("WORKLOG_DIR", live)
+	if _, stderr := runCLI(t, "migrate", "--dir", live); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 
@@ -260,11 +259,9 @@ func TestTaskEpicWithoutChildRefuses(t *testing.T) {
 	if err := os.MkdirAll(devDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dataDir := filepath.Join(t.TempDir(), "migration")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 

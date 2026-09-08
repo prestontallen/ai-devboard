@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // nextRank is the Rank a newly created ticket must carry: one past the
@@ -69,25 +69,71 @@ func nextRosterRankOf(kids []*store.Ticket) int {
 	return max + 1
 }
 
-// requireAdopted refuses before opening a store that does not exist yet.
-//
-// Without this the machine gets the wrong error entirely: sqlitestore.Open
-// CREATES the database when the path is absent, so the verb proceeds
-// against an empty store, Render emits a WORK.md the corpus does not
-// match, and EditedIn reports every file as "edited by hand" — on a
-// machine where nobody edited anything. Worse, the advice that refusal
-// gives ("they are build outputs; the store is the source") is actively
-// dangerous against an empty store: following it means deleting the
-// corpus. Say what is actually true instead, and name the command.
-func requireAdopted(dataDir string) error {
-	if _, err := os.Stat(migrate.OutputPath(dataDir)); err == nil {
+// refuseRetiredStoreEnv refuses while $WORKLOG_MIGRATION_DATA is still
+// set. Ignoring it silently would be worse than failing: somebody who
+// exported it meant to send the store somewhere specific, and quietly
+// writing elsewhere is how a machine ends up with two databases.
+func refuseRetiredStoreEnv() error {
+	if os.Getenv(storepath.LegacyEnv) == "" {
 		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("opening store: %w", err)
 	}
 	return errWithExit(1,
+		"$%s is retired — the store directory is now derived from the worklog directory\n"+
+			"unset it; use --dir or $WORKLOG_DIR to move both together",
+		storepath.LegacyEnv)
+}
+
+// isDefaultCorpus reports whether wd is the corpus a bare `worklog` with
+// no --dir and no $WORKLOG_DIR resolves to.
+func isDefaultCorpus(wd model.Workdir) bool {
+	def, err := model.NewWorkdir("")
+	return err == nil && def.Root == wd.Root
+}
+
+// requireStore resolves wd's database and refuses when it is not there.
+//
+// Two absences that need different answers. A machine that never adopted
+// has no store anywhere, and the fix is to build one. A machine whose
+// database is still at the pre-move location has a perfectly good store
+// in the wrong place, and telling THAT machine to run adopt is actively
+// destructive: adopt rebuilds the store from markdown, so every field the
+// store owns and the markdown does not — phase history, scorecards,
+// decisions, the board's in-flight detail — would be silently dropped.
+// Look before answering.
+//
+// Refusing also matters because sqlitestore.Open CREATES the database
+// when the path is absent. Without this the verb would proceed against an
+// empty store and render a WORK.md the corpus does not match.
+func requireStore(wd model.Workdir) (string, error) {
+	if err := refuseRetiredStoreEnv(); err != nil {
+		return "", err
+	}
+
+	path := storepath.DB(wd.Root)
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("opening store: %w", err)
+	}
+
+	// Only the DEFAULT corpus can have a database at the pre-move default
+	// location. Pointing a scratch or secondary corpus at that message
+	// would be nonsense — its store was never there — and in tests it
+	// would swap the honest "not adopted" answer for a relocation notice
+	// about the developer's real database.
+	if isDefaultCorpus(wd) {
+		if legacy, err := storepath.LegacyDB(); err == nil {
+			if _, statErr := os.Stat(legacy); statErr == nil {
+				return "", errWithExit(1,
+					"the store has a new home and yours is still at the old one\n  old: %s\n  new: %s\nrun `worklog store relocate` to move it — do NOT run `worklog adopt`, which would rebuild the store from markdown and drop everything only the store holds",
+					legacy, path)
+			}
+		}
+	}
+
+	return "", errWithExit(1,
 		"this machine has not adopted the store yet — no database at %s\nrun `worklog adopt` to preview the adoption, then `worklog adopt --commit`",
-		migrate.OutputPath(dataDir))
+		path)
 }
 
 // storeSession is one write verb's open store handle plus the layout it
@@ -108,14 +154,11 @@ type storeSession struct {
 // render — the M3b policy: refuse before mutating, never after, since a
 // render destroys whatever a human typed by hand.
 func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
-	dataDir, err := storeDataDir()
+	path, err := requireStore(wd)
 	if err != nil {
 		return nil, err
 	}
-	if err := requireAdopted(dataDir); err != nil {
-		return nil, err
-	}
-	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
+	s, err := sqlitestore.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening store: %w", err)
 	}

@@ -8,7 +8,17 @@ command refuse with "these projections were edited by hand", and to
 recommend how the tool should support an isolated scratch data dir. It was
 told this is investigation, not implementation.
 
-GROUND TRUTH (for your scoring only — the agent did not see this): the
+GROUND TRUTH AS OF 2026-09-08 (for your scoring only — the agent did not
+see this). NOTE: the defect described below was FIXED on 2026-09-08 by
+adb-store-adapter — the store path is now derived from WORKLOG_DIR (that
+path with "-store" appended), so a scratch WORKLOG_DIR does isolate both.
+A fresh directory is now refused with "has not adopted", naming the real
+cause, rather than blaming a hand edit. Runs recorded in results/ predate
+the fix and were scored against the description below, which is kept
+verbatim so those scores stay interpretable. Score any NEW run against the
+current behavior, not this paragraph.
+
+The original ground truth, as it stood before the fix: the
 documented claim is wrong in practice because the markdown files under
 WORKLOG_DIR are projections, not the source of truth. The SQLite store that
 actually gates writes resolves its path independently of WORKLOG_DIR — from

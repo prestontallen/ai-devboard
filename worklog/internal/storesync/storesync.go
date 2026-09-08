@@ -29,6 +29,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 	"github.com/prestontallen/ai-devboard/worklog/internal/verify"
 )
 
@@ -55,17 +56,14 @@ func AfterWrite(wd model.Workdir) (*verify.Report, error) {
 		return nil, nil
 	}
 
-	dataDir, err := dataDir()
-	if err != nil {
-		return nil, fmt.Errorf("storesync: %w", err)
-	}
+	dataDir := storepath.Dir(wd.Root)
 	src := migrate.Sources{WorklogDir: wd.Root, DevboardDir: devboard.DataDir()}
 
 	if _, err := migrate.Run(migrate.Options{Sources: src, DataDir: dataDir}); err != nil {
 		return nil, fmt.Errorf("storesync: derive: %w", err)
 	}
 
-	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
+	s, err := sqlitestore.Open(storepath.DBIn(dataDir))
 	if err != nil {
 		return nil, fmt.Errorf("storesync: open: %w", err)
 	}
@@ -97,17 +95,7 @@ func WarnAfterWrite(wd model.Workdir) {
 		return // hook disabled
 	}
 
-	path, baseErr := baselinePath()
-	if baseErr != nil {
-		// Nowhere to keep a baseline: fall back to the absolute count
-		// rather than going silent about real drift.
-		if !rep.Clean() {
-			fmt.Fprintf(os.Stderr,
-				"storesync: drift after write (%d entries, no baseline) -- run `worklog verify` for detail\n",
-				len(rep.Drifts))
-		}
-		return
-	}
+	path := baselinePath(wd)
 
 	prev, had := loadBaseline(path)
 	fresh := newDrifts(prev, rep.Drifts)
@@ -151,12 +139,11 @@ func newDrifts(prev map[string]bool, now []verify.Drift) []verify.Drift {
 	return out
 }
 
-func baselinePath() (string, error) {
-	dir, err := dataDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "storesync-baseline.json"), nil
+// baselinePath keeps the previous run's drift set beside the database, in
+// the store directory rather than in the corpus — it is tool state, not
+// something the human owns.
+func baselinePath(wd model.Workdir) string {
+	return filepath.Join(storepath.Dir(wd.Root), "storesync-baseline.json")
 }
 
 // loadBaseline reports the previous run's drift set and whether one was
@@ -191,11 +178,4 @@ func saveBaseline(path string, drifts []verify.Drift) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-func dataDir() (string, error) {
-	if env := os.Getenv("WORKLOG_MIGRATION_DATA"); env != "" {
-		return env, nil
-	}
-	return migrate.DefaultDataDir()
 }

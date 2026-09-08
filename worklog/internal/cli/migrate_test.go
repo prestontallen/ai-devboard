@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // invokeMigrate drives the migrate cobra subcommand, pointing the worklog
@@ -54,39 +57,49 @@ func TestMigrateRespectsDataDirOverride(t *testing.T) {
 	worklogDir := newCLIFixtureDir(t)
 	t.Setenv("DEVBOARD_DATA", t.TempDir())
 
-	t.Run("env var", func(t *testing.T) {
-		dataDir := filepath.Join(t.TempDir(), "via-env")
-		t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-
+	t.Run("derived from the corpus by default", func(t *testing.T) {
 		if _, err := invokeMigrate(t, worklogDir, "--json"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := os.Stat(filepath.Join(dataDir, "worklog.db")); err != nil {
-			t.Errorf("expected the output db under %s: %v", dataDir, err)
+		if _, err := os.Stat(storepath.DB(worklogDir)); err != nil {
+			t.Errorf("expected the output db at %s: %v", storepath.DB(worklogDir), err)
 		}
 	})
 
-	t.Run("flag wins over env var", func(t *testing.T) {
-		envDir := filepath.Join(t.TempDir(), "via-env")
+	t.Run("--out wins over the derived location", func(t *testing.T) {
+		corpus := newCLIFixtureDir(t)
 		flagOutDir := filepath.Join(t.TempDir(), "via-flag")
-		t.Setenv("WORKLOG_MIGRATION_DATA", envDir)
 
-		if _, err := invokeMigrate(t, worklogDir, "--json", "--out", flagOutDir); err != nil {
+		if _, err := invokeMigrate(t, corpus, "--json", "--out", flagOutDir); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := os.Stat(filepath.Join(flagOutDir, "worklog.db")); err != nil {
+		if _, err := os.Stat(storepath.DBIn(flagOutDir)); err != nil {
 			t.Errorf("expected the output db under the --out dir %s: %v", flagOutDir, err)
 		}
-		if _, err := os.Stat(filepath.Join(envDir, "worklog.db")); err == nil {
-			t.Error("--out should take priority over $WORKLOG_MIGRATION_DATA, but the env dir got the output db")
+		if _, err := os.Stat(storepath.DB(corpus)); err == nil {
+			t.Error("--out should take priority, but the derived location got the output db too")
 		}
 	})
+}
+
+// TestRetiredEnvIsRefused: somebody who still exports the old variable
+// meant to send the store somewhere specific. Honoring it would write to a
+// location the derived path knows nothing about; ignoring it silently
+// would write somewhere they did not intend. Refuse and say so.
+func TestRetiredEnvIsRefused(t *testing.T) {
+	worklogDir := newCLIFixtureDir(t)
+	t.Setenv("DEVBOARD_DATA", t.TempDir())
+	t.Setenv(storepath.LegacyEnv, t.TempDir())
+
+	_, err := invokeMigrate(t, worklogDir, "--json")
+	if err == nil {
+		t.Fatal("migrate accepted a still-set " + storepath.LegacyEnv)
+	}
 }
 
 func TestMigrateJSONSingleDocument(t *testing.T) {
 	worklogDir := newCLIFixtureDir(t)
 	t.Setenv("DEVBOARD_DATA", t.TempDir())
-	t.Setenv("WORKLOG_MIGRATION_DATA", t.TempDir())
 
 	out, err := invokeMigrate(t, worklogDir, "--json")
 	if err != nil {
@@ -123,7 +136,6 @@ func TestMigrateJSONSingleDocument(t *testing.T) {
 func TestMigrateJSONReportsTimestampedBackupPath(t *testing.T) {
 	worklogDir := newCLIFixtureDir(t)
 	t.Setenv("DEVBOARD_DATA", t.TempDir())
-	t.Setenv("WORKLOG_MIGRATION_DATA", t.TempDir())
 
 	out1, err := invokeMigrate(t, worklogDir, "--json")
 	if err != nil {
@@ -158,49 +170,34 @@ func TestMigrateJSONReportsTimestampedBackupPath(t *testing.T) {
 	}
 }
 
-// TestMigrateSharesRuntimeStorePath is contract criterion 5's other half:
-// migrate's OutputPath and the store-backed write path's runtime open
-// call (storeDataDir, in task_store.go/storesync.go) must resolve to the
-// same directory whenever the final cutover migrate run takes no --out
-// override — otherwise the flipped-default CLI would open a different db
-// than the one the freeze-window migrate just produced.
+// TestMigrateSharesRuntimeStorePath: migrate's default output directory
+// and the directory the store-backed write path opens at runtime must be
+// the same place. They resolve through one function now, so this is close
+// to tautological — it stays because the failure it guards against is
+// silent and expensive: a CLI that writes one database while migrate
+// produces another.
 func TestMigrateSharesRuntimeStorePath(t *testing.T) {
-	t.Run("default (no env)", func(t *testing.T) {
-		t.Setenv("WORKLOG_MIGRATION_DATA", "")
-		migrateDir, err := resolveMigrateDataDir("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtimeDir, err := storeDataDir()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if migrateDir != runtimeDir {
-			t.Errorf("migrate default dir %q != runtime store dir %q", migrateDir, runtimeDir)
-		}
-	})
+	corpus := t.TempDir()
+	wd, err := model.NewWorkdir(corpus)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	t.Run("WORKLOG_MIGRATION_DATA set", func(t *testing.T) {
-		dir := t.TempDir()
-		t.Setenv("WORKLOG_MIGRATION_DATA", dir)
-		migrateDir, err := resolveMigrateDataDir("")
-		if err != nil {
-			t.Fatal(err)
-		}
-		runtimeDir, err := storeDataDir()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if migrateDir != dir || runtimeDir != dir {
-			t.Errorf("migrate dir %q, runtime dir %q, want both %q", migrateDir, runtimeDir, dir)
-		}
-	})
+	migrateDir, err := resolveMigrateDataDir("", wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeDir := storepath.Dir(wd.Root); migrateDir != runtimeDir {
+		t.Errorf("migrate default dir %q != runtime store dir %q", migrateDir, runtimeDir)
+	}
+	if _, err := resolveMigrateDataDir("", wd); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestMigrateTextSummary(t *testing.T) {
 	worklogDir := newCLIFixtureDir(t)
 	t.Setenv("DEVBOARD_DATA", t.TempDir())
-	t.Setenv("WORKLOG_MIGRATION_DATA", t.TempDir())
 
 	out, err := invokeMigrate(t, worklogDir)
 	if err != nil {

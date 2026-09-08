@@ -9,6 +9,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 	"github.com/prestontallen/ai-devboard/worklog/internal/verify"
 )
 
@@ -17,7 +18,6 @@ import (
 // safe to call unconditionally from every write verb.
 func TestDisabledIsNoop(t *testing.T) {
 	t.Setenv("WORKLOG_STORE_SYNC", "")
-	t.Setenv("WORKLOG_MIGRATION_DATA", filepath.Join(t.TempDir(), "should-not-be-created"))
 
 	wd := model.Workdir{Root: t.TempDir()} // no WORK.md — would error if AfterWrite tried to read it
 	rep, err := AfterWrite(wd)
@@ -27,8 +27,8 @@ func TestDisabledIsNoop(t *testing.T) {
 	if rep != nil {
 		t.Errorf("disabled AfterWrite returned a non-nil report: %+v", rep)
 	}
-	if _, statErr := os.Stat(os.Getenv("WORKLOG_MIGRATION_DATA")); !os.IsNotExist(statErr) {
-		t.Error("disabled AfterWrite created the migration data dir — it must be a true no-op")
+	if _, statErr := os.Stat(storepath.Dir(wd.Root)); !os.IsNotExist(statErr) {
+		t.Error("disabled AfterWrite created the store directory — it must be a true no-op")
 	}
 }
 
@@ -54,8 +54,7 @@ func TestEnabledDerivesCleanAgainstCanonicalCorpus(t *testing.T) {
 	}
 
 	t.Setenv("WORKLOG_STORE_SYNC", "1")
-	dataDir := t.TempDir()
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	dataDir := storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", filepath.Join(live, "devboard"))
 	wd := model.Workdir{Root: live}
 	beforeHash := hashTree(t, live)

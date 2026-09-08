@@ -2,13 +2,11 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/boardmap"
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
@@ -36,14 +34,11 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 	if err != nil {
 		return "", "", err
 	}
-	dataDir, err := storeDataDir()
+	dbPath, err := requireStore(wd)
 	if err != nil {
 		return "", "", err
 	}
-	if err := requireAdopted(dataDir); err != nil {
-		return "", "", err
-	}
-	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
+	s, err := sqlitestore.Open(dbPath)
 	if err != nil {
 		return "", "", fmt.Errorf("task: opening store: %w", err)
 	}
@@ -170,11 +165,4 @@ func storeChildIDs(kids []*store.Ticket) []string {
 		out[i] = k.Slug
 	}
 	return out
-}
-
-func storeDataDir() (string, error) {
-	if env := os.Getenv("WORKLOG_MIGRATION_DATA"); env != "" {
-		return env, nil
-	}
-	return migrate.DefaultDataDir()
 }

@@ -8,12 +8,15 @@ import (
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // Options configures one migrate run. DataDir is the single knob for
 // everything migrate owns: the persisted output db, its timestamped
 // backups, the scratch working copy, and the staging corpus copy all live
-// under it (contract Decision #8).
+// under it. Where that directory IS is no longer migrate's business —
+// internal/storepath decides, so this package can be deleted without
+// taking the location of the system of record with it.
 type Options struct {
 	Sources Sources
 	DataDir string
@@ -27,7 +30,7 @@ type Options struct {
 // overwritten .bak" (contract criterion 5) exists to rule out.
 const backupTimestampLayout = "20060102T150405.000000000Z"
 
-func (o Options) outputPath() string { return OutputPath(o.DataDir) }
+func (o Options) outputPath() string { return storepath.DBIn(o.DataDir) }
 
 // backupPath names this run's backup file, stamped with now. Every run
 // that finds a prior generation gets its own filename — nothing rotates
@@ -38,21 +41,6 @@ func (o Options) backupPath(now time.Time) string {
 }
 func (o Options) workingPath() string { return filepath.Join(o.DataDir, "working.db") }
 func (o Options) stagingDir() string  { return filepath.Join(o.DataDir, "staging") }
-
-// OutputPath is the persisted db's path under a migrate data directory —
-// exported so callers (the CLI's output) can report it without
-// duplicating the filename convention.
-func OutputPath(dataDir string) string { return filepath.Join(dataDir, "worklog.db") }
-
-// DefaultDataDir is OUTPUT_PATH's parent when neither --out nor
-// $WORKLOG_MIGRATION_DATA is set.
-func DefaultDataDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "share", "worklog-migration"), nil
-}
 
 // Result is what one migrate run produced.
 type Result struct {

@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // TestShadowNeverCreatesDB is adb-store-serve-shadow criterion 7: on a
@@ -17,7 +17,10 @@ import (
 // then on. The stat-before-open in loadStoreSnapshot is the whole guard.
 func TestShadowNeverCreatesDB(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WORKLOG_MIGRATION_DATA", dir)
+	// The shadow loader follows the SERVER's corpus (DEVBOARD_WORKLOG),
+	// not the CLI's, so that serve renders and reads the same worklog.
+	t.Setenv("DEVBOARD_WORKLOG", dir)
+	t.Setenv("WORKLOG_DIR", dir)
 
 	snap, err := loadStoreSnapshot()
 	if err != nil {
@@ -26,8 +29,8 @@ func TestShadowNeverCreatesDB(t *testing.T) {
 	if snap != nil {
 		t.Fatal("store-less machine: want nil snapshot, got one")
 	}
-	if _, err := os.Stat(migrate.OutputPath(dir)); !os.IsNotExist(err) {
-		t.Fatalf("shadow read created the database at %s", migrate.OutputPath(dir))
+	if _, err := os.Stat(storepath.DB(dir)); !os.IsNotExist(err) {
+		t.Fatalf("shadow read created the database at %s", storepath.DB(dir))
 	}
 }
 
@@ -36,8 +39,9 @@ func TestShadowNeverCreatesDB(t *testing.T) {
 // handle before returning (no WAL sidecar left for migrate to refuse on).
 func TestShadowLoaderReadsAdoptedStore(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("WORKLOG_MIGRATION_DATA", dir)
-	path := migrate.OutputPath(dir)
+	t.Setenv("DEVBOARD_WORKLOG", dir)
+	t.Setenv("WORKLOG_DIR", dir)
+	path := storepath.DB(dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // storeWriteFixture stands up a canonical corpus and migrates it into a
@@ -16,11 +17,13 @@ import (
 func storeWriteFixture(t *testing.T) (live, board, dataDir string) {
 	t.Helper()
 	live, board = canonicalWorklogFixture(t)
-	dataDir = filepath.Join(t.TempDir(), "migration")
+	// The store is derived from the corpus, so pointing WORKLOG_DIR at the
+	// fixture is all it takes to keep this test off the real database.
+	dataDir = storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", board)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
+	t.Setenv("WORKLOG_DIR", live)
 	t.Setenv("WORKLOG_STORE_SYNC", "")
-	if _, stderr := runCLI(t, "migrate", "--dir", live, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", live); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return live, board, dataDir

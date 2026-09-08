@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Run one headless `claude -p` research session for one arm of the three-way
 # research eval, in an isolated sandbox: scratch CLAUDE_CONFIG_DIR, scratch
-# worklog data dir + scratch store (the post-cutover binary verifies every
-# write against the SQLite store, so WORKLOG_DIR alone no longer isolates —
-# the store is seeded via `worklog migrate` + `worklog adopt --commit` with
-# WORKLOG_MIGRATION_DATA pointed at scratch), scratch devboard dir, and a
-# throwaway clone of the repo. Never touches Preston's real
-# ~/.local/share/worklog/, ~/.local/share/worklog-migration/,
-# ~/.local/share/devboard/, or the real checkout.
+# worklog data dir + scratch store, scratch devboard dir, and a throwaway
+# clone of the repo. The store directory is DERIVED from WORKLOG_DIR (it is
+# that path with "-store" appended), so WORKLOG_DIR alone now isolates both;
+# the store is still seeded with `worklog migrate` + `worklog adopt --commit`
+# because every write path opens it. Never touches Preston's real
+# ~/.local/share/worklog/, its store sibling, ~/.local/share/devboard/, or
+# the real checkout.
 #
 # Usage: run.sh <arm> <run-label>
 #   arm: weak-bare   — sonnet, no workflow skills installed
@@ -40,7 +40,8 @@ mkdir -p "$RESULTS_DIR"
 
 CFG_DIR="$(mktemp -d)"
 DATA_DIR="$(mktemp -d)"
-MIGRATION_DIR="$(mktemp -d)"
+# Derived, not independent: the binary computes this from WORKLOG_DIR.
+MIGRATION_DIR="${DATA_DIR}-store"
 CLONE_DIR="$(mktemp -d)"
 # Must EXIST (adopt census lstats every live root), unlike the pre-cutover
 # harness's mktemp -u. Board syncs land here and are discarded with the run.
@@ -80,7 +81,7 @@ fi
 # verifies projections against the store before writing.
 seed_worklog() {
   rm -rf "$DATA_DIR" "$MIGRATION_DIR" "$BOARD_DIR"
-  mkdir -p "$DATA_DIR" "$MIGRATION_DIR" "$BOARD_DIR"
+  mkdir -p "$DATA_DIR" "$BOARD_DIR"
   cat > "$DATA_DIR/WORK.md" <<'EOF'
 ## Now
 - [~] **WL-SCRATCH-ISOLATION** — Research: a fresh WORKLOG_DIR refuses every write as hand-edited
@@ -95,16 +96,16 @@ seed_worklog() {
 
 ## Someday
 EOF
-  WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+  WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$BOARD_DIR" \
     worklog migrate >&2
-  WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+  WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$BOARD_DIR" \
     worklog adopt --commit >&2
 }
 
 # Self-check: prove `worklog note` works in THIS sandbox before spending a
 # cent, then re-seed so the agent gets a pristine store with no harness note.
 seed_worklog
-if ! WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+if ! WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$BOARD_DIR" \
      worklog note wl-scratch-isolation "harness seed self-check" >&2 \
    || ! grep -q "harness seed self-check" "$DATA_DIR/notes/wl-scratch-isolation.md"; then
   echo "seed self-check failed: worklog note does not work in the sandbox — aborting before any spend" >&2
@@ -123,7 +124,7 @@ set +e
 (
   cd "$REPO"
   CLAUDE_CONFIG_DIR="$CFG_DIR" WORKLOG_DIR="$DATA_DIR" \
-  WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+  DEVBOARD_DATA="$BOARD_DIR" \
     claude -p "$TASK" \
       --model "$MODEL" \
       --output-format stream-json \

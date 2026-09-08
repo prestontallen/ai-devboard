@@ -51,7 +51,17 @@ historical record.
 └── notes/
     └── <id>.md        ← per-ticket and per-epic notes; an epic's canonical
                           child-ticket list lives here
+
+~/.local/share/worklog-store/
+└── worklog.db         ← the SQLite store; tool-owned, don't hand-edit
 ```
+
+Everything in the first tree is markdown you own. The store is deliberately
+a **sibling** directory rather than a subdirectory: it keeps a live database
+out of the tree you might sync or put in git, and it keeps `worklog adopt`'s
+file census looking only at files a human wrote. The store directory is
+derived from the worklog directory, so `--dir` and `$WORKLOG_DIR` move both
+together.
 
 This README is not in that tree — it lives in the repo at `worklog/README.md`.
 
@@ -228,7 +238,10 @@ The worklog is local-only by default. If you want it on multiple machines:
 - **Easy**: `git init` and push to a private repo.
 - **Easier**: drop `~/.local/share/worklog/` inside iCloud Drive / Dropbox /
   Syncthing and update `WORK.md`'s path references in the skill / rule /
-  CLAUDE.md.
+  CLAUDE.md. Sync the markdown directory only. Do **not** sync
+  `worklog-store/`: a live SQLite database with a write-ahead log does not
+  survive being copied out from under itself, and the file locking the store
+  relies on is unreliable on network and FUSE filesystems.
 - **Hardest**: don't sync, use `WORK.md` only on your primary machine. (This
   is what's set up now.)
 

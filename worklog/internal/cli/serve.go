@@ -5,12 +5,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/serve"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 // newServeCmd wires the devboard dashboard server. Configuration is
@@ -59,11 +59,11 @@ over LAN.`,
 // request, because a held handle breaks `worklog migrate`'s db swap; and
 // render in memory only — RenderSnapshot writes neither files nor stamps.
 func loadStoreSnapshot() (*serve.StoreSnapshot, error) {
-	dataDir, err := storeDataDir()
+	wd, err := model.NewWorkdir(serve.ConfigFromEnv().WorklogDir)
 	if err != nil {
 		return nil, err
 	}
-	path := migrate.OutputPath(dataDir)
+	path := storepath.DB(wd.Root)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, nil // not adopted: silent no-op, never create the db
 	} else if err != nil {

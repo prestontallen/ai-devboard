@@ -12,11 +12,11 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/adopt"
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/freeze"
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 func newAdoptCmd() *cobra.Command {
@@ -76,11 +76,10 @@ func adoptRoots() (adopt.Roots, string, error) {
 	if err != nil {
 		return adopt.Roots{}, "", err
 	}
-	dataDir, err := storeDataDir()
-	if err != nil {
+	if err := refuseRetiredStoreEnv(); err != nil {
 		return adopt.Roots{}, "", err
 	}
-	return adopt.Roots{Worklog: wd.Root, Devboard: devboard.DataDir()}, dataDir, nil
+	return adopt.Roots{Worklog: wd.Root, Devboard: devboard.DataDir()}, storepath.Dir(wd.Root), nil
 }
 
 func runAdopt(cmd *cobra.Command, commit bool) error {
@@ -93,8 +92,10 @@ func runAdopt(cmd *cobra.Command, commit bool) error {
 		return err
 	}
 
-	// The snapshot lives under the migration data dir, deliberately outside
+	// The snapshot lives under the store directory, deliberately outside
 	// both live roots: ReadCorpusDir would otherwise ingest it as corpus.
+	// storepath.Dir is a SIBLING of the corpus for exactly this reason —
+	// see that package's doc comment.
 	dest := filepath.Join(dataDir, adopt.StampName(time.Now().UTC().Format("20060102T150405Z")))
 
 	opts := adopt.Options{Roots: roots, SnapshotDir: dest, Apply: commit}
@@ -159,7 +160,7 @@ func adoptStore(dataDir string, commit bool) (store.Store, func(), error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, func() {}, err
 	}
-	s, err := sqlitestore.Open(migrate.OutputPath(dataDir))
+	s, err := sqlitestore.Open(storepath.DBIn(dataDir))
 	if err != nil {
 		return nil, func() {}, err
 	}

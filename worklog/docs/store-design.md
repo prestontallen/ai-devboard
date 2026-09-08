@@ -150,8 +150,10 @@ output db (a plain read of `OUTPUT_PATH`; it is never opened for writing —
 atomically swap it into place — `OUTPUT_PATH` → `OUTPUT_PATH.bak` (one
 generation, no rotation), working copy → `OUTPUT_PATH` — clearing any WAL
 sidecar rather than carrying or orphaning it. All of it lives under one
-directory: `--out`, `$WORKLOG_MIGRATION_DATA`, or
-`~/.local/share/worklog-migration` by default.
+directory: `--out`, or by default the store directory, which is derived
+from the worklog directory as a sibling (`~/.local/share/worklog` →
+`~/.local/share/worklog-store`). See `internal/storepath` for why the
+store sits beside the corpus rather than inside it.
 
 Building this against the real mechanics (not just against `convert.Load`
 in isolation) found and fixed two gaps in the identity guarantee the

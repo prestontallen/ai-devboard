@@ -58,10 +58,8 @@ func waitingOnStoreFixture(t *testing.T, workMD, archiveMD string) (devboardDir,
 
 	t.Setenv("DEVBOARD_DATA", devboardDir)
 	t.Setenv("WORKLOG_DIR", worklogDir)
-	dataDir := filepath.Join(t.TempDir(), "migration")
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
 
-	if _, stderr := runCLI(t, "migrate", "--dir", worklogDir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", worklogDir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return devboardDir, worklogDir

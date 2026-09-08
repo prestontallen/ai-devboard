@@ -54,11 +54,9 @@ func amendFixture(t *testing.T, extra store.Ticket) (dir, path string) {
 		t.Fatal(err)
 	}
 	devDir := filepath.Join(dir, "devboard")
-	dataDir := filepath.Join(t.TempDir(), "migration")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir, taskFilePath(dir)
@@ -95,11 +93,9 @@ func amendEpicChildFixture(t *testing.T, kidComplexity string) (dir, path string
 		t.Fatal(err)
 	}
 	devDir := filepath.Join(dir, "devboard")
-	dataDir := filepath.Join(t.TempDir(), "migration")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir, filepath.Join(devDir, devboard.RepoName(), "epic.yaml")

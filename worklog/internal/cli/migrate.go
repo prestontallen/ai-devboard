@@ -2,13 +2,14 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
 func newMigrateCmd() *cobra.Command {
@@ -33,26 +34,30 @@ before the eventual one-way cutover, and can be run as many times as you
 like.
 
 The output database, a timestamped backup of every prior generation, and
-migrate's own scratch copies live under one directory: --out, or
-$WORKLOG_MIGRATION_DATA, or ~/.local/share/worklog-migration by default.`,
+migrate's own scratch copies live under one directory: --out, or by
+default the store directory derived from the worklog directory (the
+worklog directory's path with "-store" appended).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMigrate(cmd, flagOut, flagJSON)
 		},
 	}
 	cmd.Flags().StringVar(&flagOut, "out", "",
-		"migrate's data directory (default $WORKLOG_MIGRATION_DATA or ~/.local/share/worklog-migration)")
+		"migrate's data directory (default: the store directory beside $WORKLOG_DIR)")
 	cmd.Flags().BoolVar(&flagJSON, "json", false, "emit a single JSON document (report + id-set diff) instead of styled text")
 	return cmd
 }
 
-func resolveMigrateDataDir(flagOut string) (string, error) {
+// resolveMigrateDataDir keeps --out as migrate's own knob, so a rehearsal
+// can still be pointed at scratch, and otherwise uses the store directory
+// derived from the corpus.
+func resolveMigrateDataDir(flagOut string, wd model.Workdir) (string, error) {
 	if flagOut != "" {
 		return flagOut, nil
 	}
-	if env := os.Getenv("WORKLOG_MIGRATION_DATA"); env != "" {
-		return env, nil
+	if err := refuseRetiredStoreEnv(); err != nil {
+		return "", err
 	}
-	return migrate.DefaultDataDir()
+	return storepath.Dir(wd.Root), nil
 }
 
 func runMigrate(cmd *cobra.Command, flagOut string, asJSON bool) error {
@@ -60,7 +65,7 @@ func runMigrate(cmd *cobra.Command, flagOut string, asJSON bool) error {
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	dataDir, err := resolveMigrateDataDir(flagOut)
+	dataDir, err := resolveMigrateDataDir(flagOut, wd)
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
@@ -76,7 +81,7 @@ func runMigrate(cmd *cobra.Command, flagOut string, asJSON bool) error {
 		return jsonOrTextError(cmd, asJSON, 1, "migrate: %v", err)
 	}
 
-	outputPath := migrate.OutputPath(dataDir)
+	outputPath := storepath.DBIn(dataDir)
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), migrateJSON{
 			Tickets:  res.Report.Tickets,

@@ -29,7 +29,7 @@ func runTask(t *testing.T, args ...string) (stdout, stderr string, err error) {
 }
 
 // taskStoreFixture builds a real worklog ticket "tkt" and points
-// DEVBOARD_DATA/WORKLOG_DIR/WORKLOG_MIGRATION_DATA at a real migrated
+// DEVBOARD_DATA and WORKLOG_DIR at a real migrated
 // store — task<sub> resolves --id against the store (resolveStoreTarget),
 // not a bare devboard file. tracked controls whether the ticket starts
 // BoardTracked: false is the common case (a task<sub> mutation
@@ -55,11 +55,9 @@ func taskStoreFixture(t *testing.T, tracked bool) (dir string) {
 	if err := os.MkdirAll(devDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dataDir := filepath.Join(t.TempDir(), "migration")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	t.Setenv("WORKLOG_MIGRATION_DATA", dataDir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir, "--out", dataDir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir

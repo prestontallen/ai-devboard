@@ -157,6 +157,7 @@ scripts that handled validation and skill deployment.`,
 		newMigrateCmd(),
 		newVerifyCmd(),
 		newAdoptCmd(),
+		newStoreCmd(),
 		newFreezeCmd(),
 	)
 	return cmd
