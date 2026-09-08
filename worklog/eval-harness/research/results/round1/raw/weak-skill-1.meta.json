@@ -1,0 +1,10 @@
+{
+  "arm": "weak-skill",
+  "label": "1",
+  "model": "sonnet",
+  "skills_installed": true,
+  "data_dir": "/tmp/tmp.ChIzfwSKdc",
+  "repo": "/tmp/tmp.lbyOiCDlrq/ai-devboard",
+  "exit_code": 0,
+  "notes_written": ""
+}

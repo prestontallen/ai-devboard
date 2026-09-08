@@ -1,0 +1,10 @@
+{
+  "arm": "strong-bare",
+  "label": "2",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "data_dir": "/tmp/tmp.1JdEdlYDn0",
+  "repo": "/tmp/tmp.cgMDfdcWG9/ai-devboard",
+  "exit_code": 0,
+  "notes_written": "# Notes — adb-devboard-backlog-visibility\n\n## 2026-09-02 10:20\nResearch findings: dashboard only shows started work because task files are created solely by worklog start (devboard.OnStart); Next/Someday tickets exist only as WORK.md blocks. Key enabler: compose.yaml already mounts the worklog data dir read-only at /worklog, and server.py already parses worklog-authored markdown permissively (_parse_feedback for FEEDBACK.md). Recommendation (option A): server.py parses WORK.md sections directly and exposes backlog entries as a new top-level key in /api/tasks; frontend renders a folded Backlog band; dedupe by hiding entries whose id matches a live task file's worklog field; add WORK.md to _snapshot() so SSE hot-reload covers it. Rejected: mirroring stub task files from the CLI (sync/orphan problems, breaks 'file exists == started', Repo unresolvable at add time) and shelling out to worklog status --json from the container (no Go binary in python:3.12-alpine image, violates 'worklog never required')."
+}

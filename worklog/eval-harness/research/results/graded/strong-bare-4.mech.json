@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "4",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 9,
+    "bare_file_refs": 16,
+    "worklog_note_calls": 2,
+    "subagents_spawned": 0,
+    "read_search_calls": 10,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 4148
+  },
+  "result_summary": {
+    "duration_api_ms": 133069,
+    "stop_reason": "end_turn",
+    "session_id": "94ff6a48-583a-4846-859e-23545f2b4814",
+    "total_cost_usd": 1.8177719999999997,
+    "usage": {
+      "input_tokens": 30,
+      "cache_creation_input_tokens": 39883,
+      "cache_read_input_tokens": 573246,
+      "output_tokens": 8908,
+      "output_tokens_details": {
+        "thinking_tokens": 3486
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 39883,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1604,
+          "cache_read_input_tokens": 51027,
+          "cache_creation_input_tokens": 543,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 543
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1096,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001166,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 30,
+        "outputTokens": 8908,
+        "cacheReadInputTokens": 573246,
+        "cacheCreationInputTokens": 39883,
+        "webSearchRequests": 0,
+        "costUSD": 1.8166059999999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 20,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Findings\n\nIsolation fails because `WORKLOG_DIR` only moves one of the worklog's **three** data roots — the markdown projections — while the actual source of truth stays global. The refusal is the hand-edit guard correctly (if confusingly) noticing that the scratch directory doesn't match a render of the colleague's real store.\n\n**The mechanism.** The worklog resolves three independent roots:\n\n| Root | What lives there | Override | Documented? |\n|---|---|---|---|\n| Workdir (`WORKLOG_DIR` / `--dir`) | Rendered projections: WORK.md, FEEDBACK.md, archive, notes | yes | README + `--help` |\n| Store data dir | `worklog.db` — the sqlite source of truth | `WORKLOG_MIGRATION_DATA`, else `~/.local/share/worklog-migration` (`internal/cli/task_store.go:174`) | only in `docs/store-design.md` |\n| Devboard dir | per-task board YAML | `DEVBOARD_DATA`, else `~/.local/share/devboard` (`internal/devboard/devboard.go:221`) | not in README's data-dir row |\n\nEvery write verb goes through `openStoreForWrite` (`internal/cli/store_common.go:110`), which opens the store from the *store* root, renders what the corpus should look like, and byte-compares that against files under the *workdir* root. In a fresh `WORKLOG_DIR`, every expected file is absent, and `EditedIn` deliberately treats absent as \"a deletion is an edit\" (`internal/projection/projection.go:201`). So the guard lists the user's entire real corpus as \"edited by hand\" — files the colleague never touched, because they exist only in the real workdir the tool is no longer looking at. I reproduced this exactly: a fresh dir with a skeleton WORK.md gets `refusing to write — … WORK.md, FEEDBACK.md` on `worklog add`. (A completely empty dir fails earlier with \"WORK.md not found\", so the colleague had presumably seeded a skeleton.)\n\nTwo things make the failure worse than a bug in the guard:\n\n- **The guard is actually protecting the colleague.** If it didn't fire, the write would land in the *real* sqlite store, and the re-render would dump the entire real worklog into the \"scratch\" directory (and touch the real devboard dir). `WORKLOG_DIR` alone doesn't give a scratch worklog — it gives a real store wearing a detached corpus, with contamination in both directions.\n- **The advice in the message is dangerous here.** \"Reconcile them first (they are build outputs; the store is the source)\" invites deleting/regenerating files — against the wrong mental model. The codebase already recognizes this exact trap for the missing-database case: `requireAdopted`'s comment (`store_common.go:72-91`) exists because \"every file edited by hand on a machine where nobody edited anything\" was known to produce actively bad advice. The fresh-`WORKLOG_DIR` case is the same trap through a different door — `requireAdopted` doesn't catch it because it stats the store root, which still points at the real, existing database.\n\n## Recommendations\n\n1. **One switch that moves all roots.** Either nest the store and devboard under the resolved workdir (single-root layout — the cleanest end state, but a migration), or add a `worklog init <dir>` / `--scratch <dir>` that scaffolds a self-contained tree (skeleton corpus + empty adopted store + devboard subdir) and sets all three paths consistently. Isolation should be one action, not three env vars the user has to discover across two docs and a design doc.\n2. **A targeted diagnostic for this state.** In `openStoreForWrite`, when *every* rendered projection is missing/mismatched (or when the workdir has no prior render at all), say what's actually true: \"this data dir was never rendered from this store (store: `<path>`) — if you meant an isolated scratch worklog, WORKLOG_DIR alone doesn't move the store; see `worklog init`.\" Same pattern `requireAdopted` already establishes.\n3. **Fix the docs now** (cheap, independent of the above): the README's \"Where the data tree lives\" row and `--help` should name all three roots, and state explicitly that `WORKLOG_DIR` moves projections only.\n\nI appended these findings with file/line references to the ticket's notes (`worklog note wl-scratch-isolation`), which is visible from its \"## Now\" entry.",
+    "ttft_ms": 4045,
+    "type": "result",
+    "duration_ms": 132510,
+    "uuid": "db8b6860-cc43-402b-a6fc-eef92c6363eb",
+    "ttft_stream_ms": 1996,
+    "time_to_request_ms": 98,
+    "queued_turn_count": 0
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "arm": "strong-bare",
+  "label": "3",
+  "model": "claude-fable-5",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 10,
+    "bare_file_refs": 17,
+    "worklog_note_calls": 3,
+    "subagents_spawned": 0,
+    "read_search_calls": 9,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 3760
+  },
+  "result_summary": {
+    "duration_api_ms": 144188,
+    "stop_reason": "end_turn",
+    "session_id": "2897387e-7932-4c77-b3ff-2e0ea7aa5b8b",
+    "total_cost_usd": 1.801087,
+    "usage": {
+      "input_tokens": 36,
+      "cache_creation_input_tokens": 33822,
+      "cache_read_input_tokens": 621270,
+      "output_tokens": 10037,
+      "output_tokens_details": {
+        "thinking_tokens": 3584
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 33822,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1467,
+          "cache_read_input_tokens": 44524,
+          "cache_creation_input_tokens": 985,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 985
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1097,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001167,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-fable-5": {
+        "inputTokens": 36,
+        "outputTokens": 10037,
+        "cacheReadInputTokens": 621270,
+        "cacheCreationInputTokens": 33822,
+        "webSearchRequests": 0,
+        "costUSD": 1.79992,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-fable-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 21,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "Root cause found and reproduced; findings are recorded on `wl-scratch-isolation`. Here's the picture.\n\n## Why isolation fails\n\n`WORKLOG_DIR` (and `--dir`) only relocates the **markdown corpus** — but since the store migration, the corpus is no longer the data. The actual sources of truth resolve through two *other*, undocumented env vars:\n\n- The sqlite store: `$WORKLOG_MIGRATION_DATA`, defaulting to `~/.local/share/worklog-migration/worklog.db` (`worklog/internal/cli/task_store.go:174`)\n- Devboard YAML projections: `$DEVBOARD_DATA`, defaulting to `~/.local/share/devboard` (`worklog/internal/devboard/devboard.go:221`)\n\nSo with only `WORKLOG_DIR` overridden, `openStoreForWrite` (`worklog/internal/cli/store_common.go:110`) opens the colleague's **real** store, renders every projection from it, and `EditedIn` (`worklog/internal/projection/projection.go:193`) byte-compares those renders against the **fresh, empty** scratch dir. Its rule is \"absent is a deletion, and a deletion is an edit\" — so every projection the real store knows about (WORK.md, FEEDBACK.md, notes, archive months) is reported as \"edited by hand\" in a directory nobody edited. I reproduced this exactly with a fresh `WORKLOG_DIR` and one `worklog note` call.\n\nTwo things make it worse:\n- **The guard's advice is dangerous here.** \"Reconcile them first — the store is the source\" is wrong for this state; there's a comment at `store_common.go:77` acknowledging exactly this failure shape for the missing-database case, but the missing-*corpus* case slipped through.\n- **The refusal is actually saving the user.** Had the guard passed, the \"scratch\" write would have committed the experiment ticket into the *real* store and rendered devboard files into the *real* devboard dir, permanently — while desyncing the real corpus. Partial isolation isn't just inconvenient; it silently leaks scratch writes into live data.\n\n## What actually works today (undocumented)\n\nVerified end-to-end: set all three env vars to fresh dirs, seed a minimal `WORK.md` (`## Now` / `## Next` / `## Someday` — only sections in `convert/workmd.go:28` are accepted), then `worklog adopt --commit`. After that, writes work and the real data is untouched. Nobody would discover this: `WORKLOG_MIGRATION_DATA` appears once in `docs/store-design.md`, `DEVBOARD_DATA` nowhere in user docs, and the README/help explicitly claim `WORKLOG_DIR` moves \"the data tree.\" Two extra traps: `adopt` refuses an *empty* directory (it requires a corpus to adopt — there's no `init` verb), and a *refused* `adopt --commit` still leaves a `worklog.db` behind in the migration dir, which would then satisfy `requireAdopted` on the next write.\n\n## Recommendations\n\n1. **Make the workdir the root of resolution.** Derive the store and devboard defaults from the resolved workdir (e.g. `<workdir>/worklog.db` or a sibling keyed to it) instead of three independent env lookups, so one override moves everything. If back-compat rules that out, at minimum detect the split-brain: when `WORKLOG_DIR`/`--dir` is overridden but the store path is not, refuse with a message that says *that*, not \"edited by hand.\"\n2. **Add a sanctioned bootstrap** — a `worklog init` verb (or let `adopt` accept an empty dir) that creates the minimal corpus and store together, and clean up the partial `worklog.db` when adopt refuses.\n3. **Fix the docs**: README, `--help`, and `skill/SKILL.md` should either stop claiming `WORKLOG_DIR` moves the data tree, or document the full three-variable recipe until recommendation 1 lands.\n4. Optionally, extend the `requireAdopted`-style diagnosis: when `EditedIn` finds *every* projection \"edited\" and the corpus dir is empty, that's a fingerprint of a mispointed dir, not hand-editing — the error should say so.",
+    "ttft_ms": 3920,
+    "type": "result",
+    "duration_ms": 143699,
+    "uuid": "89bdc555-5f19-41f1-a459-c976a5894cc4",
+    "ttft_stream_ms": 1995,
+    "time_to_request_ms": 98,
+    "queued_turn_count": 0
+  }
+}

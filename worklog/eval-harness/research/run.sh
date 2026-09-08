@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Run one headless `claude -p` research session for one arm of the three-way
-# research eval, in an isolated CLAUDE_CONFIG_DIR + scratch worklog data dir +
-# a throwaway clone of the repo. Never touches Preston's real
-# ~/.local/share/worklog/, ~/.local/share/devboard/, or the real checkout.
+# research eval, in an isolated sandbox: scratch CLAUDE_CONFIG_DIR, scratch
+# worklog data dir + scratch store (the post-cutover binary verifies every
+# write against the SQLite store, so WORKLOG_DIR alone no longer isolates —
+# the store is seeded via `worklog migrate` + `worklog adopt --commit` with
+# WORKLOG_MIGRATION_DATA pointed at scratch), scratch devboard dir, and a
+# throwaway clone of the repo. Never touches Preston's real
+# ~/.local/share/worklog/, ~/.local/share/worklog-migration/,
+# ~/.local/share/devboard/, or the real checkout.
 #
 # Usage: run.sh <arm> <run-label>
 #   arm: weak-bare   — sonnet, no workflow skills installed
@@ -35,10 +40,12 @@ mkdir -p "$RESULTS_DIR"
 
 CFG_DIR="$(mktemp -d)"
 DATA_DIR="$(mktemp -d)"
+MIGRATION_DIR="$(mktemp -d)"
 CLONE_DIR="$(mktemp -d)"
-# A path that does not exist, so every devboard sync silently no-ops.
-DEVBOARD_SCRATCH="$(mktemp -u)"
-cleanup() { rm -rf "$CFG_DIR" "$DATA_DIR" "$CLONE_DIR" "$DEVBOARD_SCRATCH"; }
+# Must EXIST (adopt census lstats every live root), unlike the pre-cutover
+# harness's mktemp -u. Board syncs land here and are discarded with the run.
+BOARD_DIR="$(mktemp -d)"
+cleanup() { rm -rf "$CFG_DIR" "$DATA_DIR" "$MIGRATION_DIR" "$CLONE_DIR" "$BOARD_DIR"; }
 trap cleanup EXIT
 
 # Throwaway clone: any stray write lands here, never in the real checkout.
@@ -50,6 +57,12 @@ REPO="$CLONE_DIR/ai-devboard"
 # would hand the bare arms the very process under test, so it is removed in
 # EVERY arm: the only difference between arms stays (model, skills installed).
 rm -f "$REPO/CLAUDE.md"
+# The harness itself is committed in the repo: the judge rubric (which now
+# carries the question's ground-truth key) and prior-round transcripts would
+# hand any arm the answer sheet. Stripped from every clone.
+rm -rf "$REPO/worklog/eval-harness"
+[ ! -e "$REPO/CLAUDE.md" ] && [ ! -e "$REPO/worklog/eval-harness" ] \
+  || { echo "clone prep failed: CLAUDE.md or eval-harness still present" >&2; exit 65; }
 
 mkdir -p "$CFG_DIR/skills"
 if [ -f "$HOME/.claude/.credentials.json" ]; then
@@ -62,14 +75,19 @@ if [ "$INSTALL_SKILLS" = "1" ]; then
 fi
 
 # Scratch worklog seeded with the spike ticket in ## Now, so `worklog note`
-# has a real target and the run never touches the real data dir.
-cat > "$DATA_DIR/WORK.md" <<'EOF'
+# has a real target and the run never touches the real data dir. The store
+# is rebuilt from the seeded WORK.md and adopted, since every write path
+# verifies projections against the store before writing.
+seed_worklog() {
+  rm -rf "$DATA_DIR" "$MIGRATION_DIR" "$BOARD_DIR"
+  mkdir -p "$DATA_DIR" "$MIGRATION_DIR" "$BOARD_DIR"
+  cat > "$DATA_DIR/WORK.md" <<'EOF'
 ## Now
-- [~] **ADB-DEVBOARD-BACKLOG-VISIBILITY** — Research: devboard has no view of not-yet-started worklog tickets (Next/Someday)
-  - **ID**: adb-devboard-backlog-visibility
+- [~] **WL-SCRATCH-ISOLATION** — Research: a fresh WORKLOG_DIR refuses every write as hand-edited
+  - **ID**: wl-scratch-isolation
   - **Repo**: ai-devboard
   - **Type**: spike
-  - **Started**: 2026-09-02
+  - **Started**: 2026-09-08
 
 ## Waiting
 
@@ -77,6 +95,22 @@ cat > "$DATA_DIR/WORK.md" <<'EOF'
 
 ## Someday
 EOF
+  WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+    worklog migrate >&2
+  WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+    worklog adopt --commit >&2
+}
+
+# Self-check: prove `worklog note` works in THIS sandbox before spending a
+# cent, then re-seed so the agent gets a pristine store with no harness note.
+seed_worklog
+if ! WORKLOG_DIR="$DATA_DIR" WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
+     worklog note wl-scratch-isolation "harness seed self-check" >&2 \
+   || ! grep -q "harness seed self-check" "$DATA_DIR/notes/wl-scratch-isolation.md"; then
+  echo "seed self-check failed: worklog note does not work in the sandbox — aborting before any spend" >&2
+  exit 65
+fi
+seed_worklog
 
 OUT_FILE="$RESULTS_DIR/${ARM}-${RUN_LABEL}.jsonl"
 META_FILE="$RESULTS_DIR/${ARM}-${RUN_LABEL}.meta.json"
@@ -88,7 +122,8 @@ echo "run: arm=$ARM label=$RUN_LABEL model=$MODEL skills=$INSTALL_SKILLS repo=$R
 set +e
 (
   cd "$REPO"
-  CLAUDE_CONFIG_DIR="$CFG_DIR" WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$DEVBOARD_SCRATCH" \
+  CLAUDE_CONFIG_DIR="$CFG_DIR" WORKLOG_DIR="$DATA_DIR" \
+  WORKLOG_MIGRATION_DATA="$MIGRATION_DIR" DEVBOARD_DATA="$BOARD_DIR" \
     claude -p "$TASK" \
       --model "$MODEL" \
       --output-format stream-json \

@@ -1,0 +1,10 @@
+{
+  "arm": "weak-bare",
+  "label": "4",
+  "model": "sonnet",
+  "skills_installed": false,
+  "data_dir": "/tmp/tmp.ZpNZu0QNcN",
+  "repo": "/tmp/tmp.VrFg5oZy5d/ai-devboard",
+  "exit_code": 0,
+  "notes_written": ""
+}

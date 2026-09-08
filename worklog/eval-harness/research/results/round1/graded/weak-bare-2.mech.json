@@ -1,0 +1,128 @@
+{
+  "arm": "weak-bare",
+  "label": "2",
+  "model": "sonnet",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 0,
+    "bare_file_refs": 15,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 10,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 3381
+  },
+  "result_summary": {
+    "duration_api_ms": 82649,
+    "stop_reason": "end_turn",
+    "session_id": "0739a613-15be-46f6-aef0-f716d0d44149",
+    "total_cost_usd": 0.37006439999999996,
+    "usage": {
+      "input_tokens": 18,
+      "cache_creation_input_tokens": 54147,
+      "cache_read_input_tokens": 429522,
+      "output_tokens": 6639,
+      "output_tokens_details": {
+        "thinking_tokens": 3842
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 54147,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1388,
+          "cache_read_input_tokens": 69842,
+          "cache_creation_input_tokens": 4545,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 4545
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1076,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.0011459999999999999,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 18,
+        "outputTokens": 6639,
+        "cacheReadInputTokens": 429522,
+        "cacheCreationInputTokens": 54147,
+        "webSearchRequests": 0,
+        "costUSD": 0.3689184,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 18,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Findings\n\nThe dashboard's data model is task files (`<data-root>/<repo>/<slug>.yaml`), and those are only ever created by `worklog`'s three lifecycle hooks: `OnStart` (ticket promoted to `## Now`), `SyncEpicRoster` (epic child starts), and indirectly `OnDone`/`OnPR` (mutate an existing file). There is no code path that ever creates a task file for a ticket sitting in `## Next` or `## Someday` — by design, per `devboard/schema.md`'s ownership rule: a task file is \"disposable live telemetry\" for in-flight work (branch, session, phase, plan). `## Waiting` tickets are fine already — they were promoted through `## Now` first, so they already have a file from `OnStart`.\n\nSeparately, `worklog status --json` (`worklog/internal/cli/status.go`) already exposes exactly the data you'd want: Now/Waiting/Next/Someday as structured JSON with id, title, type, tags, repo, acceptance, etc., parsed from `WORK.md` by a small line-oriented parser (`worklog/internal/parse/work.go` — three regexes: section heading, `- [ ]` block start, `  - **Field**: value` metadata). But the devboard container doesn't ship the `worklog` binary — `server.py` already re-implements a second-source parser for `FEEDBACK.md` for this exact reason (documented in the README), reading straight off the read-only worklog mount that's already bind-mounted into the container for notes and `FEEDBACK.md`.\n\n## Recommendation\n\nDon't force Next/Someday tickets into the task-file schema — that would conflate \"backlog\" with \"in-flight\" and break invariants the rest of the UI leans on (phase-driven \"in-flight\" stat count, 2h stale-dimming, archive/un-archive semantics, per-repo directory grouping by task-file location). It would also require devboard-side bookkeeping to create/delete files as tickets move between Next/Someday/Now — duplicating state that `WORK.md` already owns, and violating the one-way worklog→devboard mirroring rule.\n\nInstead, follow the precedent already set for `FEEDBACK.md`:\n\n1. **Server**: add a small `WORK.md` parser to `server.py` (same regex shapes as `parse/work.go`), read from the already-mounted `WORKLOG_DIR`. Extract just `## Next` and `## Someday` blocks (id, title, type, repo, tags, acceptance) and add them to the `/api/tasks` payload, e.g. a `backlog: {next: [...], someday: [...]}` key alongside `repos`. Add `WORK.md` to `_snapshot()` so edits hot-reload over SSE like everything else. Missing/malformed `WORK.md` → empty backlog, never a page failure (same resilience contract as the Friction panel).\n2. **Frontend**: render it as a new global collapsed band/fold, the same visual pattern as `Friction · N` — e.g. `Backlog · N`, split into Next/Someday, read-only (no phase bar, no plan meter, since none exists — just title/id/type badge/repo tag/acceptance snippet). No detail route, since there's no task-file detail to click into.\n3. Keep the write boundary exactly as-is: the board stays fully read-only with respect to worklog state; promotion out of Next/Someday still only happens via `worklog start`, at which point the ticket naturally disappears from the backlog band and appears as a normal task card once `OnStart` writes its file.\n\nThis gets full backlog visibility with no new writer, no schema changes to task files, and no new failure modes — it's the same \"second reader of the same format\" pattern the codebase already uses for `FEEDBACK.md`.",
+    "ttft_ms": 1939,
+    "type": "result",
+    "duration_ms": 82206,
+    "uuid": "d58801c7-e180-4291-9b05-fa445b1ec2a4",
+    "ttft_stream_ms": 824,
+    "time_to_request_ms": 85,
+    "queued_turn_count": 0
+  }
+}

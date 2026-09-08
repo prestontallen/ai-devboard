@@ -4,32 +4,32 @@
   "model": "sonnet",
   "skills_installed": false,
   "mechanical": {
-    "R3_evidence_discipline": "fail",
-    "R4_findings_persisted": "fail",
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
     "R7_no_idle_blocking": "n/a"
   },
   "counters": {
-    "file_line_citations": 1,
-    "bare_file_refs": 22,
-    "worklog_note_calls": 0,
+    "file_line_citations": 5,
+    "bare_file_refs": 14,
+    "worklog_note_calls": 1,
     "subagents_spawned": 0,
-    "read_search_calls": 9,
-    "worklog_status_calls": 1,
+    "read_search_calls": 8,
+    "worklog_status_calls": 2,
     "trailing_questions": 0,
-    "report_chars": 4002
+    "report_chars": 4905
   },
   "result_summary": {
-    "duration_api_ms": 91015,
+    "duration_api_ms": 168754,
     "stop_reason": "end_turn",
-    "session_id": "54556310-d4ff-4710-acd6-b8a2213b86af",
-    "total_cost_usd": 0.43833140000000004,
+    "session_id": "89e4f189-4e4d-49cd-bbac-f92868e1fa8a",
+    "total_cost_usd": 0.508267,
     "usage": {
-      "input_tokens": 26,
-      "cache_creation_input_tokens": 56922,
-      "cache_read_input_tokens": 693442,
-      "output_tokens": 7075,
+      "input_tokens": 36,
+      "cache_creation_input_tokens": 47472,
+      "cache_read_input_tokens": 837850,
+      "output_tokens": 14957,
       "output_tokens_details": {
-        "thinking_tokens": 3689
+        "thinking_tokens": 9556
       },
       "server_tool_use": {
         "web_search_requests": 0,
@@ -37,19 +37,19 @@
       },
       "service_tier": "standard",
       "cache_creation": {
-        "ephemeral_1h_input_tokens": 56922,
+        "ephemeral_1h_input_tokens": 47472,
         "ephemeral_5m_input_tokens": 0
       },
       "inference_geo": "not_available",
       "iterations": [
         {
           "input_tokens": 2,
-          "output_tokens": 3674,
-          "cache_read_input_tokens": 74899,
-          "cache_creation_input_tokens": 2263,
+          "output_tokens": 2090,
+          "cache_read_input_tokens": 64305,
+          "cache_creation_input_tokens": 3407,
           "cache_creation": {
             "ephemeral_5m_input_tokens": 0,
-            "ephemeral_1h_input_tokens": 2263
+            "ephemeral_1h_input_tokens": 3407
           },
           "type": "message"
         }
@@ -58,12 +58,12 @@
     },
     "modelUsage": {
       "claude-haiku-4-5-20251001": {
-        "inputTokens": 1078,
-        "outputTokens": 15,
+        "inputTokens": 1097,
+        "outputTokens": 14,
         "cacheReadInputTokens": 0,
         "cacheCreationInputTokens": 0,
         "webSearchRequests": 0,
-        "costUSD": 0.001153,
+        "costUSD": 0.001167,
         "contextWindow": 200000,
         "maxOutputTokens": 32000,
         "canonicalModel": "claude-haiku-4-5",
@@ -71,12 +71,12 @@
         "costBasis": "list"
       },
       "claude-sonnet-5": {
-        "inputTokens": 26,
-        "outputTokens": 7075,
-        "cacheReadInputTokens": 693442,
-        "cacheCreationInputTokens": 56922,
+        "inputTokens": 36,
+        "outputTokens": 14957,
+        "cacheReadInputTokens": 837850,
+        "cacheCreationInputTokens": 47472,
         "webSearchRequests": 0,
-        "costUSD": 0.43717839999999997,
+        "costUSD": 0.5071000000000001,
         "contextWindow": 1000000,
         "maxOutputTokens": 64000,
         "canonicalModel": "claude-sonnet-5",
@@ -113,16 +113,16 @@
       "by_type": {}
     },
     "is_error": false,
-    "num_turns": 19,
+    "num_turns": 29,
     "subtype": "success",
     "api_error_status": null,
-    "result": "## Findings\n\n**Why the gap exists:** the dashboard (`devboard/server.py`) only ever reads `<DEVBOARD_DATA>/<repo>/*.yaml` task files. Those files are created by `worklog start` → `devboard.OnStart()` (`worklog/internal/devboard/devboard.go:392`), which is the *only* code path that ever creates one. A ticket sitting in `## Next` or `## Someday` in `WORK.md` has never been started, so `OnStart` has never run, so no task file exists, so the dashboard has literally nothing to iterate over for it. This is intentional per `schema.md`'s ownership model (\"worklog→devboard only,\" task files as disposable in-flight telemetry) — it's not a bug, it's a scope gap.\n\n**What's already in place that makes this easy:**\n- `server.py` already mounts the worklog data dir read-only as `WORKLOG_DIR` and already parses one file from it directly in Python (`FEEDBACK.md`, via `_parse_feedback()`) rather than shelling out to the `worklog` binary — the README is explicit that this is deliberate: \"the container ships no `worklog` binary.\" `WORK.md` lives at the root of that same mount (`Workdir.WorkMD()`), so reading it needs no new mount, just a new parse function following the same precedent.\n- The Go side already exposes exactly the right shape: `worklog status --json` (`internal/cli/status.go`) emits `Now`/`Waiting`/`Next`/`Someday` as structured blocks — `id`, `title`, `type`, `parent`, `repo`, `tags`, `started`, `pr`, `acceptance`, `notesRef`, `activeChildren`, etc. That's a stable, already-versioned contract for exactly this data; the Python parser would just be a lightweight re-implementation of the same `WORK.md` block grammar (`internal/parse/work.go`, `internal/model/block.go`), mirroring how `FEEDBACK.md`'s Go writer and Python reader are already kept in sync independently.\n- `_snapshot()` (the mtime-diff loop driving SSE hot-reload) already needs one more `os.stat(WORK.md)` entry to make backlog changes hot-reload too — trivial addition to an existing mechanism.\n\n## Recommendation\n\nExtend `server.py` to parse `WORK.md`'s `## Next` and `## Someday` sections directly (same \"duplicate a narrow reader in Python\" pattern as `FEEDBACK.md`), and surface them in `/api/tasks` as a separate lightweight list — not as full cards. A Next/Someday ticket has no branch, session, plan, scorecard, or phase, so forcing it through `cardHTML()` would either show a mostly-empty card or invite fields that don't apply yet. Instead:\n\n- Add a `backlog` (or `next`/`someday`) array to the JSON payload, grouped by the block's `Repo` field the same way task files are grouped by directory today.\n- Render it as a collapsed band/fold on the board view, same visual language as the existing \"Waiting on others\" and \"Needs you\" folds — title, id, type badge (epic/spike/chore), tags, parent — with **no detail page**, since there's no task file to link to. Maybe a \"not started\" hint or a copy-`worklog start <id>` button, mirroring the existing `resumeBtn`/`copyCmd` affordances.\n\n**Why not the alternative** (have `worklog add`/`edit` write a stub devboard file for every Next/Someday ticket, not just started ones): it multiplies write paths (`add`, `edit`, section-move, `done`, delete-from-WORK.md all now need to keep a stub file in sync) and creates two competing authorities for \"is this ticket alive\" — WORK.md's section placement vs. a YAML file's presence/phase — which is exactly what schema.md's \"one author per field\" rule is designed to avoid. Parsing `WORK.md` read-only for display keeps worklog as the sole source of truth and touches zero write paths.\n\n**Scope note:** `## Waiting` tickets already have task files (they were started, then paused), so they're already covered by the existing card rendering — the real gap is only `Next`/`Someday`, matching the ticket title.\n\nRough size: a `_parse_workmd()` function in `server.py` (~40-60 lines, block-grammar parser) + one `_snapshot()` line + a small `index.html` render function and CSS for the new fold. No Go changes needed at all.",
-    "ttft_ms": 1797,
+    "result": "Reproduced it exactly:\n\n```\n$ WORKLOG_DIR=$(mktemp -d) worklog note wl-scratch-isolation \"repro note\"\nrefusing to write — these projections were edited by hand and a re-render would discard the changes:\n  FEEDBACK.md\n  WORK.md\nreconcile them first (they are build outputs; the store is the source)\n```\n\n## Root cause\n\n`worklog` has **three independent data roots**, each read from its own env var with its own default, but only one is documented as \"the data directory\":\n\n| Root | Env var | Default | Documented? |\n|---|---|---|---|\n| Markdown projections (`WORK.md`, archive, notes, INDEX.md) | `WORKLOG_DIR` (or `--dir`) | `~/.local/share/worklog` | Yes — README, skill docs, `--help` |\n| SQLite store (source of truth since the M3/M4 store cutover) | `WORKLOG_MIGRATION_DATA` | `~/.local/share/worklog-migration` | No — only in `migrate --help` and test comments |\n| Devboard task files | `DEVBOARD_DATA` | `~/.local/share/devboard` | No |\n\n`resolveWorkdir()` (`worklog/internal/cli/root.go:83`) only consults `WORKLOG_DIR`/`--dir`. `storeDataDir()` (`worklog/internal/cli/task_store.go:174`) only consults `WORKLOG_MIGRATION_DATA`, and `devboard.DataDir()` only consults `DEVBOARD_DATA` — completely separate lookups.\n\nEvery store-backed write verb goes through `openStoreForWrite` (`worklog/internal/cli/store_common.go:110`), which:\n1. Opens the SQLite store from `storeDataDir()` — the colleague's **real, already-adopted** store (untouched by `WORKLOG_DIR`).\n2. Builds a projection `Layout` from `wd.Root` — the colleague's **fresh, empty scratch dir**.\n3. Calls `projection.EditedIn(store, layout)`, which renders what the *real* store's tickets should look like and diffs that against files at the *scratch* paths.\n\nIn `EditedIn` (`worklog/internal/projection/projection.go:193`), any expected file that's missing on disk is treated as a **deletion**, not as \"never rendered here\":\n\n```go\nif os.IsNotExist(err) {\n    // Absent is usually a deletion, and a deletion is an edit.\n    ...\n    edited = append(edited, rel)\n}\n```\n\nSince the scratch dir has never had anything rendered into it, *every* file the real store owns (`WORK.md`, `FEEDBACK.md`, epic notes, archive months...) shows up as \"missing\" → flagged as hand-edited/deleted → refusal, naming files the colleague genuinely never touched (they belong to the *real* store's tickets, which the scratch session doesn't even know about).\n\n**This is a known failure class the project already hit once**, for a different trigger: `requireAdopted` (`store_common.go:82`, with regression test `TestWriteVerbSaysNotAdopted` in `adopt_test.go`) was added specifically to give a better error than \"edited by hand\" when *no store exists at all* at `storeDataDir()`. But that guard only checks \"does a store file exist,\" not \"is this store paired with this workdir.\" A colleague who already ran `worklog adopt` for their real data has a store that passes `requireAdopted` fine — it's just the wrong store for this workdir. The guard's blind spot is exactly the isolation scenario.\n\nNote also: even without this refusal, isolation would still be broken in a worse way — writes would silently land in the colleague's **real production store** while only the markdown got redirected to the scratch dir, contaminating real ticket history with experiment data. The refusal is accidentally the safer failure mode, just confusingly worded.\n\n## Recommendation\n\nTwo changes, addressing the two distinct problems:\n\n1. **Fix the false-positive detection** (root cause, in `EditedIn`/`openStoreForWrite`): distinguish \"this workdir has never been rendered from this store\" (all expected files absent) from \"someone hand-edited/deleted specific files\" (a subset differs). The all-absent case should get the same \"not adopted here\" treatment as `requireAdopted`'s existing message, not \"edited by hand\" — this closes the gap the existing regression test didn't cover.\n\n2. **Give isolation an actual single knob** (the UX/architecture ask): today no single override achieves what the README implies `WORKLOG_DIR` does. Best fix is to make `WORKLOG_MIGRATION_DATA` and `DEVBOARD_DATA` default to subpaths *under* `WORKLOG_DIR` (e.g. `$WORKLOG_DIR/.store`, `$WORKLOG_DIR/devboard`) when not explicitly set, rather than each independently defaulting to a fixed `~/.local/share/*` path. That makes \"point `WORKLOG_DIR` at a fresh directory\" actually true to what the docs promise, with the two other env vars remaining as explicit escape hatches for someone who wants them split out. An alternative, less invasive fix is one new \"isolated sandbox\" flag/env var that fans out to all three roots — but that still leaves the three-knob footgun in place for anyone not using it.\n\nEither way, the docs (README's data-directory table, `skill/SKILL.md`, `skill/references/cli.md`, `--help` text) should stop implying `WORKLOG_DIR` is *the* data directory until it actually is.",
+    "ttft_ms": 2091,
     "type": "result",
-    "duration_ms": 90496,
-    "uuid": "758148b2-d052-4c1f-b15a-346fef265d3c",
-    "ttft_stream_ms": 1048,
-    "time_to_request_ms": 91,
+    "duration_ms": 168275,
+    "uuid": "0bb57600-1373-4f0f-ba96-ab4dc0f71375",
+    "ttft_stream_ms": 940,
+    "time_to_request_ms": 101,
     "queued_turn_count": 0
   }
 }

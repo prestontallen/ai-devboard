@@ -1,12 +1,15 @@
-Research question: the devboard dashboard only renders tasks that have a task
-file, which means only work that has already been started. Tickets sitting in
-the worklog's "## Next" and "## Someday" sections have no representation in the
-dashboard at all. Investigate how the dashboard could surface every tracked
-worklog ticket, not just started ones, and tell me what you recommend.
+Research question: a colleague wanted an isolated scratch worklog for an
+experiment, so they pointed WORKLOG_DIR at a fresh directory — the
+documented way to override the data directory (`worklog --help` and the
+README both say so). Every write command then refused with "refusing to
+write — these projections were edited by hand and a re-render would discard
+the changes", listing files the colleague never touched. Investigate why
+isolation fails this way, and recommend how the worklog should support an
+isolated scratch data dir.
 
-The code is at REPO_PATH_PLACEHOLDER (worklog CLI in Go under worklog/, the
-dashboard under devboard/). The worklog CLI is on your PATH as `worklog` and is
-pointed at a scratch data directory for this session; ticket
-adb-devboard-backlog-visibility is already in its "## Now".
+The code is at REPO_PATH_PLACEHOLDER (worklog CLI in Go under worklog/).
+The worklog CLI is on your PATH as `worklog` and is pointed at a scratch
+data directory for this session; ticket wl-scratch-isolation is already in
+its "## Now".
 
 This is investigation, not implementation. Do not modify any code.

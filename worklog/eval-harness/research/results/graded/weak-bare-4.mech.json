@@ -1,0 +1,128 @@
+{
+  "arm": "weak-bare",
+  "label": "4",
+  "model": "sonnet",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 7,
+    "bare_file_refs": 10,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 5,
+    "worklog_status_calls": 1,
+    "trailing_questions": 0,
+    "report_chars": 4361
+  },
+  "result_summary": {
+    "duration_api_ms": 138428,
+    "stop_reason": "end_turn",
+    "session_id": "a313a78d-e55b-4ade-9bba-7d3440e2dba2",
+    "total_cost_usd": 0.4656966,
+    "usage": {
+      "input_tokens": 40,
+      "cache_creation_input_tokens": 41518,
+      "cache_read_input_tokens": 920508,
+      "output_tokens": 11428,
+      "output_tokens_details": {
+        "thinking_tokens": 7597
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 41518,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1614,
+          "cache_read_input_tokens": 61577,
+          "cache_creation_input_tokens": 181,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 181
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1098,
+        "outputTokens": 13,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001163,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 40,
+        "outputTokens": 11428,
+        "cacheReadInputTokens": 920508,
+        "cacheCreationInputTokens": 41518,
+        "webSearchRequests": 0,
+        "costUSD": 0.46453360000000005,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 20,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "That's enough confirmation — no provenance/workdir binding exists in the store schema; the three roots are entirely independent by design. I have a complete picture now.\n\n## Findings\n\n**The bug:** `WORKLOG_DIR` only relocates one of *three* independent data roots the CLI uses. It's read by `resolveWorkdir()` (`root.go:83-89`) and controls where markdown projections (`WORK.md`, `notes/*.md`, `archive/*.md`, `FEEDBACK.md`) render. It has **no effect** on:\n\n- The SQLite store — the actual source of truth — which is controlled by `$WORKLOG_MIGRATION_DATA`, defaulting to `~/.local/share/worklog-migration` (`task_store.go:174-179`, `migrate.go:47-55`)\n- The devboard YAML tree, controlled by `$DEVBOARD_DATA`, defaulting to `~/.local/share/devboard` (`devboard.go:219-229`)\n\nSo when the colleague pointed `WORKLOG_DIR` at a fresh directory, every write command still opened the *real, already-adopted* production database (because `WORKLOG_MIGRATION_DATA` was untouched and that store already existed on the machine — `requireAdopted` passed silently). `openStoreForWrite` (`store_common.go:110-136`) then calls `projection.EditedIn`, which renders what that real store *should* produce — the full real `WORK.md`, every ticket's notes file, every archive month, every devboard YAML — and diffs it against the fresh, empty scratch directory. `EditedIn` treats any rendered file that's absent from disk as a deletion, i.e. a hand-edit (`projection.go:187`, `206-212`: \"Absent is usually a deletion, and a deletion is an edit\"). Since *none* of the real store's output exists in the new directory, *every* projection gets flagged — hence the wall of unfamiliar filenames the colleague never touched.\n\n**This is worse than a bad error message.** The refusal is accidentally acting as a safety net for a much more dangerous near-miss: had those files happened to exist and match, the write would have gone on to mutate the real, shared production store via `PutTicket`, while rendering its output into the throwaway scratch directory — silently corrupting live data while looking isolated. `WORKLOG_DIR` alone does not, and cannot, provide isolation; it only makes it *look* isolated.\n\n**Documentation compounds it.** `README.md:156` lists `WORKLOG_DIR`/`--dir` under \"Where the data tree lives,\" described as a single knob for relocating \"the data tree\" — with no mention that `WORKLOG_MIGRATION_DATA` or `DEVBOARD_DATA` exist or need to move with it. `WORKLOG_MIGRATION_DATA` is documented only inside `worklog migrate --help`, framed as a rehearsal/migration-tool detail, not as \"this is where your real database actually lives.\" A reader following the documented path has no way to discover the other two knobs.\n\n## Recommendation\n\nTwo complementary fixes, roughly in priority order:\n\n1. **Fail with the true diagnosis, not a false one.** `EditedIn`/`openStoreForWrite` should distinguish \"some rendered files differ\" (real hand-edit) from \"the entire rendered output is missing\" (workdir/store mismatch — this workdir has never been rendered by this store). The latter should produce a distinct error naming the actual mismatch — e.g. \"the store at `<dataDir>` has never rendered into `<wd.Root>`; if this is meant to be an isolated scratch worklog, set `WORKLOG_MIGRATION_DATA` (and `DEVBOARD_DATA` if devboard is in use) to isolated paths too\" — instead of accusing the user of hand-editing files they've never seen.\n\n2. **Give isolation an actual single knob.** Right now genuine isolation requires setting three independent env vars correctly together, with no cross-check that they're consistent. Worth considering: let `WORKLOG_DIR` (or a new `WORKLOG_ROOT`) act as a root that `WORKLOG_MIGRATION_DATA`/`DEVBOARD_DATA` default to nesting under when it's set but they aren't explicitly overridden — so setting one env var is sufficient for a scratch sandbox, while power users retain the ability to split the three apart explicitly.\n\n3. **Fix the docs regardless of which code fix lands** — the README's \"Where the data tree lives\" row and `worklog --help`'s `--dir` description both need to name all three roots (or the new unified knob) so this isn't discoverable only by reading source.\n\nI haven't touched any code, per your instructions — this is purely the investigation. Let me know if you want me to turn this into a plan for wl-scratch-isolation.",
+    "ttft_ms": 2073,
+    "type": "result",
+    "duration_ms": 137954,
+    "uuid": "70d46abd-3d86-483f-9918-31b2780bb25c",
+    "ttft_stream_ms": 908,
+    "time_to_request_ms": 91,
+    "queued_turn_count": 0
+  }
+}

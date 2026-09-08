@@ -1,0 +1,128 @@
+{
+  "arm": "weak-skill",
+  "label": "4",
+  "model": "sonnet",
+  "skills_installed": true,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 7,
+    "bare_file_refs": 9,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 0,
+    "worklog_status_calls": 0,
+    "trailing_questions": 0,
+    "report_chars": 3698
+  },
+  "result_summary": {
+    "duration_api_ms": 101768,
+    "stop_reason": "end_turn",
+    "session_id": "8de99550-24ff-4faf-afc2-de6303315cfa",
+    "total_cost_usd": 0.3010196,
+    "usage": {
+      "input_tokens": 22,
+      "cache_creation_input_tokens": 31719,
+      "cache_read_input_tokens": 419263,
+      "output_tokens": 8908,
+      "output_tokens_details": {
+        "thinking_tokens": 5670
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 31719,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1426,
+          "cache_read_input_tokens": 49859,
+          "cache_creation_input_tokens": 2100,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 2100
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1097,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001167,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 22,
+        "outputTokens": 8908,
+        "cacheReadInputTokens": 419263,
+        "cacheCreationInputTokens": 31719,
+        "webSearchRequests": 0,
+        "costUSD": 0.2998526,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 19,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "That confirms it — neither env var is mentioned anywhere in the README or skill docs. Only `WORKLOG_DIR`/`--dir` is documented as \"where the data tree lives,\" so a reader has no way to discover the other two knobs even exist.\n\n## What's actually happening\n\n`worklog` splits its data across **three independent roots**, each resolved by a different, unsynchronized mechanism:\n\n| Root | What it holds | Resolved by |\n|---|---|---|\n| `wd.Root` | rendered markdown corpus (WORK.md, archive, INDEX.md, notes) | `--dir` / `$WORKLOG_DIR` (`resolveWorkdir()`, root.go:81-88) — **documented** |\n| `dataDir` | the SQLite store — the actual source of truth (`worklog.db`) | `$WORKLOG_MIGRATION_DATA`, else `~/.local/share/worklog-migration` (`storeDataDir()`, task_store.go:174-179) — **not documented** |\n| devboard dir | devboard task files | `$DEVBOARD_DATA`, else `~/.local/share/devboard` (`devboard.DataDir()`) — **not documented** |\n\n`WORKLOG_DIR` only moves the first one. Both `--help` and the README (`README.md:156`, \"Where the data tree lives... `--dir` or `$WORKLOG_DIR`\") present it as *the* single override for \"the data tree,\" so the colleague's move was reasonable — and wrong, because two of the three roots ignored it entirely.\n\nConcretely, in `openStoreForWrite` (store_common.go:110-136):\n1. `storeDataDir()` ignores `WORKLOG_DIR` and resolves to the **real, already-adopted** `~/.local/share/worklog-migration` — so `requireAdopted` passes and the CLI opens the colleague's *actual production* SQLite store, not an empty scratch one.\n2. `layout := projection.Layout{WorklogDir: wd.Root, ...}` uses the scratch dir the colleague *did* set.\n3. `projection.EditedIn` (projection.go:193-223) renders every projection from the real store's real tickets, then reads each expected path under the scratch dir. The scratch dir is empty, so every file comes back `os.IsNotExist` — and per the comment at projection.go:201-208, \"Absent is usually a deletion, and a deletion is an edit.\" Every real ticket's projection gets flagged as hand-edited.\n\nSo the refusal is technically correct given its inputs (rendering the real store into an empty directory *would* discard \"edits\" — i.e. delete everything) — but the inputs are wrong: the colleague never touched those files because they're Preston's real corpus, not anything in the colleague's new directory.\n\nWorth noting: `requireAdopted` (store_common.go:74-92) was written specifically to give a clean error for \"no database yet\" so this generic failure mode wouldn't recur — but it only fires when `storeDataDir()` points at a path with no `worklog.db`. Since `storeDataDir()` never moved in the first place, that guard stays dark for exactly the scenario it was meant to catch.\n\n## Recommendation\n\nA single directory override should isolate *all* of worklog's data, not just the rendered corpus. Concretely: make `storeDataDir()` and `devboard.DataDir()` default to paths **relative to `WORKLOG_DIR`/`--dir`** (e.g. `$WORKLOG_DIR/store`, `$WORKLOG_DIR/devboard`) when set, keeping `WORKLOG_MIGRATION_DATA`/`DEVBOARD_DATA` as explicit escape hatches for the rarer case of wanting components split across different locations. That makes the documented behavior true — one flag, one isolated tree — without removing the advanced per-component overrides. It'd also need `worklog adopt` to run against the fresh scratch dir first (expected/fine for a new tree — `requireAdopted` already gives the right message once the store path actually follows `WORKLOG_DIR`). Worth adding a regression test that sets only `WORKLOG_DIR` to a fresh dir and asserts a write lands entirely under that root, not under `$HOME`, so this doesn't regress silently again.",
+    "ttft_ms": 5275,
+    "type": "result",
+    "duration_ms": 100787,
+    "uuid": "18bfca98-e40d-46d3-b41c-c4105e30d418",
+    "ttft_stream_ms": 802,
+    "time_to_request_ms": 97,
+    "queued_turn_count": 0
+  }
+}

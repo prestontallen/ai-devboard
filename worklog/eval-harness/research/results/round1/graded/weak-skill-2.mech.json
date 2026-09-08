@@ -1,0 +1,128 @@
+{
+  "arm": "weak-skill",
+  "label": "2",
+  "model": "sonnet",
+  "skills_installed": true,
+  "mechanical": {
+    "R3_evidence_discipline": "fail",
+    "R4_findings_persisted": "fail",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 2,
+    "bare_file_refs": 16,
+    "worklog_note_calls": 0,
+    "subagents_spawned": 0,
+    "read_search_calls": 10,
+    "worklog_status_calls": 1,
+    "trailing_questions": 1,
+    "report_chars": 3871
+  },
+  "result_summary": {
+    "duration_api_ms": 114906,
+    "stop_reason": "end_turn",
+    "session_id": "ffb663b0-6cc2-4c3a-92e2-57f5f232d002",
+    "total_cost_usd": 0.6124280000000001,
+    "usage": {
+      "input_tokens": 30,
+      "cache_creation_input_tokens": 83176,
+      "cache_read_input_tokens": 938900,
+      "output_tokens": 9073,
+      "output_tokens_details": {
+        "thinking_tokens": 4966
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 83176,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1403,
+          "cache_read_input_tokens": 102358,
+          "cache_creation_input_tokens": 1058,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1058
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1079,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001154,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 30,
+        "outputTokens": 9073,
+        "cacheReadInputTokens": 938900,
+        "cacheCreationInputTokens": 83176,
+        "webSearchRequests": 0,
+        "costUSD": 0.6112740000000001,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 25,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "No devboard data dir in this scratch session, so that's a silent no-op as designed — fine, doesn't block presenting findings.\n\n## Findings\n\n**Why Next/Someday are invisible today:** the dashboard has no concept of a ticket at all — it only reads YAML task files from `DEVBOARD_DATA/<repo>/*.yaml`. Those files are exclusively created by `worklog start` (`internal/devboard.OnStart`, `worklog/internal/cli/start.go:104`), which only fires when a ticket moves into `## Now`. `worklog add` (what creates Next/Someday entries) never touches the devboard dir. So \"no task file\" and \"not started\" are the same thing by construction — Next/Someday tickets simply don't exist from devboard's point of view.\n\n**The data devboard would need already exists and is already in reach:**\n- `worklog status --json` (`worklog/internal/cli/status.go`) emits Now/Waiting/Next/Someday as structured blocks (id, title, type, parent, repo, tags, acceptance, ...) straight from the same `model.WorkDoc` the CLI itself uses.\n- The devboard container already mounts the whole worklog data dir read-only at `/worklog` (`devboard/compose.yaml:8`) — `WORK.md` sits right next to `notes/` and `FEEDBACK.md`, which `server.py` already reads from that mount. No new mount is needed.\n\n**There's an exact precedent for this shape of feature:** the Friction panel. `FEEDBACK.md` is a worklog-owned file with no per-task YAML involvement; `server.py` parses it itself (`_parse_feedback`, deliberately permissive, skips unknown fields) and renders it as a standalone read-only band; the only interaction is a copy-command button, never a live write, because the worklog mount is read-only. `devboard/test_server.py` pins that parser against the Go format.\n\n**Why a task file per backlog item is the wrong shape:** `devboard/schema.md`'s ownership model treats a task file as disposable *in-flight* telemetry — phase tracker, resume button, plan/scorecard — created deliberately only at `start`. Forcing `worklog add` to also drop a task file would blur \"started\" vs \"not started\" (the exact distinction the schema currently encodes), litter the data dir with near-empty files for every backlog idea, and need new bookkeeping to delete/rename them as tickets move Next → Someday → Now → done.\n\n## Recommendation\n\nMirror the Friction-panel pattern: teach `server.py` to parse `WORK.md` directly (a small line-oriented parser mirroring `internal/parse/work.go`'s regexes — section headers, `- [ ] **ID** — Title`, indented `**Field**:` metadata) and expose Next/Someday as a new read-only \"Backlog\" band in `/api/tasks`, rendered as its own collapsed fold (like Friction) grouped by the block's `Repo:` field to stay consistent with the rest of the board. Each entry shows ID/title/type badge/tags, no detail page (there's nothing to drill into pre-start), and optionally a copy-`worklog start <id>` button — same \"copy command, never write\" rule the friction/resume buttons already follow, since the worklog mount is read-only.\n\nThis needs zero Go-side or schema changes, no new mount, and follows a pattern this codebase has already chosen once. The real cost is a second WORK.md parser to keep in sync with the Go grammar — same tradeoff already accepted for `FEEDBACK.md`, and the grammar is small (a handful of regexes) and only needs a read path.\n\n**Alternatives considered and why not:** a `worklog reindex`-style command that snapshots Next/Someday into a JSON side-file avoids the second parser but adds a new write path that must fire on every `add`/`start`/`wait`/`done` to avoid staleness — more moving parts than a live read. Per-ticket task files for backlog items were ruled out above.\n\nThis is a spike, so no code changed. Want me to close `adb-devboard-backlog-visibility` with this as the summary, or open it up for more digging (e.g., a rough diff sketch of the WORK.md parser mirror) first?",
+    "ttft_ms": 1972,
+    "type": "result",
+    "duration_ms": 114372,
+    "uuid": "fbf1f025-7821-44ed-9b1d-4fe20d0e3ca3",
+    "ttft_stream_ms": 856,
+    "time_to_request_ms": 87,
+    "queued_turn_count": 0
+  }
+}

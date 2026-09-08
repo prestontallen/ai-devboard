@@ -1,0 +1,128 @@
+{
+  "arm": "weak-bare",
+  "label": "3",
+  "model": "sonnet",
+  "skills_installed": false,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 6,
+    "bare_file_refs": 14,
+    "worklog_note_calls": 1,
+    "subagents_spawned": 0,
+    "read_search_calls": 13,
+    "worklog_status_calls": 4,
+    "trailing_questions": 0,
+    "report_chars": 4873
+  },
+  "result_summary": {
+    "duration_api_ms": 144086,
+    "stop_reason": "end_turn",
+    "session_id": "976269d3-0d04-4391-931c-35862e71a481",
+    "total_cost_usd": 0.5418124,
+    "usage": {
+      "input_tokens": 58,
+      "cache_creation_input_tokens": 40408,
+      "cache_read_input_tokens": 1294007,
+      "output_tokens": 12009,
+      "output_tokens_details": {
+        "thinking_tokens": 5831
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 40408,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 2198,
+          "cache_read_input_tokens": 59168,
+          "cache_creation_input_tokens": 1480,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 1480
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1098,
+        "outputTokens": 15,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001173,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 58,
+        "outputTokens": 12009,
+        "cacheReadInputTokens": 1294007,
+        "cacheCreationInputTokens": 40408,
+        "webSearchRequests": 0,
+        "costUSD": 0.5406394,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 29,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Root cause\n\nThe worklog CLI splits ticket data across **three independent storage roots**, but only one is documented and overridable by a user-facing knob:\n\n| Root | Controlled by | Default | Documented? |\n|---|---|---|---|\n| Markdown projections (`WORK.md`, `INDEX.md`, `archive/`, `notes/`, `FEEDBACK.md`) | `--dir` / `$WORKLOG_DIR` | `~/.local/share/worklog` | Yes — `--help` and README §\"Where the data tree lives\" |\n| SQLite store (the actual source of truth) | `$WORKLOG_MIGRATION_DATA` | `~/.local/share/worklog-migration` | No |\n| Devboard task YAML | `$DEVBOARD_DATA` | `~/.local/share/devboard` | No (separate subsystem, not claimed by the \"data tree\" doc either) |\n\n`storeDataDir()` (`worklog/internal/cli/task_store.go:174`) and `devboard.DataDir()` (`worklog/internal/devboard/devboard.go:221`) each read their own env var, completely independent of `resolveWorkdir()` / `$WORKLOG_DIR` (`worklog/internal/cli/root.go:81`).\n\nWhen the colleague set only `$WORKLOG_DIR` to a fresh directory:\n- The SQLite store still opened against their **real, already-adopted** production database (untouched).\n- Every store-backed write verb (`start`, `done`, `edit`, `note`, `wait`, `pr`, `link`, `import`) calls `openStoreForWrite` (`worklog/internal/cli/store_common.go:110`), which runs `projection.EditedIn(store, layout)` where `layout.WorklogDir = wd.Root` — now the fresh empty dir.\n- `EditedIn` renders what the (real, full) store *would* produce and diffs it against what's on disk at that path. Every expected file (`WORK.md`, `FEEDBACK.md`, notes, archive months, devboard YAML) is simply absent from the empty scratch dir. Per the doc comment in `projection.go:187`, \"a rendered file missing from disk counts as edited; it was deleted\" — so every single projection the store owns gets flagged as hand-edited/deleted, and the write is refused.\n\nI reproduced this exactly:\n\n```\n$ WORKLOG_DIR=<fresh empty dir> worklog note wl-scratch-isolation \"test\"\nrefusing to write — these projections were edited by hand and a re-render would discard the changes:\n  FEEDBACK.md\n  WORK.md\nreconcile them first (they are build outputs; the store is the source)\n```\n\nNote the message is doubly misleading here: nothing was \"edited by hand\" — the files never existed — and the files listed are ones the colleague genuinely never touched, exactly as reported. (Separately, `worklog status` and `worklog add` fail even earlier and more legibly with `WORK.md not found`, because they `parse.File(wd.WorkMD())` directly before touching the store — but that's a different, narrower code path than the one the ticket describes, and it only covers 2 of ~10 write verbs.)\n\nThe tests already know the real recipe for isolation (`worklog/internal/cli/task_store_test.go:16-27`, `storeWriteFixture`): set `WORKLOG_DIR`, `DEVBOARD_DATA`, **and** `WORKLOG_MIGRATION_DATA` together, then run `worklog migrate --dir <live> --out <dataDir>` (or `adopt --commit`) to populate the new store so it actually matches the new projection dir. None of that is exposed or documented to a human/agent user — `--help` and the README actively point at the one knob (`WORKLOG_DIR`) that is insufficient by itself and produces a confusing failure when used alone.\n\n## Recommendation\n\n1. **Single override for a fully isolated data root.** Add one env var/flag (e.g. `WORKLOG_DATA_HOME` or reuse `WORKLOG_DIR` as the authority) that, when set, derives *all three* roots underneath it (projections, store, devboard) unless the more specific vars are separately set. This makes \"point worklog at a scratch dir\" actually mean what the docs claim.\n2. **Fix the documentation regardless of (1).** The README's \"Where the data tree lives\" row and `--help`'s long description both claim `$WORKLOG_DIR` governs \"the data tree.\" That's false — it governs only the rendered markdown surface. Either fix the claim to name all three env vars, or fix the code so the claim becomes true.\n3. **Make `EditedIn`'s refusal diagnose this case specifically.** When *every* projection the store owns is simultaneously missing (not just one stray file), that's a strong signal of \"this directory was never rendered into\" rather than \"a human deleted build outputs.\" A distinct message — e.g. \"no projections found at `<dir>` — run `worklog reindex`/`migrate` to render into it, or check `$WORKLOG_DIR` matches the store you opened\" — would have told the colleague what was actually wrong instead of accusing them of an edit they didn't make.\n4. **Consider requiring/offering an explicit bootstrap step** for a new data root (`worklog adopt` or `worklog migrate --out`) the first time a write verb sees a store whose rendered output doesn't exist yet at the target `WorklogDir`, rather than silently treating \"never rendered\" the same as \"deleted.\"\n\nI have not modified any code or files — this is investigation only, per the task.",
+    "ttft_ms": 1971,
+    "type": "result",
+    "duration_ms": 144688,
+    "uuid": "b6cf30fd-a9c7-4c59-9fc1-9d42e9b64e45",
+    "ttft_stream_ms": 804,
+    "time_to_request_ms": 82,
+    "queued_turn_count": 0
+  }
+}

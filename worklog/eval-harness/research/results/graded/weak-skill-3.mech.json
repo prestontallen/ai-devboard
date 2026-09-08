@@ -1,0 +1,128 @@
+{
+  "arm": "weak-skill",
+  "label": "3",
+  "model": "sonnet",
+  "skills_installed": true,
+  "mechanical": {
+    "R3_evidence_discipline": "pass",
+    "R4_findings_persisted": "pass",
+    "R7_no_idle_blocking": "n/a"
+  },
+  "counters": {
+    "file_line_citations": 5,
+    "bare_file_refs": 15,
+    "worklog_note_calls": 3,
+    "subagents_spawned": 0,
+    "read_search_calls": 0,
+    "worklog_status_calls": 1,
+    "trailing_questions": 0,
+    "report_chars": 3610
+  },
+  "result_summary": {
+    "duration_api_ms": 110307,
+    "stop_reason": "end_turn",
+    "session_id": "baad5796-e73e-43e1-a5f3-b89bccf74983",
+    "total_cost_usd": 0.37398260000000005,
+    "usage": {
+      "input_tokens": 30,
+      "cache_creation_input_tokens": 37340,
+      "cache_read_input_tokens": 665488,
+      "output_tokens": 9030,
+      "output_tokens_details": {
+        "thinking_tokens": 5088
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 37340,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "not_available",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 1412,
+          "cache_read_input_tokens": 57362,
+          "cache_creation_input_tokens": 218,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 218
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard"
+    },
+    "modelUsage": {
+      "claude-haiku-4-5-20251001": {
+        "inputTokens": 1095,
+        "outputTokens": 14,
+        "cacheReadInputTokens": 0,
+        "cacheCreationInputTokens": 0,
+        "webSearchRequests": 0,
+        "costUSD": 0.001165,
+        "contextWindow": 200000,
+        "maxOutputTokens": 32000,
+        "canonicalModel": "claude-haiku-4-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      },
+      "claude-sonnet-5": {
+        "inputTokens": 30,
+        "outputTokens": 9030,
+        "cacheReadInputTokens": 665488,
+        "cacheCreationInputTokens": 37340,
+        "webSearchRequests": 0,
+        "costUSD": 0.37281759999999997,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-sonnet-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 27,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "## Root cause\n\n`WORKLOG_DIR` only relocates the markdown projection tree (WORK.md, INDEX.md, notes/, archive/, FEEDBACK.md — `model.NewWorkdir`, `internal/model/workdir.go:53`). It has no effect on two other data roots every write verb also touches:\n\n- **The SQLite store** (source of truth). `openStoreForWrite` (`internal/cli/store_common.go:113`) resolves it via `storeDataDir()` (`internal/cli/task_store.go:174`), which reads `$WORKLOG_MIGRATION_DATA`, falling back to the fixed `~/.local/share/worklog-migration` — never `$WORKLOG_DIR`.\n- **The devboard dir**, via `devboard.DataDir()` (`internal/devboard/devboard.go:221`), gated by its own `$DEVBOARD_DATA`.\n\nSo setting only `WORKLOG_DIR` splits the world in two: the store handle still points at the real, already-adopted, populated store, while the projection layout points at the new empty scratch directory. `openStoreForWrite` then calls `projection.EditedIn(s, layout)` (`internal/projection/projection.go:193`), which renders what the *real* store's tickets should look like as markdown and diffs that against files at the scratch path. Every file is absent there, and `EditedIn`'s \"absent means it was deleted\" rule (with only a narrow board-file-move exception) treats every one of them as a hand-edit. I reproduced this directly: pointing only `WORKLOG_DIR` at a fresh empty directory and running `worklog note` refused, listing ~70 files — the real corpus's `WORK.md`, `FEEDBACK.md`, `archive/2026-09.md`, and every epic's notes file — none of which the \"colleague\" ever touched.\n\nThis isn't a bug in the hand-edit guard itself (which is working as designed against a real, non-empty worklog dir); it's a documentation/API-surface gap. `worklog --help` and the README's \"Where the data tree lives\" row both state flatly that `--dir`/`$WORKLOG_DIR` is *the* data directory override, and `skill/references/cli.md` repeats that framing — none of them mention `$WORKLOG_MIGRATION_DATA` or `$DEVBOARD_DATA` as siblings that must move together for true isolation. The only place `$WORKLOG_MIGRATION_DATA` is documented at all is `docs/store-design.md`, framed as an internal detail of `worklog migrate`, not as \"the other half of what you need to sandbox worklog.\"\n\n## Recommendation\n\nTwo layers, since one is a quick doc fix and the other is the real fix:\n\n1. **Unify the data roots.** Have the store and devboard paths derive from `WORKLOG_DIR`'s root by default (e.g. `<root>/store/worklog.db`, `<root>/devboard`) instead of each independently defaulting to a fixed `~/.local/share/...` path. Keep `$WORKLOG_MIGRATION_DATA`/`$DEVBOARD_DATA` as explicit overrides for people who want to mix-and-match, but make \"one env var / one flag = fully isolated instance\" true by default — that's what the docs already promise.\n2. **Until that lands, fix the docs/help text** (`--help` in `internal/cli/root.go`, README's \"Where the data tree lives\" row, `skill/references/cli.md`) to say explicitly that full isolation requires setting `WORKLOG_DIR`, `WORKLOG_MIGRATION_DATA`, and (if devboard is enabled) `DEVBOARD_DATA` together — not `WORKLOG_DIR` alone.\n\nA secondary, independent hardening: `EditedIn`'s absent-file branch can't currently distinguish \"a human deleted this projection\" from \"this store has never been rendered into this directory at all.\" Detecting the latter (e.g., no projection files exist yet anywhere under the target root) and rendering fresh instead of refusing would make the specific \"brand-new empty scratch dir\" case safe even without root-unification, though it wouldn't fix the underlying multi-root confusion on its own.",
+    "ttft_ms": 2950,
+    "type": "result",
+    "duration_ms": 109728,
+    "uuid": "e06ca91b-48c8-4574-8c25-36cc3adfb3f7",
+    "ttft_stream_ms": 1826,
+    "time_to_request_ms": 103,
+    "queued_turn_count": 0
+  }
+}
