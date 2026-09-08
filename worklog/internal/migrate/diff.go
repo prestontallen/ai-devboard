@@ -93,19 +93,16 @@ func DiffIDs(before, after map[string]store.ID) IDSetDiff {
 	return d
 }
 
-// StaleRows returns ticket slugs present in the db after this run but not
-// among the slugs this run's conversion actually touched — leftovers from
-// a previous copy-forward generation that no longer exist in live data.
-// convert.Load only upserts (Store has no delete), so the id-set diff
-// alone reports these tickets as "unchanged", never as gone; this
-// restores the ticket-count/id-set check the ratified workstream brief
-// (notes/adb-worklog-rewrite.md, 2026-09-02 20:04) asked for, which a
-// db-generation-to-generation diff structurally cannot see on its own.
-func StaleRows(afterTickets []*store.Ticket, convertedSlugs map[string]bool) []string {
+// staleRows is migrate's own copy of the stale-row check. The exported one
+// moved to internal/adopt, its only other caller, ahead of this package's
+// deletion. Deliberately unexported and deliberately duplicated for the one
+// milestone this package still exists: nothing new can depend on it, and
+// the copy dies with the package rather than outliving it.
+func staleRows(afterTickets []*store.Ticket, convertedSlugs map[string]bool) []string {
 	var stale []string
 	for _, t := range afterTickets {
 		if t.Slug == "" {
-			continue // slug-less quick-capture entities have no slug to go stale by
+			continue
 		}
 		if !convertedSlugs[t.Slug] {
 			stale = append(stale, t.Slug)

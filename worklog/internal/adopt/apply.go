@@ -10,7 +10,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/census"
 	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
 	"github.com/prestontallen/ai-devboard/worklog/internal/hazard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
@@ -116,7 +115,7 @@ func Run(s store.Store, o Options) (*Result, error) {
 	for _, slug := range rep.Slugs {
 		converted[slug] = true
 	}
-	if stale := migrate.StaleRows(tickets, converted); len(stale) > 0 {
+	if stale := StaleRows(tickets, converted); len(stale) > 0 {
 		return nil, fmt.Errorf("%w: %d stale row(s) in the store have no counterpart in this corpus and would be rendered back onto disk:\n  %s",
 			ErrRefused, len(stale), strings.Join(stale, "\n  "))
 	}
@@ -148,8 +147,13 @@ func Run(s store.Store, o Options) (*Result, error) {
 			return res, rollback(o, fmt.Errorf("regenerating INDEX.md: %w", err))
 		}
 	}
-	// The post-condition is the runtime gate itself, not a proxy for it: if
-	// EditedIn is not empty, the very next write verb would refuse.
+	// The post-condition asserts, directly, that the corpus this run just
+	// wrote matches what the store renders. It used to be justified as
+	// "the runtime gate itself, not a proxy for it", because the next write
+	// verb would refuse on a non-empty result. That is no longer true — a
+	// write now warns and proceeds — so the check stands on its own merit:
+	// an adoption that left the corpus disagreeing with the store has not
+	// finished its job, whatever the next command would tolerate.
 	edited, err := projection.EditedIn(s, projection.Layout{WorklogDir: o.Roots.Worklog, DevboardDir: o.Roots.Devboard})
 	if err != nil {
 		return res, rollback(o, err)

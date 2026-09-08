@@ -108,7 +108,7 @@ func Run(o Options) (*Result, error) {
 	for _, s := range report.Slugs {
 		convertedSlugs[s] = true
 	}
-	stale := StaleRows(afterTickets, convertedSlugs)
+	stale := staleRows(afterTickets, convertedSlugs)
 
 	if err := ws.Close(); err != nil {
 		return nil, fmt.Errorf("migrate: closing working copy: %w", err)

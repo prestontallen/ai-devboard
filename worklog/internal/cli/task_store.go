@@ -46,17 +46,7 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 
 	layout := projection.Layout{WorklogDir: wd.Root, DevboardDir: devboard.DataDir()}
 
-	// Refuse before mutating, never after: once the render runs, whatever
-	// someone typed into a projection by hand is gone (adb-cutover M3b).
-	edited, err := projection.EditedIn(s, layout)
-	if err != nil {
-		return "", "", fmt.Errorf("task: checking projections: %w", err)
-	}
-	if len(edited) > 0 {
-		return "", "", errWithExit(1,
-			"task: refusing to write — these projections were edited by hand and a re-render would discard the changes:\n  %s\nreconcile them first (they are build outputs; the store is the source)",
-			strings.Join(edited, "\n  "))
-	}
+	warnHandEdits(s, layout)
 
 	target, worklogID, top, err := resolveStoreTarget(s, id, child)
 	if err != nil {

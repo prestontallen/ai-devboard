@@ -149,10 +149,9 @@ type storeSession struct {
 	wd     model.Workdir
 }
 
-// openStoreForWrite opens the store and refuses up front if any
-// projection under wd/devboard has been hand-edited since the last
-// render — the M3b policy: refuse before mutating, never after, since a
-// render destroys whatever a human typed by hand.
+// openStoreForWrite opens the store and reports, without refusing, any
+// projection under wd/devboard that has been hand-edited since the last
+// render.
 func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
 	path, err := requireStore(wd)
 	if err != nil {
@@ -164,18 +163,75 @@ func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
 	}
 	layout := projection.Layout{WorklogDir: wd.Root, DevboardDir: devboard.DataDir()}
 
+	warnHandEdits(s, layout)
+	return &storeSession{s: s, layout: layout, wd: wd}, nil
+}
+
+// warnHandEdits names any projection whose bytes on disk differ from what
+// the store would render, then lets the write proceed.
+//
+// This used to refuse. It no longer does, because refusing treats the file
+// as a second source of truth to reconcile against, and the whole point of
+// this design is that markdown is render OUTPUT — the store is the source,
+// and a re-render is supposed to win.
+//
+// The warning stays because the overwrite is real and silent otherwise:
+// notes files carry human-authored prose, so a hand edit there is genuinely
+// lost, and the human deserves to be told which file it was rather than
+// discovering it later. Detection has to happen HERE, before the mutation:
+// at render time every legitimate write also differs, so there is no signal
+// left to distinguish a hand edit from ordinary work.
+//
+// Never fatal. A failure to check is not a reason to block the user's
+// command, and the check itself is advisory now.
+func warnHandEdits(s store.Store, layout projection.Layout) {
 	edited, err := projection.EditedIn(s, layout)
 	if err != nil {
-		s.Close()
-		return nil, fmt.Errorf("checking projections: %w", err)
+		return
 	}
-	if len(edited) > 0 {
-		s.Close()
-		return nil, errWithExit(1,
-			"refusing to write — these projections were edited by hand and a re-render would discard the changes:\n  %s\nreconcile them first (they are build outputs; the store is the source)",
-			strings.Join(edited, "\n  "))
+	edited = dropAbsentBoard(edited, layout)
+	if len(edited) == 0 {
+		return
 	}
-	return &storeSession{s: s, layout: layout, wd: wd}, nil
+
+	// Cap the list. A warning nobody reads is the same as no warning, and
+	// the failure mode here is a wall of paths scrolling a real one away.
+	const show = 8
+	shown := edited
+	suffix := ""
+	if len(shown) > show {
+		shown = shown[:show]
+		suffix = fmt.Sprintf("\n  ... and %d more", len(edited)-show)
+	}
+	fmt.Fprintf(os.Stderr,
+		"warning: overwriting %d hand-edited file(s) — the store is the source and this render wins:\n  %s%s\n",
+		len(edited), strings.Join(shown, "\n  "), suffix)
+}
+
+// dropAbsentBoard removes board files from the warning when the board
+// directory itself is not there.
+//
+// EditedIn counts a rendered file missing from disk as an edit, which is
+// right for a deletion and wrong for a machine that simply has no board
+// set up: every board file the store knows about is "missing", so a corpus
+// with no devboard directory produced 46 warning lines on every single
+// write. Under the old refusal that state was a hard stop, loud once. As a
+// warning it would be noise forever, and noise is how a real warning gets
+// missed.
+func dropAbsentBoard(edited []string, layout projection.Layout) []string {
+	if layout.DevboardDir == "" {
+		return edited
+	}
+	if _, err := os.Stat(layout.DevboardDir); err == nil {
+		return edited
+	}
+	kept := edited[:0]
+	for _, rel := range edited {
+		if !strings.HasPrefix(rel, "devboard/") {
+			kept = append(kept, rel)
+		}
+	}
+	return kept
 }
 
 func (ss *storeSession) close() { ss.s.Close() }

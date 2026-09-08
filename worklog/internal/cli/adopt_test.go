@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -149,5 +150,75 @@ func TestAdoptRollbackLeavesTheStoreAlone(t *testing.T) {
 	}
 	if len(before) != len(after) {
 		t.Errorf("rollback rewrote the database: %d bytes before, %d after", len(before), len(after))
+	}
+}
+
+// TestUnadoptedMachineNeverBlamesAHandEdit pins the message ordering the
+// migrate-render contract's criterion 14 protects. It is correct only
+// because requireStore runs BEFORE the hand-edit check: a machine with no
+// store has nothing to compare against, and telling that human their files
+// were edited by hand would be both false and unactionable.
+//
+// The check downstream is now a warning rather than a refusal, which makes
+// the ordering matter MORE, not less: a wrong warning is easier to ship
+// than a wrong refusal, because nothing fails.
+func TestUnadoptedMachineNeverBlamesAHandEdit(t *testing.T) {
+	live, board := canonicalWorklogFixture(t)
+	t.Setenv("DEVBOARD_DATA", board)
+	t.Setenv("WORKLOG_DIR", live)
+	t.Setenv("WORKLOG_STORE_SYNC", "")
+
+	_, stderr, err := runCLIAllowErr(t, "add", "--dir", live, "--id", "fresh", "--title", "First")
+	if err == nil {
+		t.Fatal("add succeeded on a machine with no store")
+	}
+	all := stderr + err.Error()
+	if !strings.Contains(all, "has not adopted") {
+		t.Errorf("want the not-adopted message, got %q", all)
+	}
+	for _, forbidden := range []string{"edited by hand", "hand-edited"} {
+		if strings.Contains(all, forbidden) {
+			t.Errorf("blamed a hand edit on a machine with no store: %q", all)
+		}
+	}
+}
+
+// TestAdoptPostConditionRollsBack: adoption asserts that the corpus it
+// just wrote matches the store, and a failure rolls the whole thing back.
+// The assertion used to be justified as a stand-in for the next write
+// refusing. That refusal is gone, so this pins the check on its own terms.
+func TestAdoptPostConditionRollsBack(t *testing.T) {
+	live, board := canonicalWorklogFixture(t)
+	t.Setenv("DEVBOARD_DATA", board)
+	t.Setenv("WORKLOG_DIR", live)
+	t.Setenv("WORKLOG_STORE_SYNC", "")
+
+	// Reindex runs after the render and before the post-condition, so
+	// corrupting a rendered file from there is the seam that makes the
+	// post-condition fail without faking the store.
+	work := filepath.Join(live, "WORK.md")
+	before, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", live); strings.Contains(stderr, "error") {
+		t.Fatalf("adopt --commit: %s", stderr)
+	}
+
+	// Now corrupt a projection and re-run: the post-condition must catch it.
+	if err := os.WriteFile(work, append(before, []byte("\nnot what the store renders\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, adoptErr := runCLIAllowErr(t, "adopt", "--commit", "--dir", live)
+	all := stderr
+	if adoptErr != nil {
+		all += adoptErr.Error()
+	}
+	// Either it refuses up front (census/unclassified) or the post-condition
+	// catches it; both are the corpus disagreeing with the store being
+	// treated as a failure rather than waved through.
+	if adoptErr == nil && !strings.Contains(all, "post-condition") {
+		t.Errorf("a corpus disagreeing with the store was adopted silently: %q", all)
 	}
 }

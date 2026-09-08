@@ -71,10 +71,14 @@ func TestStoreWriteRendersThrough(t *testing.T) {
 	}
 }
 
-// TestStoreWriteRefusesHandEditedProjection is M3b's guard, wired: the
-// store is the source, so re-rendering over a hand-edited projection
-// would destroy it. The write refuses and names the file instead.
-func TestStoreWriteRefusesHandEditedProjection(t *testing.T) {
+// TestStoreWriteWarnsOverHandEditedProjection replaces the old refusal.
+//
+// The store is the source and markdown is render output, so a write no
+// longer refuses when it finds a hand-edited projection — it overwrites,
+// which is the whole point. But it says so first and names the file,
+// because the overwrite is otherwise silent and notes files carry prose a
+// human actually wrote.
+func TestStoreWriteWarnsOverHandEditedProjection(t *testing.T) {
 	live, _, _ := storeWriteFixture(t)
 
 	work := filepath.Join(live, "WORK.md")
@@ -86,21 +90,23 @@ func TestStoreWriteRefusesHandEditedProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = runCLIExpectingFailure(t, "task", "phase", "implementing", "--id", "solo", "--dir", live)
-	if err == nil {
-		t.Fatal("the write was allowed over a hand-edited projection")
+	_, stderr := runCLI(t, "task", "phase", "implementing", "--id", "solo", "--dir", live)
+
+	if !strings.Contains(stderr, "hand-edited") || !strings.Contains(stderr, "WORK.md") {
+		t.Errorf("want a warning naming WORK.md, got stderr: %q", stderr)
 	}
-	if !strings.Contains(err.Error(), "refusing to write") || !strings.Contains(err.Error(), "WORK.md") {
-		t.Fatalf("want a refusal naming WORK.md, got: %v", err)
+	if strings.Contains(stderr, "refusing to write") {
+		t.Errorf("the write still refused: %q", stderr)
 	}
 
-	// And the hand-edit is still there — refusing means not writing.
+	// The write went through, so the hand edit is gone. That is the
+	// bargain: the human is told, not protected.
 	after, err := os.ReadFile(work)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(after), "typed by hand") {
-		t.Error("the refusal did not protect the edit")
+	if strings.Contains(string(after), "typed by hand") {
+		t.Error("the render did not overwrite the hand edit")
 	}
 }
 
@@ -149,4 +155,33 @@ func runCLIExpectingFailure(t *testing.T, args ...string) error {
 	root.SetErr(&errOut)
 	root.SetArgs(args)
 	return root.Execute()
+}
+
+// TestHandEditWarningIgnoresAnAbsentBoard: a machine with no devboard
+// directory has every board file "missing", which EditedIn correctly
+// reports as edits. Warning about all of them on every write buries the
+// one line that matters. Under the old refusal this state was a hard stop;
+// as a warning it has to be filtered or it is permanent noise.
+func TestHandEditWarningIgnoresAnAbsentBoard(t *testing.T) {
+	live, _, _ := storeWriteFixture(t)
+	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "no-board-here"))
+
+	work := filepath.Join(live, "WORK.md")
+	data, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(work, append(data, []byte("\n  - **Status**: typed by hand\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// `task` no-ops without a board dir, so use a verb that writes anyway.
+	_, stderr := runCLI(t, "note", "solo", "a write with no board set up", "--dir", live)
+
+	if !strings.Contains(stderr, "WORK.md") {
+		t.Errorf("the real hand edit was not reported: %q", stderr)
+	}
+	if strings.Contains(stderr, "devboard/") {
+		t.Errorf("warned about board files on a machine with no board dir: %q", stderr)
+	}
 }
