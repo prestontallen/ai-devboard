@@ -145,8 +145,7 @@ at a checkpoint, so what the human approves is what ships.
 This is the canonical statement of the convention — the same rule applies
 to every other human-facing string an agent writes during a task, not just
 Ship-phase text. The Devboard sync section below points back here for
-`worklog note`/`task decision`/`task needs-you`/`task waiting-on`/`done
---summary` text, since that's all rendered straight onto the human's
+`worklog note`/`task decision`/`done --summary` text, since that's all rendered straight onto the human's
 dashboard and into WORK.md/archive.
 
 ## Hard checkpoints — the human MUST be involved
@@ -216,23 +215,20 @@ Mandatory sync points:
    --lang <lang> --note "<why it matters>"` when a load-bearing change
    lands.
 5. **The moment anything waits on the human** — a question, or a hard
-   checkpoint (commit summary, PR replies, push): `worklog task needs-you
-   add "<text>" --type question|checkpoint --detail "<substance>"`.
-   **Resolve it the moment it's resolved** — `worklog task needs-you
-   resolve <n|all>` — a stale entry poisons the attention queue.
-   The moment a question goes to an EXTERNAL party (another team or
-   person): `worklog task waiting-on add "<question>" --who <party>
-   [--link <where>] [--detail "<context>"]`. When the answer arrives:
-   `worklog task waiting-on resolve <n> --answer "<answer>"` — the answer
-   is recorded as a decision and appended to the worklog ticket's notes.
-   Whole ticket blocked on someone else → `worklog wait <id>` instead;
-   one thread blocked while work continues → `waiting-on`.
+   checkpoint (commit summary, PR replies, push): say so, in the message
+   you are already writing. There is no command for this. The attention
+   queue and the external-answer queue were removed in 2026-09 because
+   neither had ever carried a single entry on any real board: they cost
+   tool calls and showed the human nothing.
+   Whole ticket blocked on someone else → `worklog wait <id>`. A single
+   thread blocked while work continues needs no bookkeeping; raise it and
+   keep going.
 6. **Verify:** `worklog task scorecard pass|fail <n>` as each check runs.
-7. **Done:** `worklog done <id>` handles ticketed work (phase done, queue
-   cleared). Ticketless: `worklog task waiting-on resolve all` (converts
-   open external questions to "unanswered at close" decisions), then
-   `worklog task phase done` and `worklog task needs-you resolve all`.
-   Deleting the file is the human's call.
+7. **Done:** `worklog done <id>` handles ticketed work (phase done, any
+   queue entries left over from before their removal cleared, open
+   external questions converted to "unanswered at close" decisions).
+   Ticketless: `worklog task phase done`. Deleting the file is the
+   human's call.
 
 `plan` and `scorecard` renumber remaining items after a `remove` — re-read
 the list before addressing an item by index afterward. `worklog pr <id>
@@ -245,7 +241,7 @@ the list before addressing an item by index afterward. `worklog pr <id>
 epic, the epic's task file is the dashboard surface — `worklog start`/
 `done`/`pr` on a child automatically sync that child's entry there and
 never create a per-child file. Every `task` subcommand (`plan`,
-`scorecard`, `decisions`, `amend`, `scout`, `code`, `needs-you`, `waiting-on`, `complexity`,
+`scorecard`, `decisions`, `amend`, `scout`, `code`, `complexity`,
 `phase`) needs BOTH `--id <epic-slug>` AND `--child <child-slug>` — the
 epic's own top-level fields are unused, so each child keeps its own
 independent phase/plan/scorecard/branch/session (this is what lets more

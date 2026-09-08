@@ -136,7 +136,7 @@ func TestTaskPlanLifecycle(t *testing.T) {
 	}
 }
 
-func TestTaskScorecardAndNeedsYouAndDecisionAndCode(t *testing.T) {
+func TestTaskScorecardAndDecisionAndCode(t *testing.T) {
 	dir := taskStoreFixture(t, false)
 	p := taskFilePath(dir)
 
@@ -148,7 +148,6 @@ func TestTaskScorecardAndNeedsYouAndDecisionAndCode(t *testing.T) {
 	}
 	mustRun("scorecard", "add", "it works", "--verify", "go test ./...")
 	mustRun("scorecard", "pass", "1")
-	mustRun("needs-you", "add", "approve the thing", "--type", "checkpoint", "--detail", "body")
 	mustRun("decision", "chose flock", "--why", "atomic rename alone races")
 	mustRun("code", "internal/devboard/devboard.go", "--lines", "1-20", "--lang", "go", "--note", "core")
 
@@ -156,19 +155,11 @@ func TestTaskScorecardAndNeedsYouAndDecisionAndCode(t *testing.T) {
 	if task.Score[0].Status != "pass" || task.Score[0].Verify != "go test ./..." {
 		t.Fatalf("scorecard = %+v", task.Score)
 	}
-	if task.NeedsYou[0].Type != "checkpoint" || task.NeedsYou[0].Detail != "body" {
-		t.Fatalf("needs_you = %+v", task.NeedsYou)
-	}
 	if task.Decision[0].Why == "" || task.Decision[0].When == "" {
 		t.Fatalf("decision = %+v", task.Decision)
 	}
 	if task.Code[0].Note != "core" {
 		t.Fatalf("code = %+v", task.Code)
-	}
-
-	mustRun("needs-you", "resolve", "all")
-	if task = loadTask(t, p); len(task.NeedsYou) != 0 {
-		t.Fatalf("needs_you not cleared: %+v", task.NeedsYou)
 	}
 }
 
@@ -275,5 +266,21 @@ func TestTaskPhaseResearch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "research") {
 		t.Fatalf("enum in error message is stale, got %v", err)
+	}
+}
+
+// TestRemovedTaskSubcommandsFail: a deleted subcommand must not exit 0.
+//
+// Cobra's default is to treat an unknown word as an argument to the parent,
+// print the parent's help and exit 0 — so a script or an agent still calling
+// `worklog task needs-you add "..."` would read a deleted command as
+// success. That is the same class of failure as printing success without
+// writing, which this project has already been bitten by once.
+func TestRemovedTaskSubcommandsFail(t *testing.T) {
+	taskStoreFixture(t, false)
+	for _, sub := range []string{"needs-you", "waiting-on"} {
+		if _, _, err := runTask(t, sub, "--id", "tkt"); err == nil {
+			t.Errorf("`worklog task %s` succeeded; a removed command must fail", sub)
+		}
 	}
 }

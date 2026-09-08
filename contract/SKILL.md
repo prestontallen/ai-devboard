@@ -135,8 +135,9 @@ when devboard isn't set up):
 
 - each acceptance criterion: `worklog task scorecard add "<criterion>"
   --verify "<check>" --id <slug>`
-- each open question for the human: `worklog task needs-you add
-  "<question>" --type question --id <slug>`
+- open questions for the human are raised in the message that presents the
+  contract, not recorded as board entries — the attention queue was removed
+  in 2026-09 after never carrying an entry
 
 From then on the task file's scorecard tracks verification live —
 `worklog task scorecard pass|fail <n>` as checks run (dev-context phase 7).

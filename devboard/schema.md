@@ -28,7 +28,8 @@ supported.
 | `links` (PR) | worklog (`worklog pr`) | other entries worklog too (`worklog link <id> <name> [url]`, e.g. Jira/Slack/docs — any name, not just PR) |
 | `phase` | agent (dev-context phases) | worklog `done` sets `done` |
 | `tier`, `complexity`, `branch`, `session`, `repo_path`, `scout` | agent | identity/telemetry |
-| `plan`, `scorecard`, `decisions`, `code`, `needs_you`, `waiting_on` | agent | in-flight detail; deliberately NOT stored in worklog |
+| `plan`, `scorecard`, `decisions`, `code` | agent | in-flight detail; deliberately NOT stored in worklog |
+| `needs_you`, `waiting_on` | nobody, since 2026-09 | the commands that wrote them were removed after neither ever carried an entry on a real board. The keys stay readable so pre-existing data still parses; nothing new writes them |
 | notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
 
 ```yaml
@@ -111,11 +112,14 @@ waiting_on:               # external-answer queue: blocked on OTHER people/teams
       context the answerer needs
                           # distinct from needs_you (blocked on the task's
                           # own human). Age is independent of any worklog
-                          # `Waiting since` stamp. Resolve via
-                          # `worklog task waiting-on resolve` — answers are
-                          # recorded as decisions and appended to worklog
-                          # notes (the ONE sanctioned devboard->worklog
-                          # write; mirroring is otherwise one-way).
+                          # `Waiting since` stamp. RETIRED 2026-09: the
+                          # commands that wrote this queue were removed
+                          # after it never carried an entry. Existing data
+                          # still parses and `worklog done` still converts
+                          # any leftover open question into a dated
+                          # decision. Note that this was also the one
+                          # sanctioned devboard->worklog write; with it
+                          # gone, mirroring is one-way without exception.
 
 needs_you:                # attention queue — questions & pending checkpoints
   - type: checkpoint      # question|checkpoint

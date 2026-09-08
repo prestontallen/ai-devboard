@@ -361,3 +361,52 @@ func TestTaskComplexityRejectsUnchanged(t *testing.T) {
 // task_scout_test.go: adb-scout-gate made `scout:` a typed field that amend
 // must CLEAR on a medium/high outcome, which is the opposite of what this
 // asserted. The unknown-key invariant it guarded lives on in the replacement.
+
+// TestAmendSaysItClearedTheScout is the fix for a confusion that hit twice.
+//
+// An amendment deliberately discards the risk-scout attestation, because a
+// scout run against the old scope does not attest a new one. That reasoning
+// is right. But it used to happen silently, and the field is not journaled,
+// so a cleared attestation looked exactly like a lost write — one session
+// filed a data-loss bug over it and a later one nearly did.
+func TestAmendSaysItClearedTheScout(t *testing.T) {
+	_, path := amendFixture(t, store.Ticket{
+		Complexity: "high",
+		Scout:      &store.Scout{Mode: "ran", Why: "four lenses", When: "2026-09-08"},
+	})
+
+	stdout, stderr, err := runTask(t, "amend", "scope moved", "--why", "found more",
+		"--complexity", "unchanged", "--id", "tkt")
+	if err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+	if !strings.Contains(stdout+stderr, "discarded the risk-scout attestation") {
+		t.Errorf("amend did not say it cleared the attestation; got %q / %q", stdout, stderr)
+	}
+	if got := loadAmendTask(t, path); got.Scout != nil {
+		t.Errorf("attestation survived a high-complexity amendment: %+v", got.Scout)
+	}
+}
+
+// TestAmendKeepsALowComplexityScoutSilently: the gate only fires at medium
+// and high, so a low-complexity amendment has no attestation to invalidate
+// and must not claim it cleared one.
+func TestAmendKeepsALowComplexityScoutSilently(t *testing.T) {
+	_, path := amendFixture(t, store.Ticket{
+		Complexity: "low",
+		Scout:      &store.Scout{Mode: "skipped", Why: "rated low", When: "2026-09-08"},
+	})
+
+	stdout, stderr, err := runTask(t, "amend", "small change", "--why", "typo",
+		"--complexity", "unchanged", "--id", "tkt")
+	if err != nil {
+		t.Fatalf("amend: %v", err)
+	}
+	if strings.Contains(stdout+stderr, "discarded the risk-scout attestation") {
+		t.Errorf("a low-complexity amendment claimed to clear an attestation: %q / %q", stdout, stderr)
+	}
+	got := loadAmendTask(t, path)
+	if got.Scout == nil || got.Scout.Mode != "skipped" {
+		t.Errorf("low-complexity amendment cleared the attestation: %+v", got.Scout)
+	}
+}

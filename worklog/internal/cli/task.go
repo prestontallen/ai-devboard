@@ -49,8 +49,7 @@ func newTaskCmd() *cobra.Command {
 		Short: "Update the devboard task file for in-flight work",
 		Long: `task mutates the devboard task file rendered by the dashboard —
 the in-flight detail worklog itself deliberately does not store: plan item
-states, contract scorecard, decisions, code-to-know, and the needs-you
-attention queue.
+states, contract scorecard, decisions and code-to-know.
 
 Target resolution: --id names the task file slug (searched across all repo
 groups). Without --id, the task file whose group matches the current git
@@ -69,6 +68,20 @@ an epic (has a Parent in WORK.md) is refused outright: pass --id <epic>
 All subcommands are silent no-ops (exit 0, notice on stderr) when the
 devboard data dir does not exist. See devboard/schema.md for the file
 format and field-ownership rules.`,
+		// An unknown subcommand must FAIL, not print help and exit 0.
+		// Cobra's default is to treat the unrecognised word as an argument
+		// to this parent, and with no RunE it helpfully prints usage and
+		// succeeds — which is how a script, or an agent, reads a deleted
+		// command as success. Two subcommands were removed here in 2026-09;
+		// this is what stops their callers dying quietly. (Args: NoArgs
+		// alone does not do it: cobra skips arg validation when there is no
+		// Run to validate for.)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return errWithExit(64, "task: unknown subcommand %q — see `worklog task --help`", args[0])
+		},
 	}
 	cmd.PersistentFlags().StringVar(&flagID, "id", "", "task file slug (default: the current repo's only task)")
 	cmd.PersistentFlags().StringVar(&flagChild, "child", "",
@@ -85,8 +98,6 @@ format and field-ownership rules.`,
 		newTaskAmendCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskScoutCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskDecisionCmd(&flagID, &flagChild, &flagForce, &flagJSON),
-		newTaskNeedsYouCmd(&flagID, &flagChild, &flagForce, &flagJSON),
-		newTaskWaitingOnCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskCodeCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskUntrackCmd(&flagID, &flagForce, &flagJSON),
 	)
@@ -299,6 +310,13 @@ stays a single document.`,
 				return jsonOrTextError(cmd, *asJSON, 64,
 					"task amend: --complexity must be unchanged|low|medium|high, got %q", flagComplexity)
 			}
+			// Captured by the mutate, reported by the hook below. The
+			// clearing used to be silent, and a silently cleared
+			// attestation is indistinguishable from a lost write — which
+			// misled two separate sessions into filing, or nearly filing,
+			// a data-loss bug against the scout command.
+			var clearedScout bool
+
 			return mutateTask(cmd, *id, *child, *asJSON, "amendment recorded", args[0],
 				func(t *devboard.Task) error {
 					old := strings.TrimSpace(t.Complexity)
@@ -324,7 +342,8 @@ stays a single document.`,
 					t.Complexity = next
 					// An amendment means the scope moved, so a scout run against
 					// the old scope no longer attests the new one.
-					if next == "medium" || next == "high" {
+					if (next == "medium" || next == "high") && t.Scout != nil {
+						clearedScout = true
 						t.Scout = nil
 					}
 					t.Decision = append(t.Decision, devboard.Decision{
@@ -334,6 +353,14 @@ stays a single document.`,
 						Complexity: transition,
 					})
 					return nil
+				},
+				func(string) []string {
+					if !clearedScout {
+						return nil
+					}
+					return []string{"discarded the risk-scout attestation — " +
+						"an amendment moves the scope, so a scout run against the old one " +
+						"no longer attests it. Re-run the scout and attest again."}
 				},
 				scoutGateHook(*child, "", true),
 				func(string) []string { return resyncChecklist(*child) })
@@ -676,50 +703,6 @@ func newTaskDecisionCmd(id, child *string, force *bool, asJSON *bool) *cobra.Com
 		},
 	}
 	cmd.Flags().StringVar(&flagWhy, "why", "", "rationale shown under the decision")
-	return cmd
-}
-
-func newTaskNeedsYouCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command {
-	var flagType, flagDetail string
-	cmd := &cobra.Command{
-		Use:   "needs-you <add <text> | resolve <n|all>>",
-		Args:  cobra.ExactArgs(2),
-		Short: "Add or resolve attention-queue entries",
-		Long: `needs-you manages the dashboard's attention queue. Add an entry the
-moment anything waits on the human; resolve it the moment it no longer
-does — stale entries poison the queue.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			verb, arg := args[0], args[1]
-			switch verb {
-			case "add":
-				return mutateTask(cmd, *id, *child, *asJSON, "needs-you added", arg,
-					func(t *devboard.Task) error {
-						t.NeedsYou = append(t.NeedsYou, devboard.NeedsItem{
-							Type: flagType, Text: arg, Detail: flagDetail})
-						return nil
-					})
-			case "resolve":
-				return mutateTask(cmd, *id, *child, *asJSON, "needs-you resolved", arg,
-					func(t *devboard.Task) error {
-						if arg == "all" {
-							t.NeedsYou = nil
-							return nil
-						}
-						i, err := index1(arg, len(t.NeedsYou), "needs-you")
-						if err != nil {
-							return err
-						}
-						t.NeedsYou = append(t.NeedsYou[:i], t.NeedsYou[i+1:]...)
-						return nil
-					})
-			default:
-				return jsonOrTextError(cmd, *asJSON, 64,
-					"task needs-you: unknown verb %q (add|resolve)", verb)
-			}
-		},
-	}
-	cmd.Flags().StringVar(&flagType, "type", "question", "entry type: question|checkpoint")
-	cmd.Flags().StringVar(&flagDetail, "detail", "", "longer body rendered under the entry")
 	return cmd
 }
 

@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 	"strings"
 	"testing"
 
@@ -89,12 +92,14 @@ func TestCloseOutSharesItsPhrasingWithTheFilePath(t *testing.T) {
 func TestDoneClosesOutTheBoardFile(t *testing.T) {
 	dir := taskStoreFixture(t, true)
 
-	if _, _, err := runTask(t, "needs-you", "add", "approve the commit", "--id", "tkt"); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := runTask(t, "waiting-on", "add", "rate limit?", "--who", "platform", "--id", "tkt"); err != nil {
-		t.Fatal(err)
-	}
+	// The commands that used to create these entries are gone (they had
+	// never carried an entry on any real board), so the queues are seeded
+	// directly. The close-out behavior still has to work: a store or an
+	// archived board file written before the removal can carry them, and
+	// silently dropping an unanswered question is the information loss
+	// close-out exists to prevent.
+	seedQueues(t, dir, "tkt")
+
 	if _, _, err := runTask(t, "phase", "verify", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
@@ -121,5 +126,32 @@ func TestDoneClosesOutTheBoardFile(t *testing.T) {
 	}
 	if !closed {
 		t.Errorf("the open question was dropped instead of recorded: %+v", task.Decision)
+	}
+}
+
+// seedQueues writes an attention-queue and an external-question entry
+// straight into the store, standing in for the removed commands.
+func seedQueues(t *testing.T, worklogDir, slug string) {
+	t.Helper()
+	s, err := sqlitestore.Open(storepath.DB(worklogDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tk, err := s.TicketBySlug(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.NeedsYou = []store.NeedsItem{{Rank: 0, Type: "checkpoint", Text: "approve the commit"}}
+	tk.WaitingOn = []store.WaitingItem{{Rank: 0, Text: "rate limit?", Who: "platform", Asked: "2026-09-08"}}
+	if err := s.PutTicket(tk); err != nil {
+		t.Fatal(err)
+	}
+	// Re-render so the board file on disk matches what was just stored;
+	// the assertions below read the file, not the store.
+	if err := projection.RenderTo(s, projection.Layout{
+		WorklogDir: worklogDir, DevboardDir: devboard.DataDir(),
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
