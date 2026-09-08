@@ -99,10 +99,10 @@ in Claude Code (see [~/.claude/commands/worklog.md](skill/claude/command.md)).
 ### Everything goes through the CLI
 
 The worklog is CLI-mutated, not hand-mutated — by you and by the agent
-alike. The data files are plain markdown and nothing stops you editing
-them, but a hand edit is how `INDEX.md`, an epic's `Active children`, and
-the parent's notes checkbox drift apart, and the agent's hard rules forbid
-it outright. There's a verb for the everyday corrections:
+alike. The markdown files are what the store RENDERS: nothing stops you
+editing them, but the next write regenerates them and your edit is gone.
+The command says so first, naming the file it is about to overwrite, and
+then overwrites it. There's a verb for the everyday corrections:
 
 | Want to... | Use |
 |---|---|
@@ -126,9 +126,11 @@ These are the rules the agent will refuse to violate. Knowing them lets you
 spot when the agent is acting weird and call it out.
 
 1. **Worklog data is mutated only through `worklog` subcommands**, never by
-   editing the files directly. Live tickets are corrected with
-   `worklog edit <id>`; anything the CLI refuses is a deliberate limit, and
-   the agent will say so rather than reach for the file.
+   editing the files directly. The markdown is render output; a hand edit is
+   named in a warning and then overwritten by the next write. Live tickets
+   are corrected with `worklog edit <id>`; anything the CLI refuses is a
+   deliberate limit, and the agent will say so rather than reach for the
+   file.
 2. **`## Now` is capped at 5 tickets.** Epics never occupy `## Now`;
    `## Waiting` is exempt from the cap.
 3. **Completion is move-then-delete, atomic.** A completed ticket only leaves

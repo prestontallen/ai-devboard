@@ -72,11 +72,23 @@ func epicChildFreshStoreFixture(t *testing.T) (live string) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "absent"))
-	t.Setenv("WORKLOG_DIR", live)
-	if _, stderr := runCLI(t, "migrate", "--dir", live); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
+	// Seed the store with a board dir that EXISTS, because adopt lstats
+	// every live root and refuses on a missing one. The absent dir is the
+	// state under test, not a state adoption has to tolerate, so it is set
+	// after seeding rather than during it. (migrate did not care; it never
+	// took a census.)
+	seedBoard := filepath.Join(t.TempDir(), "seed-board")
+	if err := os.MkdirAll(seedBoard, 0o755); err != nil {
+		t.Fatal(err)
 	}
+	t.Setenv("DEVBOARD_DATA", seedBoard)
+	t.Setenv("WORKLOG_DIR", live)
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", live); strings.Contains(stderr, "error") {
+		t.Fatalf("adopt: %s", stderr)
+	}
+
+	// Now disable the board: opt-in by directory presence.
+	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "absent"))
 
 	mustAdd := func(args ...string) {
 		t.Helper()
@@ -261,7 +273,7 @@ func TestTaskEpicWithoutChildRefuses(t *testing.T) {
 	}
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 

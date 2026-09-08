@@ -37,7 +37,7 @@ func canonTickets(t *testing.T, s store.Store) map[string]map[string]json.RawMes
 // TestCanonicalCoversEveryTicketField is the guarantee the oracle rests on:
 // every exported field of store.Ticket participates in the comparison.
 //
-// internal/verify's comparator is an explicit nine-field list against a
+// The retired verify command's comparator was an explicit nine-field list against a
 // nineteen-field struct, so Section, Status, Plan, Source, Links,
 // WaitingSince, Files, ActiveChildren and ExtraFields differ silently. This
 // test fails the moment a field stops being covered, whether by someone

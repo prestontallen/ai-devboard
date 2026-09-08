@@ -80,7 +80,7 @@ func scorecardFixtureWithRepoPath(t *testing.T, verify, repo, repoPath string) (
 	devDir := filepath.Join(dir, "devboard")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir
@@ -342,7 +342,7 @@ func TestVerifyLintChildPath(t *testing.T) {
 	devDir := filepath.Join(dir, "devboard")
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 

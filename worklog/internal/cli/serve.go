@@ -36,8 +36,12 @@ over LAN.`,
 			srv := serve.New(cfg)
 			// Sync the store after a dashboard archive/unarchive move,
 			// injected here rather than imported by internal/serve
-			// directly (internal/verify already imports serve for board
-			// comparison, so that import would cycle).
+			// directly. The original reason was an import cycle through
+			// internal/verify, which is now deleted; the seam stays because
+			// internal/projection's own tests import internal/serve, so a
+			// serve→projection import would still cycle in the test binary.
+			// Whoever flips serve to read the store directly has to deal
+			// with that (adb-serve-store-direct).
 			srv.MutateBoard = func(repo, id string, archived bool) (bool, error) {
 				wd, err := model.NewWorkdir(cfg.WorklogDir)
 				if err != nil {

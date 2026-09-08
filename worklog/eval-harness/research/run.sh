@@ -4,7 +4,7 @@
 # worklog data dir + scratch store, scratch devboard dir, and a throwaway
 # clone of the repo. The store directory is DERIVED from WORKLOG_DIR (it is
 # that path with "-store" appended), so WORKLOG_DIR alone now isolates both;
-# the store is still seeded with `worklog migrate` + `worklog adopt --commit`
+# the store is still seeded with `worklog adopt --commit`
 # because every write path opens it. Never touches Preston's real
 # ~/.local/share/worklog/, its store sibling, ~/.local/share/devboard/, or
 # the real checkout.
@@ -96,8 +96,8 @@ seed_worklog() {
 
 ## Someday
 EOF
-  WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$BOARD_DIR" \
-    worklog migrate >&2
+  # adopt --commit builds the store itself, so the migrate rehearsal that
+  # used to run first is both gone and was always redundant.
   WORKLOG_DIR="$DATA_DIR" DEVBOARD_DATA="$BOARD_DIR" \
     worklog adopt --commit >&2
 }

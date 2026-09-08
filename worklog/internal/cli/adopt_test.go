@@ -23,7 +23,6 @@ func TestWriteVerbSaysNotAdopted(t *testing.T) {
 	// A corpus whose derived store directory holds no database: the
 	// fresh-machine case.
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	_, stderr, err := runCLIAllowErr(t, "add", "--dir", live, "--id", "fresh", "--title", "First ticket")
 	if err == nil {
@@ -47,7 +46,6 @@ func TestTaskVerbSaysNotAdopted(t *testing.T) {
 	live, board := canonicalWorklogFixture(t)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	_, stderr, err := runCLIAllowErr(t, "task", "phase", "intake", "--dir", live, "--id", "solo")
 	if err == nil {
@@ -69,7 +67,6 @@ func TestAdoptCommitLeavesAWritableMachine(t *testing.T) {
 	dataDir := storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", live); strings.Contains(stderr, "error") {
 		t.Fatalf("adopt --commit: %s", stderr)
@@ -89,7 +86,6 @@ func TestAdoptDryRunCreatesNoStore(t *testing.T) {
 	dataDir := storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	runCLI(t, "adopt", "--dir", live)
 	if _, err := os.Stat(storepath.DBIn(dataDir)); !os.IsNotExist(err) {
@@ -111,7 +107,6 @@ func TestAdoptRollbackLeavesTheStoreAlone(t *testing.T) {
 	live, board := canonicalWorklogFixture(t)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	stdout, stderr := runCLI(t, "adopt", "--commit", "--dir", live)
 	if strings.Contains(stderr, "error") {
@@ -166,7 +161,6 @@ func TestUnadoptedMachineNeverBlamesAHandEdit(t *testing.T) {
 	live, board := canonicalWorklogFixture(t)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	_, stderr, err := runCLIAllowErr(t, "add", "--dir", live, "--id", "fresh", "--title", "First")
 	if err == nil {
@@ -191,7 +185,6 @@ func TestAdoptPostConditionRollsBack(t *testing.T) {
 	live, board := canonicalWorklogFixture(t)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
 
 	// Reindex runs after the render and before the post-condition, so
 	// corrupting a rendered file from there is the seam that makes the

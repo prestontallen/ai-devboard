@@ -9,7 +9,7 @@ import (
 // marshals its fields inline, so EVERY exported field participates by
 // construction. That is the point — a field added to Ticket later is
 // compared automatically instead of quietly escaping an explicit list,
-// which is how internal/verify's nine-field view came to omit Section,
+// which is how the retired verify command's nine-field view came to omit Section,
 // Status, Plan, Links and the rest.
 //
 // ParentSlug replaces ParentID because a ULID is minted per install: two

@@ -103,13 +103,32 @@ func renderBlock(b *bytes.Buffer, t *store.Ticket, byID map[store.ID]*store.Tick
 	add("Status", t.Status)
 	add("Plan", t.PlanText)
 	if t.Type == store.TypeEpic {
-		var active []string
+		// Roster order, not alphabetical. RosterRank is the order the human
+		// added children to the epic, which is real data — the same reason
+		// Rank exists for tickets. Sorting these by slug silently
+		// re-ordered the epic's children on every render and produced
+		// permanent board drift that `worklog verify` reported forever
+		// (adb-verify-child-order). Deleting verify would have removed the
+		// only thing complaining and left the bug shipping.
+		//
+		// notes_archive.go's roster rendering has always sorted this way;
+		// this is the copy that did not.
+		var kids []*store.Ticket
 		for _, k := range all {
 			if k.ParentID == t.ID && k.State == store.StateActive {
-				active = append(active, k.Slug)
+				kids = append(kids, k)
 			}
 		}
-		sort.Strings(active)
+		sort.Slice(kids, func(i, j int) bool {
+			if kids[i].RosterRank != kids[j].RosterRank {
+				return kids[i].RosterRank < kids[j].RosterRank
+			}
+			return kids[i].Slug < kids[j].Slug // stable tiebreak
+		})
+		active := make([]string, len(kids))
+		for i, k := range kids {
+			active[i] = k.Slug
+		}
 		if len(active) == 0 {
 			add("Active children", "<none>")
 		} else {

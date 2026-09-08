@@ -1,5 +1,10 @@
 package cli
 
+// Shared CLI test helpers. These used to live in the storesync integration
+// test file, which went with internal/storesync; the helpers themselves are
+// used by most of this package's tests and have nothing to do with that
+// hook, so they moved here rather than being deleted with their old home.
+
 import (
 	"io"
 	"os"
@@ -12,50 +17,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
-// TestStoreSyncDisabledIsSilent: without WORKLOG_STORE_SYNC, a real write
-// verb through the actual CLI must never mention storesync — the flag's
-// off-by-default cost must be exactly zero, in output as well as
-// behavior. reindex is the exemplar (not a task<sub> verb, edit, note, or
-// any other write command: adb-cutover M4 made every one of them
-// unconditionally store-backed, leaving storesync.WarnAfterWrite with no
-// legacy write anywhere left to shadow-verify against). reindex still
-// calls it as a belt-and-suspenders check after regenerating INDEX.md,
-// independent of that retirement — the one production call site left.
-func TestStoreSyncDisabledIsSilent(t *testing.T) {
-	live, _, _ := storeWriteFixture(t)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
-
-	_, stderr := runCLI(t, "reindex", "--dir", live)
-	if strings.Contains(stderr, "storesync") {
-		t.Errorf("disabled shadow-sync produced output: %q", stderr)
-	}
-}
-
-// TestStoreSyncCleanAfterRealWrites is adb-cutover M2's per-verb parity
-// proof (contract criterion 2), starting from a genuinely canonical
-// corpus (a render fixpoint — the hand-authored fixture is deliberately
-// not one, see internal/verify's TestVerifyCleanCorpus). storesync's own
-// package tests already prove the derive+verify mechanism itself; this
-// proves the CLI-layer wiring (reindex, the one remaining call site —
-// see TestStoreSyncDisabledIsSilent above) calls it correctly, from
-// clean state.
-func TestStoreSyncCleanAfterRealWrites(t *testing.T) {
-	live, _, _ := storeWriteFixture(t)
-	t.Setenv("WORKLOG_STORE_SYNC", "1")
-
-	_, stderr := runCLI(t, "reindex", "--dir", live)
-	if strings.Contains(stderr, "storesync: drift found") {
-		t.Errorf("unexpected drift against a canonical corpus:\n%s", stderr)
-	}
-	if strings.Contains(stderr, "storesync: derive") || strings.Contains(stderr, "storesync: verify") || strings.Contains(stderr, "storesync: open") {
-		t.Errorf("shadow-sync hard error:\n%s", stderr)
-	}
-}
-
-// canonicalWorklogFixture renders the hazard-covering fixture corpus once
-// into a fresh directory, producing a genuine render fixpoint (0 drift
-// against itself) so a subsequent single write's drift, if any, is
-// attributable to that write and not to pre-existing fixture quirks.
 func canonicalWorklogFixture(t *testing.T) (live, devboardDataDir string) {
 	t.Helper()
 	s := memstore.New()

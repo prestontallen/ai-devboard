@@ -4,7 +4,8 @@ Read this when you need to *read* WORK.md, an archive entry, or a notes file
 and want to know what a field means. The CLI is the only writer — never
 hand-edit these files to produce the shapes below. Every generated file
 opens with an HTML-comment banner marking it as such; a write that finds a
-hand-edited file refuses outright and names it.
+hand-edited file names it in a warning and then overwrites it. The store is
+the source; these files are what it renders.
 
 - [Ticket block](#ticket-block)
 - [Epic block](#epic-block)

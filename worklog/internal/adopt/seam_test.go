@@ -5,31 +5,48 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 )
 
-// TestWritePathCannotReachAdoption is the seam guard for criterion 16.
+// TestWritePathCannotReachAdoption is the seam guard.
 //
 // Adoption rewrites and DELETES live files. The one thing that must never
-// happen is a write verb triggering it as a side effect — which is exactly
-// the shape storesync already has, since WarnAfterWrite calls migrate.Run
-// on every write when WORKLOG_STORE_SYNC is set. If adoption ever became
-// reachable from there, every note would re-render and prune the corpus.
+// happen is a write verb triggering it as a side effect. The shape that
+// once threatened this was the shadow-sync hook, which ran a full corpus
+// re-derivation on every write; it is gone now, but the hazard is
+// structural rather than tied to any one package.
 //
-// Enforced structurally rather than by behaviour: no package on the write
-// path may import internal/adopt. Only internal/cli, the composition root,
-// may.
+// Enforced structurally: no package under internal/ may import
+// internal/adopt. Only internal/cli, the composition root, may.
+//
+// This walks every package rather than a hardcoded list, because the list
+// version broke the moment packages were deleted — and a guard whose
+// failure mode is "the directory is gone" is a guard that stops guarding
+// exactly when the tree is being restructured, which is when it is needed
+// most.
 func TestWritePathCannotReachAdoption(t *testing.T) {
-	for _, dir := range []string{"../storesync", "../migrate", "../projection", "../convert", "../verify", "../store"} {
-		entries, err := os.ReadDir(dir)
+	const root = ".."
+	allowed := map[string]bool{
+		"cli":   true, // the composition root
+		"adopt": true, // itself
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, pkg := range entries {
+		if !pkg.IsDir() || allowed[pkg.Name()] {
+			continue
+		}
+		dir := filepath.Join(root, pkg.Name())
+		files, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		for _, e := range entries {
+		for _, e := range files {
 			name := e.Name()
 			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				continue
@@ -39,6 +56,7 @@ func TestWritePathCannotReachAdoption(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			checked++
 			for _, imp := range f.Imports {
 				if strings.Contains(imp.Path.Value, "internal/adopt") {
 					t.Errorf("%s imports internal/adopt; adoption must never be reachable from a write", path)
@@ -46,17 +64,8 @@ func TestWritePathCannotReachAdoption(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestMigrateHasNoAdoptionKnob: adoption is a separate command, not a flag
-// on migrate. migrate.Options gaining a render or adopt field is how this
-// would leak into storesync's per-write migrate.Run call.
-func TestMigrateHasNoAdoptionKnob(t *testing.T) {
-	rt := reflect.TypeOf(migrate.Options{})
-	for i := 0; i < rt.NumField(); i++ {
-		name := strings.ToLower(rt.Field(i).Name)
-		if strings.Contains(name, "render") || strings.Contains(name, "adopt") || strings.Contains(name, "apply") {
-			t.Errorf("migrate.Options has field %q; adoption must stay out of the per-write migrate path", rt.Field(i).Name)
-		}
+	// A walk that silently checked nothing would pass forever.
+	if checked < 10 {
+		t.Fatalf("only %d files checked; the walk is not finding the tree", checked)
 	}
 }

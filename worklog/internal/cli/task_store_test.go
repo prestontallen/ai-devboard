@@ -22,8 +22,7 @@ func storeWriteFixture(t *testing.T) (live, board, dataDir string) {
 	dataDir = storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	t.Setenv("WORKLOG_STORE_SYNC", "")
-	if _, stderr := runCLI(t, "migrate", "--dir", live); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", live); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return live, board, dataDir

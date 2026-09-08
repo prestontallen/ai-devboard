@@ -129,7 +129,7 @@ on any of adopt's checks having been right.
 
 ## Step 5 — prove it worked
 
-    worklog verify          # must print: clean
+    worklog note <id> "..."  # a real write: the actual proof
     worklog note <some-existing-ticket-id> "adoption smoke test"
 
 The write succeeding is the actual proof. `adopt` reporting success is not

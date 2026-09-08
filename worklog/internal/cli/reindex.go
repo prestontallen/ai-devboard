@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
-	"github.com/prestontallen/ai-devboard/worklog/internal/storesync"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 )
 
@@ -48,10 +47,6 @@ func runReindex(cmd *cobra.Command, dryRun, asJSON bool) error {
 	if err != nil {
 		return jsonOrTextError(cmd, asJSON, 1, "%v", err)
 	}
-	if !dryRun {
-		storesync.WarnAfterWrite(wd)
-	}
-
 	if asJSON {
 		return emitJSON(cmd.OutOrStdout(), out)
 	}

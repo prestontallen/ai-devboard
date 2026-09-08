@@ -66,6 +66,9 @@ not repeated here — run `worklog <cmd> --help`, or see
 
 ## Hard rules (inherited from the skill)
 
+- Mutate worklog data only through `worklog` subcommands. The markdown is
+  render output: a hand-edited file is named in a warning and then
+  overwritten by the next write.
 - `## Now` is capped at 5 tickets. Epics never occupy `## Now` — only child
   tickets (or standalone non-epic tickets) do.
 - Completion is move-then-delete, atomic.

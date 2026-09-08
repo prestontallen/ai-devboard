@@ -68,12 +68,13 @@ func TestAddRanksToEndOfSection(t *testing.T) {
 	}
 
 	// The other half of the criterion: the corpus is still a fixed point
-	// of the renderer afterwards, so the next write is not refused. This
-	// is what makes the fix a prerequisite for adoption rather than a
-	// cosmetic ordering nicety.
-	stdout, stderr := runCLI(t, "verify", "--dir", live)
-	if !strings.Contains(stdout+stderr, "clean") {
-		t.Errorf("verify after add: %s%s", stdout, stderr)
+	// of the renderer afterwards. This used to be asserted with `worklog
+	// verify`, which is gone; the same property now shows up as the next
+	// write finding nothing hand-edited, since a corpus that is not a
+	// fixed point differs from what the store renders.
+	_, stderr := runCLI(t, "note", "solo", "a following write", "--dir", live)
+	if strings.Contains(stderr, "hand-edited") {
+		t.Errorf("the corpus is not a fixed point after add: %s", stderr)
 	}
 }
 

@@ -137,8 +137,10 @@ type Server struct {
 	// moves the file as a side effect: the store decides whether a board
 	// task renders live or under _archive/, so a re-render puts it in the
 	// right place and clears the other. Injected by the CLI layer rather
-	// than imported directly (internal/verify already imports this package
-	// for board comparison, so a direct import here would cycle).
+	// than imported directly. The original cycle was through
+	// internal/verify, now deleted; the seam stays because
+	// internal/projection's tests import this package, so importing
+	// projection from here would cycle in the test binary.
 	//
 	// It reports whether the store owned the move. A file the store does
 	// not board-track is not the store's to place — hand-dropped producer

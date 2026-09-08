@@ -15,7 +15,7 @@ worklog adopt              # dry run; writes nothing
 # adjudicate whatever it refuses (below), one at a time
 worklog adopt              # until it prints a plan instead of a refusal
 worklog adopt --commit     # after the human approves the plan
-worklog verify             # must print clean
+worklog note <id> "..."    # a real write: the actual proof
 ```
 
 **The human approves the plan before `--commit`.** Show them the counts and
@@ -98,16 +98,12 @@ write it back onto disk, resurrecting something that was removed. The store
 has no delete operation, so adopt refuses instead of pruning.
 
 Usually this means the store is a leftover generation. Start from a fresh
-one (remove `worklog.db` from the migration data dir and re-run), which is
+one (remove `worklog.db` from the store directory and re-run), which is
 safe: the corpus on disk is the input, and adoption rebuilds the store from
 it.
 
 ## After it succeeds
 
-`worklog verify` must print clean. It compares whole-struct with the strict
-converter on both sides, so a clean result means the store and the files
-agree on every modeled field, not merely on the ones a summary view checks.
-
-Then run a real write (`worklog note <id> "…"`) and confirm it succeeds.
+Run a real write (`worklog note <id> "…"`) and confirm it succeeds.
 That is the actual proof the machine is adopted — adoption reporting
 success is not the same thing.

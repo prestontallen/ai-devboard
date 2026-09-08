@@ -57,7 +57,7 @@ func taskStoreFixture(t *testing.T, tracked bool) (dir string) {
 	}
 	t.Setenv("DEVBOARD_DATA", devDir)
 	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "migrate", "--dir", dir); strings.Contains(stderr, "error") {
+	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
 		t.Fatalf("migrate: %s", stderr)
 	}
 	return dir

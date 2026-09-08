@@ -24,8 +24,9 @@ should rarely have to edit a worklog file by hand.
 ## Hard rules
 
 1. **Mutate worklog data only through `worklog` subcommands** — never via
-   Read/Edit/Write on worklog files. A store-backed write refuses and names
-   the file if it finds a hand-edited projection; `note --editor` is the
+   Read/Edit/Write on worklog files. A store-backed write WARNS and names
+   the file if it finds a hand-edited projection, then overwrites it — the
+   store is the source and the render wins; `note --editor` is the
    one sanctioned way to hand-write prose. Correcting a live ticket
    is `worklog edit <id>`; a task file's plan or scorecard is
    `worklog task plan|scorecard edit|remove <n>`. For an operation with no

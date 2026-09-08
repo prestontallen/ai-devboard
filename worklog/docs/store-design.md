@@ -131,81 +131,41 @@ adb-epic-per-child-cards land format changes, refresh the snapshot and
 re-run; the synthetic corpus gains a fixture only if a new hazard class
 appears.
 
-## Migrate command (internal/migrate, internal/cli/migrate.go)
+## Retired: the migrate and verify commands
 
-`worklog migrate` (adb-worklog2-migrate) is the first thing to actually
-run this design end to end. It stages a read-only copy of the live
-worklog dir + devboard dir (never writes them — verified by a live-dir
-checksum test), converts the copy via `convert.ReadCorpusDir` +
-`convert.Load`, and reports whether entity identity held steady: an
-id-set diff of every ticket and sub-item ULID between the pre- and
-post-run state of a persisted SQLite db, plus stale rows the diff alone
-can't see (`convert.Load` only upserts — nothing here deletes).
+Both are gone, deleted in adb-projections-disposable along with
+`internal/storesync`.
 
-Mechanism, in order: stage (with size/mtime tear detection and one retry —
-`ErrTornSnapshot`), copy-forward seed the working copy from the existing
-output db (a plain read of `OUTPUT_PATH`; it is never opened for writing —
-`convert.Load` runs against the working copy only), checkpoint
-(`PRAGMA wal_checkpoint(TRUNCATE)`) and close the working copy, then
-atomically swap it into place — `OUTPUT_PATH` → `OUTPUT_PATH.bak` (one
-generation, no rotation), working copy → `OUTPUT_PATH` — clearing any WAL
-sidecar rather than carrying or orphaning it. All of it lives under one
-directory: `--out`, or by default the store directory, which is derived
-from the worklog directory as a sibling (`~/.local/share/worklog` →
-`~/.local/share/worklog-store`). See `internal/storepath` for why the
-store sits beside the corpus rather than inside it.
+They existed because the store and the files were treated as two truths to
+reconcile. `worklog migrate` rehearsed a cutover that has already happened;
+`worklog verify` reported drift between the files and what the store would
+render; `internal/storesync` re-derived and parity-checked the whole corpus
+after every write. Under this design the store is the source and markdown
+is what it renders, so there is nothing to reconcile: a re-render is
+supposed to win.
 
-Building this against the real mechanics (not just against `convert.Load`
-in isolation) found and fixed two gaps in the identity guarantee the
-design above describes: `carrySubItemIDs` didn't cover links, code refs,
-needs-you or waiting-on (only plan steps, scorecard, decisions and note
-entries), and feedback entries had no re-run identity at all, so
-copy-forward would have duplicated every friction entry on every run. Both
-are fixed in `internal/convert`; see the Identity section above.
+What replaced each of them:
 
-Still not done here: skill text updates for the projection world
-(`adb-skill-projection-update`); JSONL export (deferred, D9). The
-production cutover itself — freeze, binary snapshot, retire old write
-paths — shipped in `adb-cutover`; see "Adoption" below.
+- **Building a store on a fresh machine** is `worklog adopt`, which was
+  always the real path. migrate only ever produced a rehearsal copy.
+- **Proving a machine is adopted** is running a real write and watching it
+  succeed, which the adoption runbook already called the actual proof.
+- **A hand-edited projection** is named in a warning and then overwritten,
+  rather than refused. `projection.EditedIn` survives as the detector;
+  only the refusal is gone.
+- **The stale-row gate** (a store row with no corpus counterpart, which a
+  render would resurrect) moved into `internal/adopt` as `StaleRows`.
 
-## Verify command (internal/verify, internal/cli/verify.go)
+One thing genuinely lost, recorded rather than papered over: verify's
+whole-struct round-trip oracle was the only detector of the RENDERER
+silently dropping a store field. "The file disagrees with the store" no
+longer matters, but "the store does not survive its own render" still
+would. `internal/projection`'s semantic round-trip test is the nearest
+surviving cover, and it is narrower.
 
-`worklog verify` (`adb-projection-render`) is the store/projection design's
-first production caller: it stages a read-only snapshot of the live
-worklog + devboard dirs (reusing `internal/migrate`'s `Stage`), converts it
-into an in-memory store, renders that store's projections into a second
-scratch dir via `RenderAll`, and reports field-level drift between the
-staged snapshot and the render — surface by surface (WORK.md, notes,
-archive, INDEX.md, FEEDBACK.md, devboard feed). It never writes to the
-live worklog or devboard directories, under any outcome; the write-back
-shipped separately, as `worklog adopt` (see "Adoption").
-
-Since `adb-migrate-render`, verify's guarantee is stronger than its
-surface-by-surface comparators suggest. Those comparators are hand-picked
-field views read through `internal/parse`, the LENIENT parser — `workmd`
-compares nine fields of a nineteen-field block, so `Section`, `Status`,
-`Plan`, `Source`, `Links`, `WaitingSince`, `Files`, `ActiveChildren` and
-`ExtraFields` were all invisible to it. Run now also converts the rendered
-tree back with the same STRICT converter and compares both stores whole-
-struct via `store.Canonical`. Drift carries a class: `uncanonical` means a
-live file is not what the store renders (discard and re-render);
-`renderer` means the store does not survive its own round trip (fix the
-renderer — re-rendering would bake the loss in). They need opposite fixes.
-
-`worklog verify` is unrelated to the pre-existing `worklog validate`:
-`validate` checks structural invariants over live data as it stands today
-(e.g. three-place epic/child consistency); `verify` checks live data
-against what the rewrite's projections would render from it. The two can
-disagree without either being wrong — `validate` was written against the
-legacy format's own rules, `verify` against the store/projection design.
-
-Composition roots that open a concrete `store.Store` implementation
-directly are no longer unique to `internal/migrate`: `internal/cli/verify.go`
-also constructs one (`memstore.New()`), by design (contract Decision #4) —
-`internal/verify` itself stays interface-only, so the CLI layer is the
-composition root for this command, consistent with "the eventual CLI verbs
-... wire an implementation at their composition root and nowhere else"
-above.
+Note that `worklog validate` is a different thing and survives: it checks
+structural invariants over live data as it stands (three-place epic/child
+consistency, the Now cap). It was never about drift.
 
 ## Adoption (internal/adopt, internal/cli/adopt.go)
 

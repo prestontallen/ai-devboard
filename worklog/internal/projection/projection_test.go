@@ -421,3 +421,41 @@ func TestEditedFilesNamesHandEdits(t *testing.T) {
 		t.Fatalf("deleted projection not reported: %v (err %v)", edited, err)
 	}
 }
+
+// TestActiveChildrenFollowRosterOrder is adb-verify-child-order's actual
+// defect, fixed rather than hidden.
+//
+// The renderer sorted an epic's active children alphabetically while the
+// store, the notes file and the archive all order them by roster rank —
+// the order the human added them. That mismatch was permanent board drift:
+// `worklog verify` reported it on every run and no render ever settled it.
+// Deleting verify removed the complaint, so the fix had to come with it.
+func TestActiveChildrenFollowRosterOrder(t *testing.T) {
+	s := memstore.New()
+
+	epic := &store.Ticket{Slug: "an-epic", Title: "Epic", Type: store.TypeEpic,
+		State: store.StateActive, Section: store.SectionNow}
+	if err := s.PutTicket(epic); err != nil {
+		t.Fatal(err)
+	}
+	// Roster order is zulu, alpha — deliberately the reverse of alphabetical.
+	for i, slug := range []string{"zulu", "alpha"} {
+		if err := s.PutTicket(&store.Ticket{
+			Slug: slug, Title: slug, Type: store.TypeTicket, State: store.StateActive,
+			Section: store.SectionNow, ParentID: epic.ID, RosterRank: i,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := Render(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := string(files["WORK.md"])
+
+	want := "**Active children**: zulu, alpha"
+	if !strings.Contains(work, want) {
+		t.Errorf("WORK.md does not carry %q; alphabetical order would give \"alpha, zulu\".\n%s", want, work)
+	}
+}
