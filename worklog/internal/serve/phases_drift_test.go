@@ -9,10 +9,13 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
 
-// The phase vocabulary is spelled out in four places that no compiler can
-// reconcile: Go (store.Phases, canonical), two browser copies that cannot
-// import from Go because the front-end has no build step, and prose in
+// The phase vocabulary is spelled out in three places that no compiler can
+// reconcile: Go (store.Phases, canonical), a browser copy that cannot import
+// from Go because the front-end has no build step, and prose in
 // devboard/schema.md. They agree today by diligence alone.
+//
+// It was four until adb-lens-cutover deleted the outgoing board. That is the
+// concrete thing the cutover bought: one fewer copy to keep in step.
 //
 // The failure they guard against is quiet rather than loud: add a phase to
 // store.Phases and forget phases.js, and the CLI accepts it while every task
@@ -54,7 +57,6 @@ func TestPhaseVocabularyAgreesAcrossCopies(t *testing.T) {
 
 	for _, c := range []struct{ name, path, decl string }{
 		{"the Lens Board's copy", "static/assets/src/phases.js", "export const PHASES"},
-		{"the outgoing board's copy", "static/index.html", "const PHASES"},
 	} {
 		got := jsList(t, read(t, c.path), c.decl)
 		if !slicesEqual(got, want) {
@@ -75,7 +77,7 @@ func TestPhaseVocabularyAgreesAcrossCopies(t *testing.T) {
 
 // The spike short track must be a subset of the full one, or a spike's phase
 // sorts and validates as unknown everywhere outside the renderer that special
-// cases it — the reason index.html says so in a comment.
+// cases it.
 func TestSpikeTrackIsASubsetOfTheFullTrack(t *testing.T) {
 	full := map[string]bool{}
 	for _, p := range store.Phases {
@@ -83,7 +85,6 @@ func TestSpikeTrackIsASubsetOfTheFullTrack(t *testing.T) {
 	}
 	for _, c := range []struct{ path, decl string }{
 		{"static/assets/src/phases.js", "export const SPIKE_PHASES"},
-		{"static/index.html", "const SPIKE_PHASES"},
 	} {
 		for _, p := range jsList(t, read(t, c.path), c.decl) {
 			if !full[p] {

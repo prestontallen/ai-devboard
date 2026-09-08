@@ -361,12 +361,12 @@ func TestWatcher(t *testing.T) {
 }
 
 // TestIndexAndRoutes: / and /index.html serve the embedded page; nothing
-// else serves content.
+// else serves content. Since adb-lens-cutover that page is the Lens Board.
 func TestIndexAndRoutes(t *testing.T) {
 	ts := httptest.NewServer(corpusServer(t).Handler())
 	defer ts.Close()
 
-	disk, err := os.ReadFile("static/index.html")
+	disk, err := os.ReadFile("static/app.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,14 +386,15 @@ func TestIndexAndRoutes(t *testing.T) {
 		}
 	}
 	// The embed widening added /next and /assets/*, so this loop grew rather
-	// than shrank. /static/index.html still 404s because assets are rooted at
+	// than shrank. /static/app.html still 404s because assets are rooted at
 	// static/assets — the board page is reachable at exactly one URL, and
-	// nothing under /assets/ can name it.
+	// nothing under /assets/ can name it. `/next/` left this list at the
+	// cutover: it redirects now, and is asserted in TestNextRedirects.
 	for _, path := range []string{
-		"/static/index.html", "/server.py", "/api",
+		"/static/index.html", "/static/app.html", "/server.py", "/api",
 		"/assets", "/assets/", "/assets/vendor/", "/assets/src/",
 		"/assets/nope.js", "/assets/index.html", "/assets/app.html",
-		"/next/", "/nextfoo",
+		"/nextfoo",
 	} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
@@ -417,15 +418,51 @@ func TestIndexAndRoutes(t *testing.T) {
 	}
 }
 
-// TestNextShell: /next serves the Preact shell, and the import map names
-// every vendored specifier. hooks.module.js itself imports bare "preact",
-// so a shell that lost the map would fail to boot in the browser while
-// every Go test stayed green.
-func TestNextShell(t *testing.T) {
+// TestNextRedirects: /next is a permanent redirect to / since the cutover,
+// and the route is kept rather than 404ed so a bookmarked /next#/backlog
+// still lands on the right lens — the browser reapplies the fragment
+// because the target carries none, which is not something the server can
+// do for it.
+func TestNextRedirects(t *testing.T) {
 	ts := httptest.NewServer(corpusServer(t).Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/next")
+	// The default client follows redirects, which would hide the status.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	for _, path := range []string{"/next", "/next/"} {
+		resp, err := client.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := new(bytes.Buffer)
+		body.ReadFrom(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusPermanentRedirect {
+			t.Errorf("%s: got %d want %d", path, resp.StatusCode, http.StatusPermanentRedirect)
+		}
+		if loc := resp.Header.Get("Location"); loc != "/" {
+			t.Errorf("%s: Location %q want /", path, loc)
+		}
+		// A redirect that also served the page would keep two URLs alive for
+		// one board, which is the split the cutover exists to end.
+		if bytes.Contains(body.Bytes(), []byte("<script type=\"importmap\">")) {
+			t.Errorf("%s served the shell instead of redirecting", path)
+		}
+	}
+}
+
+// TestAppShell: / serves the Preact shell, and the import map names every
+// vendored specifier. hooks.module.js itself imports bare "preact", so a
+// shell that lost the map would fail to boot in the browser while every Go
+// test stayed green.
+func TestAppShell(t *testing.T) {
+	ts := httptest.NewServer(corpusServer(t).Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +481,7 @@ func TestNextShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(body.Bytes(), disk) {
-		t.Error("/next is not byte-identical to static/app.html")
+		t.Error("/ is not byte-identical to static/app.html")
 	}
 	for _, want := range []string{
 		`type="importmap"`,
@@ -536,8 +573,14 @@ func TestAssetTraversal(t *testing.T) {
 }
 
 // TestMethodInvariants: the widened surface must not have taught the server
-// new methods or redirects. http.FileServerFS answers HEAD and 301-redirects
-// paths ending in /index.html; the hand-rolled handler does neither.
+// new methods or stray redirects. http.FileServerFS answers HEAD and
+// 301-redirects paths ending in /index.html; the hand-rolled handler does
+// neither.
+//
+// /next is the one deliberate redirect (TestNextRedirects owns it), so it
+// stays in the method loop and leaves the redirect loop — asserting "nothing
+// redirects" over a route that must redirect would have meant deleting the
+// invariant instead of narrowing it.
 func TestMethodInvariants(t *testing.T) {
 	h := corpusServer(t).Handler()
 	for _, path := range []string{"/next", "/assets/vendor/htm.module.js", "/assets/"} {
@@ -558,12 +601,25 @@ func TestMethodInvariants(t *testing.T) {
 				t.Errorf("%s %s: got %d want 501", method, path, w.Code)
 			}
 		}
-		// No route redirects.
+		// No route redirects except the one that is supposed to.
+		if path == "/next" {
+			continue
+		}
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		if w.Code >= 300 && w.Code < 400 {
 			t.Errorf("GET %s: unexpected redirect %d to %q", path, w.Code, w.Header().Get("Location"))
+		}
+	}
+
+	// The board page itself must never redirect: FileServerFS's /index.html
+	// behaviour is exactly what a hand-rolled handler exists to avoid.
+	for _, path := range []string{"/", "/index.html"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s: got %d want 200", path, w.Code)
 		}
 	}
 }
@@ -575,7 +631,6 @@ func TestMethodInvariants(t *testing.T) {
 // file list is what turns either accident into a failing test.
 func TestEmbeddedManifest(t *testing.T) {
 	want := map[string]bool{
-		"static/index.html":                         true,
 		"static/app.html":                           true,
 		"static/assets/src/app.js":                  true,
 		"static/assets/src/archive.js":              true,

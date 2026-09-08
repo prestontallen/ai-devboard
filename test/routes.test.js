@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import {
   LENSES, routeFromHash, hashForLens, defaultRoute, taskFromHash, hashForTask, hashForChild,
+  legacyHash, adoptLegacyHash,
 } from '../worklog/internal/serve/static/assets/src/routes.js'
 
 // backlog joined with adb-lens-backlog, which added the server half it was
@@ -38,9 +39,69 @@ test('the phone opens on needs-you only when something is actually waiting', () 
   expect(defaultRoute({ hash: '', phone: false, needsYou: 2 })).toBe('board')
 })
 
-// A legacy hash is not an explicit lens choice, so the rule still applies.
-test('a legacy deep link does not suppress the default rule', () => {
-  expect(defaultRoute({ hash: '#ai-devboard/router', phone: true, needsYou: 3 })).toBe('needs-you')
+// Inverted at the cutover. A legacy hash used to be a link to the other board
+// and so none of this app's business; now it resolves to a real view, and
+// bouncing a phone off a pasted task link would be the bug the task route
+// already fixed once.
+test('a legacy deep link is an explicit route, so the phone rule leaves it alone', () => {
+  expect(defaultRoute({ hash: '#ai-devboard/router', phone: true, needsYou: 3 })).toBe(null)
+  expect(defaultRoute({ hash: '#ai-devboard/lens-board/kid', phone: true, needsYou: 3 })).toBe(null)
+})
+
+// ---- legacy hash translation (adb-lens-cutover) ----
+
+test('the outgoing board\'s grammar translates to the new one', () => {
+  expect(legacyHash('#ai-devboard/adb-lens-router')).toBe('#/task/ai-devboard/adb-lens-router')
+  expect(legacyHash('#ai-devboard/lens-board/adb-lens-card'))
+    .toBe('#/task/ai-devboard/lens-board/adb-lens-card')
+  // Round-trips into something the app actually resolves.
+  expect(taskFromHash(legacyHash('#r/e/c'))).toEqual({ repo: 'r', id: 'e', child: 'c' })
+})
+
+test('nothing already meaningful is translated', () => {
+  for (const hash of [
+    '#/board', '#/backlog', // lens hashes: the leading slash keeps them out
+    '#/task/r/i', '#/task/r/e/c', // already the new grammar
+    '#', '', undefined, '#one-segment', '#a/b/c/d', // no grammar at all
+  ]) {
+    expect(legacyHash(hash), `${hash} must not translate`).toBe(null)
+  }
+})
+
+// The fragment is attacker-supplied in the sense that anyone can paste one.
+// `[^/#]+` cannot span a slash, so no match can produce `//host`, and the
+// rewrite only ever touches what follows the `#`.
+test('translation cannot reach off-origin or past the fragment', () => {
+  for (const hash of ['#//evil.test/x', '#https://evil.test/a', '#/../../etc/passwd']) {
+    const out = legacyHash(hash)
+    if (out !== null) {
+      expect(out.startsWith('#/task/')).toBe(true)
+      expect(out).not.toContain('//')
+    }
+  }
+})
+
+test('adopting a legacy hash replaces history rather than pushing it', () => {
+  const calls = []
+  const history = { replaceState: (...a) => calls.push(a) }
+  const loc = { hash: '#r/i', pathname: '/', search: '' }
+
+  expect(adoptLegacyHash(loc, history)).toBe(true)
+  expect(calls).toHaveLength(1)
+  // The rewritten URL keeps everything before the fragment exactly as it was.
+  expect(calls[0][2]).toBe('/#/task/r/i')
+
+  // A hash already in the new grammar is left alone, so a second pass is a
+  // no-op and Back can never bounce into a re-translate loop.
+  expect(adoptLegacyHash({ hash: '#/task/r/i', pathname: '/', search: '' }, history)).toBe(false)
+  expect(calls).toHaveLength(1)
+})
+
+test('adopting preserves the path and query it was served from', () => {
+  const calls = []
+  adoptLegacyHash({ hash: '#r/i', pathname: '/next', search: '?x=1' },
+    { replaceState: (...a) => calls.push(a) })
+  expect(calls[0][2]).toBe('/next?x=1#/task/r/i')
 })
 
 // ---- task detail route (adb-devboard-contract-ledger) ----
@@ -90,5 +151,8 @@ test('a task deep link counts as an explicit route, on a phone too', () => {
 
 test('the phone rule still fires when the hash names nothing this app owns', () => {
   expect(defaultRoute({ hash: '', phone: true, needsYou: 2 })).toBe('needs-you')
-  expect(defaultRoute({ hash: '#ai-devboard/router', phone: true, needsYou: 3 })).toBe('needs-you')
+  // Junk that matches no grammar, rather than a legacy hash — those became
+  // real routes at the cutover.
+  expect(defaultRoute({ hash: '#', phone: true, needsYou: 3 })).toBe('needs-you')
+  expect(defaultRoute({ hash: '#a/b/c/d', phone: true, needsYou: 3 })).toBe('needs-you')
 })

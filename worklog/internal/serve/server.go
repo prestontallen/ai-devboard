@@ -36,14 +36,14 @@ import (
 //go:embed static
 var staticFS embed.FS
 
-// Both pages are read out of staticFS at init rather than carrying their own
-// //go:embed directives, so neither is embedded twice.
+// The page is read out of staticFS at init rather than carrying its own
+// //go:embed directive, so it is not embedded twice. There was a second
+// page here until adb-lens-cutover retired the outgoing board.
 var (
-	indexHTML = mustEmbed("static/index.html")
-	appHTML   = mustEmbed("static/app.html")
+	appHTML = mustEmbed("static/app.html")
 	// assetsFS is rooted at static/assets, so no URL under /assets/ can
-	// name either page — /assets/index.html has nothing to resolve to,
-	// which is what keeps the board reachable at exactly one URL.
+	// name the page — /assets/app.html has nothing to resolve to, which is
+	// what keeps the board reachable at exactly one URL.
 	assetsFS = mustSub("static/assets")
 )
 
@@ -241,9 +241,14 @@ func sigsEqual(a, b map[string]fileSig) bool {
 
 // Handler returns the full route surface: /, /index.html, /next,
 // /assets/*, /api/tasks, /events, /api/archive, /api/unarchive —
-// everything else 404s. /next serves the provisional Preact shell and
-// /assets/* its embedded modules; both are additive, and / still serves
-// the same board page it always has.
+// everything else 404s.
+//
+// Since adb-lens-cutover, / serves the Lens Board and /next redirects to
+// it. The redirect is permanent, but the route is kept rather than 404ed:
+// a fragment never reaches the server, so the only way a bookmarked
+// /next#/backlog keeps working is for the browser to reapply the fragment
+// to a target that carries none. 404ing would have broken every saved
+// link silently.
 func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -251,9 +256,9 @@ func (s *Server) Handler() http.Handler {
 		case http.MethodGet:
 			switch path {
 			case "/", "/index.html":
-				s.send(w, http.StatusOK, indexHTML, "text/html; charset=utf-8")
-			case "/next":
 				s.send(w, http.StatusOK, appHTML, "text/html; charset=utf-8")
+			case "/next", "/next/":
+				http.Redirect(w, r, "/", http.StatusPermanentRedirect)
 			case "/api/tasks":
 				body, err := json.Marshal(s.allTasks())
 				if err != nil {

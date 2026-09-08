@@ -191,18 +191,22 @@ the epic's children in view. This is a UI routing convention only; no
 schema field carries it, and no per-child archive endpoint exists —
 archiving stays a whole-file action from the epic's own view.
 
-Two grammars are live during the cutover, one per board:
+The routes, all served from `/`:
 
-|  | standalone | epic | child |
-|---|---|---|---|
-| `/` (outgoing) | `#<repo>/<id>` | `#<repo>/<epic-id>` | `#<repo>/<epic-id>/<child-id>` |
-| `/next` (Preact) | `#/task/<repo>/<id>` | `#/task/<repo>/<epic-id>` | `#/task/<repo>/<epic-id>/<child-id>` |
+| | route |
+|---|---|
+| standalone | `#/task/<repo>/<id>` |
+| epic | `#/task/<repo>/<epic-id>` |
+| child | `#/task/<repo>/<epic-id>/<child-id>` |
 
-The leading slash is what keeps them apart, so a hash pasted from either
-board resolves on the board it came from rather than landing somewhere
-wrong. `adb-lens-cutover` retires the first row.
+A second grammar without the leading slash — `#<repo>/<id>` and
+`#<repo>/<epic-id>/<child-id>` — was the outgoing board's, and links in that
+shape exist in archives and bookmarks. They are translated to the above on
+arrival and the URL is rewritten in place. The leading slash is what makes
+that safe: the two shapes cannot collide, so an old hash is unambiguous
+rather than a guess.
 
-A child is addressed *through* its epic in both, because the epic file is
-what the route has to resolve. That is also why the payload attaches a
-child's `notes/<child-id>.md` to its `children[]` entry (see `API.md`):
-the child has no file of its own to carry a `worklog` key.
+A child is addressed *through* its epic, because the epic file is what the
+route has to resolve. That is also why the payload attaches a child's
+`notes/<child-id>.md` to its `children[]` entry (see `API.md`): the child
+has no file of its own to carry a `worklog` key.

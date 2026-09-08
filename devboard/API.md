@@ -17,8 +17,8 @@ every directory path under `/assets/`, which never lists its contents.
 
 | Endpoint | Method | Behavior |
 |---|---|---|
-| `/`, `/index.html` | GET | the embedded board page, `text/html; charset=utf-8` |
-| `/next` | GET | the Preact shell page, `text/html; charset=utf-8` — **provisional**, see below |
+| `/`, `/index.html` | GET | the board page, `text/html; charset=utf-8` |
+| `/next` | GET | `308` to `/` — the board's former address, see below |
 | `/assets/<path>` | GET | one embedded front-end module, typed by extension |
 | `/api/tasks` | GET | full payload, see below |
 | `/events` | GET | SSE change stream |
@@ -26,31 +26,37 @@ every directory path under `/assets/`, which never lists its contents.
 
 All responses carry `Cache-Control: no-store`, `/assets/*` included. GET on
 the POST endpoints is 405 `{"error": "POST only"}`. Any other method is 501
-`{"error": "unsupported method"}`, and no route redirects.
+`{"error": "unsupported method"}`. `/next` is the only route that redirects.
 
-### `/next` and `/assets/*`
+### `/`, `/next` and `/assets/*`
 
-`/next` is the Preact shell introduced by the stack scaffold
-(`adb-devboard-stack-scaffold`). It is **provisional and not frozen**: its
-markup, its route, and whether it survives at all are the Lens Board epic's
-to decide. `/` remains the board.
+`/` serves the Lens Board. It was built at `/next` over the course of the
+Lens Board epic and moved here by `adb-lens-cutover`, which deleted the
+board it replaced.
 
-What *is* frozen is that `/next` consumes this document's `/api/tasks`
-payload like any other client — the freeze binds it, it does not bend for it.
-The lens router added no server change: `/api/tasks` and `/events` are exactly
-as specified here, and the shell derives its connection indicator purely from
-client-side `EventSource` state. Neither did the lens views: the archive and
+`/next` is kept as a `308` to `/` rather than 404ed. A fragment never
+reaches the server, so a bookmarked `/next#/backlog` can only keep working
+by the browser reapplying the fragment to a target that carries none —
+which is exactly what a redirect to a bare `/` gets you. The route is a
+compatibility shim and can be dropped once nothing points at it.
+
+The board consumes this document's `/api/tasks` payload like any other
+client — the freeze binds it, it does not bend for it. The archive and
 un-archive controls on `#/done` and `#/archived` POST to the same two write
 endpoints documented below, with the same body and the same `Content-Type`
-requirement — no new endpoint, and no change to the existing ones.
+requirement.
 
-`/next` routes through the URL fragment — `#/board`, `#/needs-you`,
-`#/waiting`, `#/friction`, `#/done`, `#/archived`, and task detail at
-`#/task/<repo>/<id>` (repo and id percent-encoded). Those are **unfrozen
-internals**, not API: they may be renamed or restructured by the Lens Board
-epic without notice. They are namespaced with a leading slash so they never
-collide with `/`'s `#<repo>/<task>` deep links. Path-style deep links do not
-exist — `/next/<lens>` is a 404, by test.
+Routing is through the URL fragment — `#/board`, `#/needs-you`, `#/waiting`,
+`#/friction`, `#/backlog`, `#/done`, `#/archived`, task detail at
+`#/task/<repo>/<id>` and a child of an epic at
+`#/task/<repo>/<epic-id>/<child-id>` (every segment percent-encoded). Those
+are **unfrozen internals**, not API: they may be renamed without notice.
+
+The outgoing board's grammar — `#<repo>/<id>` and `#<repo>/<epic>/<child>`,
+with no leading slash — is translated to the above on arrival and the URL
+rewritten in place, so links saved before the cutover still resolve. The
+leading slash is what makes that unambiguous: the two grammars cannot
+collide. Path-style deep links do not exist — `/<lens>` is a 404, by test.
 
 `/assets/<path>` serves files embedded from
 `worklog/internal/serve/static/assets/`, and only those: there is no disk

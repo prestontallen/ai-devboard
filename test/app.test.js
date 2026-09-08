@@ -64,8 +64,27 @@ test('an external hash change drives the lens', async () => {
   expect(lensName()).toBe('friction')
 })
 
-test('a legacy deep link resolves to the default lens instead of throwing', async () => {
-  location.hash = '#ai-devboard/adb-lens-router'
+// Inverted by adb-lens-cutover. A legacy hash used to point at the other
+// board, so falling back to the default lens was all this app could honestly
+// do. Now / IS this app, and a link saved before the cutover has to land where
+// it says it does.
+test('a legacy deep link opens the task it names, and the URL is rewritten', async () => {
+  location.hash = '#ai-devboard/router'
+  await mount()
+  expect(lensName()).toBe('task')
+  expect(screen.getByTestId('detail').dataset.task).toBe('ai-devboard/router')
+  expect(location.hash).toBe('#/task/ai-devboard/router')
+})
+
+test('a legacy epic-child deep link opens that child', async () => {
+  location.hash = '#ai-devboard/lens-board/a'
+  await mount()
+  expect(screen.getByTestId('detail-child').dataset.task).toBe('ai-devboard/lens-board/a')
+  expect(location.hash).toBe('#/task/ai-devboard/lens-board/a')
+})
+
+test('a hash in neither grammar still falls back to the default lens', async () => {
+  location.hash = '#a/b/c/d'
   await mount()
   expect(lensName()).toBe('board')
 })

@@ -14,7 +14,7 @@ Tasks with a `worklog:` join key also render the ticket's
 rendered, never copied, and note edits hot-reload too. That mount also
 carries `FEEDBACK.md`, rendered as the global Friction panel (see below).
 
-![Devboard grid showing two task cards, one in-flight with a needs-you badge and one in planning](docs/board.png)
+![The devboard Board lens: a row of chips for each lens with counts, an attention line reading "3 items need you", and a grid of task cards including two epics showing their child rosters](docs/board.png)
 
 The intended writer is the `worklog` CLI (`start`/`done`/`pr` side
 effects plus the `worklog task` family, including `untrack` to stop
@@ -77,8 +77,8 @@ cp -r examples/* ~/.local/share/devboard/
 
 The board's only write action. The archive button (on done cards and in
 every task's detail view) moves the task's file into `<repo>/_archive/`;
-archived tasks leave the grid, stats, and attention band and collapse into
-an "Archived · N" fold with un-archive buttons that move them back. Nothing
+archived tasks leave the Board lens and appear under the Archived chip,
+with un-archive buttons that move them back. Nothing
 is ever deleted or rewritten — both endpoints (`POST /api/archive`,
 `POST /api/unarchive`, JSON body `{"repo", "id"}`) are a single validated
 rename, and the worklog dir is never touched. There is no auth: anyone who
@@ -90,14 +90,14 @@ browsing session on another site can't trigger it cross-origin).
 
 `FEEDBACK.md` at the root of the worklog mount is the friction log the
 worklog skill's capture subagent appends to (`worklog feedback append`).
-The board renders it as a single global band — it is not per-task, so no
-task-file field is involved:
+It gets its own lens rather than a per-task field, since it is a global log
+and no task file is involved:
 
-- an unreviewed count in the topbar stats, absent when nothing is outstanding
-- a collapsed `Friction · N` fold with a count per signal, then the
-  unresolved entries newest-first (signal, local time, trigger, and a fold
-  for the excerpt and context)
-- resolved entries in a `Resolved · N` sub-fold, dimmed
+- the Friction chip counts unresolved entries, and dims at zero
+- a count per signal across the top, most serious signal first
+- the unresolved entries newest-first: signal, relative time, trigger, then
+  the excerpt and context inline
+- resolved entries below under a `resolved · N` heading, dimmed
 
 Reviewing happens in the CLI, never here: the worklog mount is read-only, so
 each entry offers a button that copies `worklog feedback resolve <timestamp>`
@@ -122,42 +122,48 @@ building, releasing, or running the binary needs npm.
 npm ci && npm test   # from the repo root
 ```
 
-## Two boards, for now
+## The board
 
-`worklog serve` currently serves two front-ends while the Lens Board redesign
-lands (epic `adb-devboard-lens-board`):
+The status bar is the router: each chip is a lens, and the number on a chip
+is exactly what that lens draws.
 
-- **`/`** — the board described throughout this document. Unchanged.
-- **`/next`** — the Preact rebuild. The status bar is the router there: each
-  chip is a lens (`#/board`, `#/needs-you`, `#/waiting`, `#/friction`,
-  `#/done`, `#/archived`), zero-count chips dim instead of vanishing, stale is
-  a per-card badge rather than a chip, and there are no folds. Every chip
-  counts what its lens draws: the four card lenses count tasks, needs-you
-  counts the panels it renders — one per queue item, so it agrees with `/`'s
-  needs-you number and not with a task count — and friction counts unresolved
-  FEEDBACK.md entries. Card grids run newest-first: attention has its own
-  route, so the grid does not hoist it the way `/` does. Archive and
-  un-archive work from the Done and Archived lenses. Approve and answer are
-  drawn but inert until `adb-checkpoint-answer-endpoint` gives them an endpoint
-  to call.
+| Chip | Shows | Counts |
+|---|---|---|
+| Board | in-flight work, default | tasks |
+| Needs you | one panel per queue item | items |
+| Waiting | tasks blocked on someone else | tasks |
+| Friction | unresolved `FEEDBACK.md` entries | entries |
+| Backlog | `WORK.md`'s Next and Someday | tickets |
+| Done | finished, not archived | tasks |
+| Archived | moved to `_archive/` | tasks |
 
-  A plain task's detail lives here now, at `#/task/<repo>/<id>`: a hero, then
-  the **contract ledger** — plan as a connected rail because its steps are
-  ordered, the scorecard as independent squares because its criteria are not,
-  under one header carrying the phase and both ratios — then the record beneath
-  it (queues, risk scout, decisions, code, links, unknown keys, worklog notes).
-  Outstanding and failed checks sort above passing ones, every criterion shows
-  its verify line, and an empty scorecard above tier 1 reads as a warning rather
-  than neutral emptiness. Epic and child detail are still on `/`, so those cards
-  and rows keep linking across until `adb-lens-epic-detail`.
+Zero-count chips dim rather than vanish, so the bar never changes shape.
+Stale is a per-card badge rather than a chip. There are no folds on the
+board: an attention line sits above one card grid, ordered newest-first,
+because attention has its own route and does not need hoisting into the
+grid. Folds survive only inside detail views, where the material is
+reference rather than status.
 
-Everything below describes **`/`**.
+A task's detail lives at `#/task/<repo>/<id>`: a hero, then the **contract
+ledger** — plan as a connected rail because its steps are ordered, the
+scorecard as independent squares because its criteria are not, under one
+header carrying the phase and both ratios — then the record beneath it
+(queues, risk scout, decisions, code, links, unknown keys, worklog notes).
+Outstanding and failed checks sort above passing ones, every criterion shows
+its verify line, and an empty scorecard above tier 1 reads as a warning
+rather than neutral emptiness.
+
+An epic opens at the same shape of URL and shows an aggregate line over a
+grid of child cards, since an epic has no phase or contract of its own. Each
+child opens at `#/task/<repo>/<epic-id>/<child-id>` with its own ledger and
+record. A backlog row is deliberately not a card and not a link: it has no
+phase, plan or scorecard, and no task file to open.
 
 ## Behavior notes
 
 - Malformed files render as an error card (filename + parse error); they
-  never take down the rest of the page. `/next` keeps this guarantee: a
-  malformed entry stays on the board rather than being filtered out.
+  never take down the rest of the page, and a malformed entry stays on the
+  board rather than being filtered out of it.
 - Unknown top-level fields render in an "Other" section — extend freely.
 - Tasks untouched for >2h render dimmed (likely-stale signal).
 - A missing or malformed `FEEDBACK.md` simply means no friction panel —
