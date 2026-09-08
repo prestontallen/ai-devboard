@@ -187,13 +187,28 @@ JSON forces a preflight this server never answers).
 | 400 | invalid JSON | `{"error": "invalid JSON body"}` |
 | 400 | repo/id empty, dot-prefixed, containing `..`, `/` or `\` | `{"error": "invalid repo or id"}` |
 | 404 | no matching task file on the source side | `{"error": "task not found"}` |
-| 409 | destination file already exists | `{"error": "destination already exists"}` |
-| 500 | rename failed | `{"error": "move failed: ..."}` |
+| 409 | destination file already exists (rename path only) | `{"error": "destination already exists"}` |
+| 500 | the move failed, and nothing was moved | `{"error": "move failed: ..."}` |
 | 200 | moved | `{"status": "archived"\|"restored", "repo": ..., "id": ...}` |
 
-The rename runs under `<repo>/<file>.lock` — the same flock
-`devboard.Mutate` takes — so a concurrent CLI mutation cannot race the
-move (an internal upgrade over the Python server, which renamed bare).
+The move runs under `<repo>/<file>.lock` — the same flock
+`devboard.Mutate` takes — so a concurrent CLI mutation cannot race it.
+
+**Who moves the file.** For a task the worklog store board-tracks, the
+store does: archiving sets a field, and re-rendering writes the YAML at
+the archived path and clears the live one. The endpoint never renames
+those, because two writers deciding where one file lives is what made a
+failed sync leave disk and store disagreeing — after which every
+store-backed CLI write refused (`adb-archive-store-desync`).
+
+A file the store does not board-track — a hand-dropped producer file has
+no ticket behind it — is renamed by the endpoint, which is the only
+archive mechanism it has.
+
+**A failed move is a failure.** If the store write fails the response is
+`500`, the cause is logged, and the file has not moved. There is no
+partial outcome: either the task is archived in both places or in
+neither.
 
 ## Configuration
 

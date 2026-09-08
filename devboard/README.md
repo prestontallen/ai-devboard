@@ -78,13 +78,20 @@ cp -r examples/* ~/.local/share/devboard/
 The board's only write action. The archive button (on done cards and in
 every task's detail view) moves the task's file into `<repo>/_archive/`;
 archived tasks leave the Board lens and appear under the Archived chip,
-with un-archive buttons that move them back. Nothing
-is ever deleted or rewritten — both endpoints (`POST /api/archive`,
-`POST /api/unarchive`, JSON body `{"repo", "id"}`) are a single validated
-rename, and the worklog dir is never touched. There is no auth: anyone who
-can reach the port can archive/un-archive (reversible by design; the server
-rejects non-JSON content types and never answers CORS preflights, so a
-browsing session on another site can't trigger it cross-origin).
+with un-archive buttons that move them back. Nothing is ever deleted, and
+the worklog dir is never touched.
+
+For a task the worklog store knows, the **store** performs the move: the
+endpoint records it and the re-render writes the file at its new path and
+clears the old one. For a hand-dropped file the store has no ticket for,
+the endpoint renames it directly. Either way the move is all-or-nothing —
+a failure answers 500 with the file where it started, rather than leaving
+the file and the store disagreeing.
+
+There is no auth: anyone who can reach the port can archive/un-archive
+(reversible by design; the server rejects non-JSON content types and never
+answers CORS preflights, so a browsing session on another site can't
+trigger it cross-origin).
 
 ## Friction panel
 

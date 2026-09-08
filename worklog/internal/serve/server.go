@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -121,15 +122,24 @@ type Server struct {
 	ver       int64
 	notify    chan struct{}
 
-	// MutateBoard, if set, runs after a successful archive/unarchive move
-	// to sync the store's BoardArchived field with it — injected by the
-	// CLI layer rather than imported directly (internal/verify already
-	// imports this package for board comparison, so a direct import here
-	// would cycle). Best-effort: an error here doesn't fail the move
-	// itself, since the file (the user-visible state) already moved; the
-	// next store-backed write's hand-edit guard would surface a lasting
-	// disagreement instead of this handler silently swallowing it forever.
-	MutateBoard func(repo, id string, archived bool) error
+	// MutateBoard, if set, records an archive/unarchive in the store, which
+	// moves the file as a side effect: the store decides whether a board
+	// task renders live or under _archive/, so a re-render puts it in the
+	// right place and clears the other. Injected by the CLI layer rather
+	// than imported directly (internal/verify already imports this package
+	// for board comparison, so a direct import here would cycle).
+	//
+	// It reports whether the store owned the move. A file the store does
+	// not board-track is not the store's to place — hand-dropped producer
+	// files are supported input and have no ticket behind them — so the
+	// handler renames those itself.
+	//
+	// NOT best-effort. It used to be, on the reasoning that the file had
+	// already moved and the next write's hand-edit guard would surface any
+	// disagreement. It did surface it: by refusing every subsequent write,
+	// after a 200 and an empty log. An error here now fails the request
+	// with the file untouched (adb-archive-store-desync).
+	MutateBoard func(repo, id string, archived bool) (owned bool, err error)
 }
 
 func New(cfg Config) *Server {
@@ -418,6 +428,29 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 		s.send(w, http.StatusNotFound, []byte(`{"error": "task not found"}`), "application/json")
 		return
 	}
+
+	// The store first, and before anything on disk moves. When it owns the
+	// task the re-render performs the move, so there is nothing left to
+	// rename; when it does not, or when it fails, the file has not been
+	// touched and the request is answered honestly.
+	if s.MutateBoard != nil {
+		owned, err := s.MutateBoard(body.Repo, body.ID, toArchive)
+		if err != nil {
+			log.Printf("devboard: recording %s of %s/%s failed, file left in place: %v",
+				moveVerb(toArchive), body.Repo, body.ID, err)
+			s.sendMoveErr(w, err)
+			return
+		}
+		if owned {
+			s.bump()
+			s.sendMoveOK(w, body.Repo, body.ID, toArchive)
+			return
+		}
+	}
+
+	// No store ticket board-tracks this file, so the projection will never
+	// place it. Renaming is the only archive mechanism a hand-dropped
+	// producer file has, and it is supported input (devboard/README.md).
 	if _, err := os.Stat(dst); err == nil {
 		s.send(w, http.StatusConflict, []byte(`{"error": "destination already exists"}`), "application/json")
 		return
@@ -431,15 +464,22 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 		return
 	}
 	s.bump() // wake SSE clients now; don't wait out the scan interval
-	if s.MutateBoard != nil {
-		s.MutateBoard(body.Repo, body.ID, toArchive)
-	}
+	s.sendMoveOK(w, body.Repo, body.ID, toArchive)
+}
 
+func moveVerb(toArchive bool) string {
+	if toArchive {
+		return "archive"
+	}
+	return "unarchive"
+}
+
+func (s *Server) sendMoveOK(w http.ResponseWriter, repo, id string, toArchive bool) {
 	status := "restored"
 	if toArchive {
 		status = "archived"
 	}
-	resp, _ := json.Marshal(map[string]string{"status": status, "repo": body.Repo, "id": body.ID})
+	resp, _ := json.Marshal(map[string]string{"status": status, "repo": repo, "id": id})
 	s.send(w, http.StatusOK, resp, "application/json")
 }
 

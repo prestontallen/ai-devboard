@@ -134,8 +134,44 @@ func RenderTo(s store.Store, l Layout) error {
 		if err := writeIfChanged(l.path(rel), content); err != nil {
 			return err
 		}
+		// The store owns where a board task file lives, so archiving is a
+		// re-render rather than a rename (adb-archive-store-desync). Clearing
+		// the path the ticket just left is the other half of that: without it
+		// the board shows one task twice, once per path.
+		if sib := boardSibling(rel); sib != "" {
+			if err := os.Remove(l.path(sib)); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("clearing %s: %w", sib, err)
+			}
+		}
 	}
 	return nil
+}
+
+// archiveSegment is the directory an archived board task file lives in,
+// relative to its repo dir.
+const archiveSegment = "_archive"
+
+/*
+boardSibling returns the other place THIS rendered board task file could
+legitimately live — live <-> _archive — or "" for anything that is not one.
+
+The narrowness is the whole safety argument. Render only removes the sibling
+of a path it just wrote, and it only writes files for board-tracked tickets
+in the store, so a file the store has no ticket for can never be named here.
+That is what keeps hand-dropped producer files — a supported input per
+devboard/README.md, and present in the live corpus — out of reach. The broad
+rule ("delete anything I did not render") would take every one of them.
+*/
+func boardSibling(rel string) string {
+	if !strings.HasPrefix(rel, "devboard/") || !strings.HasSuffix(rel, ".yaml") {
+		return ""
+	}
+	dir, file := filepath.Split(rel)
+	dir = strings.TrimSuffix(dir, "/")
+	if filepath.Base(dir) == archiveSegment {
+		return filepath.Dir(dir) + "/" + file
+	}
+	return dir + "/" + archiveSegment + "/" + file
 }
 
 // RenderAll writes every projection of s under a single root.
@@ -163,7 +199,16 @@ func EditedIn(s store.Store, l Layout) ([]string, error) {
 	for rel, want := range files {
 		got, err := os.ReadFile(l.path(rel))
 		if os.IsNotExist(err) {
-			edited = append(edited, rel)
+			// Absent is usually a deletion, and a deletion is an edit. The one
+			// exception is a board task file that is byte-identical at its
+			// sibling path: that is a move the store did not record, not
+			// something someone wrote (adb-archive-store-desync). Refusing it
+			// meant a single board click blocked every later write, with a
+			// message about hand-editing that named a state the board itself
+			// created. Anything whose bytes differ is still an edit.
+			if !movedIntact(l, rel, want) {
+				edited = append(edited, rel)
+			}
 			continue
 		}
 		if err != nil {
@@ -175,6 +220,20 @@ func EditedIn(s store.Store, l Layout) ([]string, error) {
 	}
 	sort.Strings(edited)
 	return edited, nil
+}
+
+// movedIntact reports whether a rendered board file is missing from its own
+// path only because it sits, byte for byte, at the other one. The next render
+// puts it back where the store says it belongs and clears the sibling, so
+// there is nothing to lose by proceeding — which is exactly what makes this
+// safe to wave through and a differing copy not.
+func movedIntact(l Layout, rel string, want []byte) bool {
+	sib := boardSibling(rel)
+	if sib == "" {
+		return false
+	}
+	got, err := os.ReadFile(l.path(sib))
+	return err == nil && bytes.Equal(got, want)
 }
 
 // writeIfChanged is the freshness rule (criterion 13): identical content

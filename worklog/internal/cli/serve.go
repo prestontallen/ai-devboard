@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
@@ -35,10 +33,10 @@ over LAN.`,
 			// injected here rather than imported by internal/serve
 			// directly (internal/verify already imports serve for board
 			// comparison, so that import would cycle).
-			srv.MutateBoard = func(repo, id string, archived bool) error {
+			srv.MutateBoard = func(repo, id string, archived bool) (bool, error) {
 				wd, err := model.NewWorkdir(cfg.WorklogDir)
 				if err != nil {
-					return err
+					return false, err
 				}
 				return storeArchiveMove(wd, id, archived)
 			}
@@ -47,24 +45,38 @@ over LAN.`,
 	}
 }
 
-// storeArchiveMove syncs the store's BoardArchived field after the
-// dashboard has already renamed a task file into or out of _archive/ —
-// the same PutTicket+render every other store-backed write goes through,
-// just triggered from the HTTP handler instead of a CLI verb.
-func storeArchiveMove(wd model.Workdir, id string, archived bool) error {
+// storeArchiveMove records a dashboard archive/unarchive in the store — the
+// same PutTicket+render every other store-backed write goes through, just
+// triggered from the HTTP handler instead of a CLI verb. The render is what
+// actually moves the file: BoardArchived decides which path the board task
+// renders to, and RenderTo clears the one it left.
+//
+// It reports whether the store owned the move. Two shapes it does not: an id
+// with no ticket at all, and a ticket that exists but is not board-tracked —
+// the second is the subtler one, because the ticket resolves and setting a
+// field on it would look like success while the projection never writes that
+// file and nothing moves. Both are hand-dropped producer files as far as the
+// board is concerned, and the handler renames those itself.
+func storeArchiveMove(wd model.Workdir, id string, archived bool) (bool, error) {
 	ss, err := openStoreForWrite(wd)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer ss.close()
 
 	t, err := ss.s.TicketBySlug(id)
 	if store.IsNotFound(err) {
-		return fmt.Errorf("serve: no ticket found for id %q", id)
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
+	}
+	if !t.BoardTracked {
+		return false, nil
 	}
 	t.BoardArchived = archived
-	return ss.commit(t)
+	if err := ss.commit(t); err != nil {
+		return false, err
+	}
+	return true, nil
 }
