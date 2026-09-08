@@ -1,7 +1,7 @@
 // Package devboard holds the devboard task file's wire shape (Task,
 // ChildEntry, and their sub-item types — see devboard/schema.md at the
 // repo root) plus read-side helpers for locating and grouping task files
-// on disk. Writing is store-backed now (internal/projection.BoardTask/
+// on disk. Writing is store-backed now (internal/boardmap.BoardTask/
 // ApplyBoardTask render and apply this same shape against a
 // store.Ticket; adb-cutover M4 retired this package's own file-mutation
 // side (Mutate/OnStart/OnDone/OnPR/OnLink/SyncEpicRoster/MutateChild) —

@@ -47,7 +47,7 @@ func runStorePR(wd model.Workdir, id, value string) (pr.Result, error) {
 
 // setPRLink mirrors t.PR onto t.Links so the devboard board card — which
 // renders its PR link from the Links relation, not the WORK.md-only PR
-// field (projection.BoardTask/fillBoard) — stays in sync. Matches
+// field (boardmap.BoardTask/fillBoard) — stays in sync. Matches
 // legacy's devboardOnPR(Child): replace-not-append, and a cleared PR
 // drops the link entirely rather than leaving an empty one (ValidateTicket
 // allows at most one pr-kind link).

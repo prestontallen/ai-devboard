@@ -87,8 +87,8 @@ func TestTaskScoutChildPathPersists(t *testing.T) {
 // those hand-enumerated ChildEntry's in-flight fields for the legacy
 // YAML-splice epic-child mutation path, which no task<sub> command uses
 // any more (storeMutateTaskOrChild replaced it). The store-model
-// equivalent, projection.BoardTask/ApplyBoardTask, has its own round-trip
-// guard — internal/projection/board_test.go's TestBoardTaskRoundTrip.
+// equivalent, boardmap.BoardTask/ApplyBoardTask, has its own round-trip
+// guard — internal/boardmap/board_test.go's TestBoardTaskRoundTrip.
 
 // ---- criteria 4 and 5 ----
 

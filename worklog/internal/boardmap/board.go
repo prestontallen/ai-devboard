@@ -1,4 +1,10 @@
-package projection
+// Package boardmap holds the single store.Ticket ↔ devboard.Task
+// correspondence: BoardTask/BoardYAML render canon into the board's shape,
+// ApplyBoardTask applies a mutated board shape back. It sits below both
+// projection and serve so each can import the one encoding — projection's
+// in-package tests import serve, so serve importing projection directly
+// would be a cycle (adb-store-board-map).
+package boardmap
 
 import (
 	"gopkg.in/yaml.v3"

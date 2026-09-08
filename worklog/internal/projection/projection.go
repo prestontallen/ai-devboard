@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/boardmap"
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 )
@@ -96,7 +97,7 @@ func Render(s store.Store) (map[string][]byte, error) {
 		if t.BoardArchived {
 			dir += "/_archive"
 		}
-		out[dir+"/"+t.Slug+".yaml"] = BoardYAML(t, kids)
+		out[dir+"/"+t.Slug+".yaml"] = boardmap.BoardYAML(t, kids)
 	}
 	return out, nil
 }

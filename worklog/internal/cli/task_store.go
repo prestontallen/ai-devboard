@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/prestontallen/ai-devboard/worklog/internal/boardmap"
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/migrate"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
@@ -67,11 +68,11 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 		return "", "", err
 	}
 
-	task := projection.BoardTask(target, nil)
+	task := boardmap.BoardTask(target, nil)
 	if err := fn(task); err != nil {
 		return "", "", err
 	}
-	projection.ApplyBoardTask(target, task)
+	boardmap.ApplyBoardTask(target, task)
 	// A task subcommand is what puts a ticket on the board in the first
 	// place, matching the legacy path's create-on-first-use behavior. A
 	// child never gets a file of its own, so it's top — itself for a
