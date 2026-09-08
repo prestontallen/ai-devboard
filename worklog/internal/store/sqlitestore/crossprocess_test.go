@@ -51,12 +51,22 @@ const (
 	soakReaderInterval = time.Second
 )
 
-// TestCrossProcessWriteLoad proves adb-cutover M1: modernc's pure-Go WAL
-// locking survives real concurrent OS-process writers. Open already caps
-// database/sql's pool at one connection, so goroutines inside a single
-// process can't exercise the cross-process file-locking path this test
-// targets — each worker here is a genuine subprocess of this test binary,
-// re-exec'd via the standard GO_WANT_HELPER_PROCESS pattern.
+// TestCrossProcessWriteLoad shows that modernc's pure-Go WAL locking
+// survives a BURST of real concurrent OS-process writers. Open already
+// caps database/sql's pool at one connection, so goroutines inside a
+// single process can't exercise the cross-process file-locking path this
+// test targets — each worker here is a genuine subprocess of this test
+// binary, re-exec'd via the standard GO_WANT_HELPER_PROCESS pattern.
+//
+// What it does NOT cover, despite once being cited as proof of
+// adb-cutover M1: sustained load. 8 workers x 15 bare-ticket writes
+// finishes in about 140ms, far short of the five-second busy_timeout a
+// starved writer has to burn before it fails, and bare tickets are too
+// light a transaction to make anyone hold the write lock long enough to
+// starve anyone else. It passed on the build that starved 7 of 8 writers.
+// TestCrossProcessWriterStarvation in starvation_test.go is the test that
+// covers that; this one stays for what it genuinely checks, which is that
+// a burst of concurrent processes neither loses nor duplicates writes.
 func TestCrossProcessWriteLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip("cross-process load test skipped in -short mode")

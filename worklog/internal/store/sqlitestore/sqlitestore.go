@@ -11,6 +11,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,17 +34,36 @@ var migrations = []string{migration1, migration2, migration3}
 
 type SQLite struct {
 	db *sql.DB
+	// path is the database file, kept so the write gate can derive its
+	// sidecar lock path from it. It therefore follows the database if the
+	// database is ever relocated.
+	path string
+	// mu is the in-process half of the write gate; see gate().
+	mu sync.Mutex
 }
 
 // Open opens (creating if needed) the store at path and migrates it to
-// the current user_version. The concurrency contract: WAL so readers
-// never block on the writer, busy_timeout so a second writer waits
-// instead of erroring, foreign keys enforced, _txlock=immediate so a
-// writer acquires the write lock at BEGIN rather than deferring it to
-// the first write statement — deferred transactions race each other on
-// the upgrade and surface as an immediate SQLITE_BUSY instead of
-// blocking for busy_timeout (confirmed by adb-cutover's M1 load test:
-// without this, 7 of 8 concurrent writers failed within 10ms).
+// the current user_version.
+//
+// The concurrency contract, corrected 2026-09-08 (adb-sqlite-writer-
+// starvation). WAL means readers never block on the writer, and reads
+// take no gate, so that stays true. foreign keys are enforced.
+// _txlock=immediate makes a writer acquire the write lock at BEGIN
+// rather than deferring it to the first write statement, which stops
+// deferred transactions racing each other on the upgrade.
+//
+// Fairness between writers comes from the gate, NOT from busy_timeout.
+// The earlier claim here — that busy_timeout alone makes a second
+// writer "wait instead of erroring", confirmed by adb-cutover's M1 load
+// test — was true only of short bursts. busy_timeout is honored exactly
+// (a losing writer blocks the full five seconds), but SQLite's busy
+// handler is a sleep-and-retry loop with no queue, so a writer that
+// re-acquires immediately after each commit wins nearly every race and
+// starves the rest. Under sustained load with transactions the weight of
+// a real PutTicket, 7 of 8 concurrent writers failed on their FIRST
+// transaction. Raising the timeout cannot fix that, because starvation
+// has no bound. busy_timeout is now the backstop for whatever does not
+// pass through the gate; gate() is the fairness mechanism.
 func Open(path string) (*SQLite, error) {
 	dsn := "file:" + path + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
@@ -53,7 +73,7 @@ func Open(path string) (*SQLite, error) {
 	// database/sql pooling would hand out connections that race DDL; the
 	// single-writer discipline is part of the design.
 	db.SetMaxOpenConns(1)
-	s := &SQLite{db: db}
+	s := &SQLite{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -61,11 +81,40 @@ func Open(path string) (*SQLite, error) {
 	return s, nil
 }
 
+// migrate applies any pending numbered migrations.
+//
+// It takes the write gate ONLY when there is something to apply. Every
+// Open calls migrate, including read-only ones, and the dashboard server
+// opens the store on every /api/tasks request at a one-second cadence —
+// gating unconditionally would put that read path behind the write gate
+// and break "readers never block on the writer". On an already-current
+// database this costs one PRAGMA read and touches no lock file at all,
+// which is also what keeps a read working against a data directory the
+// user cannot write to.
 func (s *SQLite) migrate() error {
-	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	version, err := s.userVersion()
+	if err != nil {
 		return err
 	}
+	if version >= len(migrations) {
+		return nil
+	}
+
+	release, err := s.gate()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	// Re-read under the gate. Between the check above and the grant here,
+	// another process may have applied the very migrations we were about
+	// to apply; without this both would run them and the second would
+	// fail on its own DDL.
+	version, err = s.userVersion()
+	if err != nil {
+		return err
+	}
+
 	for i := version; i < len(migrations); i++ {
 		tx, err := s.db.Begin()
 		if err != nil {
@@ -86,12 +135,24 @@ func (s *SQLite) migrate() error {
 	return nil
 }
 
+func (s *SQLite) userVersion() (int, error) {
+	var version int
+	err := s.db.QueryRow("PRAGMA user_version").Scan(&version)
+	return version, err
+}
+
 func (s *SQLite) Close() error { return s.db.Close() }
 
 // TouchBoardRendered is the column's sole writer — PutTicket's explicit
 // column list omits board_rendered_at on purpose, so this single UPDATE
 // is the only statement that can move the stamp.
 func (s *SQLite) TouchBoardRendered(id store.ID, at int64) error {
+	release, err := s.gate()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	res, err := s.db.Exec("UPDATE tickets SET board_rendered_at = ? WHERE id = ?", at, string(id))
 	if err != nil {
 		return err
@@ -125,6 +186,14 @@ func (s *SQLite) PutTicket(t *store.Ticket) error {
 		t.ID = store.NewID()
 	}
 	slug := store.NormalizeSlug(t.Slug)
+
+	// Gate after validation: a refused ticket should fail on its own
+	// merits immediately, not queue behind another process first.
+	release, err := s.gate()
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -584,7 +653,14 @@ func (s *SQLite) PutFeedback(e *store.FeedbackEntry) error {
 	if e.ID == "" {
 		e.ID = store.NewID()
 	}
-	_, err := s.db.Exec(`
+
+	release, err := s.gate()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	_, err = s.db.Exec(`
 INSERT INTO feedback (id, seconds, signal, trigger, excerpt, context, resolved)
 VALUES (?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET seconds=excluded.seconds, signal=excluded.signal,
