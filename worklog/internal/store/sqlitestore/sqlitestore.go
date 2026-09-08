@@ -93,24 +93,42 @@ func Open(path string) (*SQLite, error) {
 // user cannot write to.
 func (s *SQLite) migrate() error {
 	version, err := s.userVersion()
-	if err != nil {
-		return err
-	}
-	if version >= len(migrations) {
+	switch {
+	case err == nil && version >= len(migrations):
 		return nil
-	}
-
-	release, err := s.gate()
-	if err != nil {
+	case err != nil && !isBusy(err):
 		return err
+	}
+	// Either migrations are pending, or that first read lost a CREATION
+	// race and came back SQLITE_BUSY. Both are settled under the gate.
+	//
+	// The creation race is not something the gate below could have
+	// prevented on its own, and it is not new: converting a brand-new
+	// rollback-journal file to WAL happens while database/sql is
+	// establishing the connection and applying the DSN's pragmas, before
+	// any code in this package runs. Concurrent creators race there and
+	// the loser is refused rather than made to wait. Measured on a fresh
+	// database with six openers, roughly one run in five saw at least one
+	// SQLITE_BUSY; against an existing WAL database, forty runs were
+	// clean. Retrying once under the gate is enough, because by the time
+	// the gate is granted the winner has finished and the file is in WAL,
+	// which is the case that does not race.
+	release, gateErr := s.gate()
+	if gateErr != nil {
+		return gateErr
 	}
 	defer release()
+	return s.migrateLocked()
+}
 
-	// Re-read under the gate. Between the check above and the grant here,
+// migrateLocked applies pending migrations. The caller holds the gate;
+// gate() is not reentrant, so nothing in here may take it again.
+func (s *SQLite) migrateLocked() error {
+	// Re-read under the gate. Between the caller's check and the grant,
 	// another process may have applied the very migrations we were about
 	// to apply; without this both would run them and the second would
 	// fail on its own DDL.
-	version, err = s.userVersion()
+	version, err := s.userVersion()
 	if err != nil {
 		return err
 	}

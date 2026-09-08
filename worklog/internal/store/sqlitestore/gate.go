@@ -1,7 +1,11 @@
 package sqlitestore
 
 import (
+	"errors"
 	"time"
+
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
 )
@@ -50,4 +54,19 @@ func (s *SQLite) gate() (func(), error) {
 		release()
 		s.mu.Unlock()
 	}, nil
+}
+
+// isBusy reports whether err is SQLite's "the database is locked" refusal.
+// Matched on the driver's result code rather than on message text, so a
+// reworded message cannot silently turn a handled contention case into an
+// unhandled hard failure.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	// The extended codes (SQLITE_BUSY_RECOVERY, _SNAPSHOT, _TIMEOUT) carry
+	// their sub-reason in the high bits; the low byte is what identifies
+	// the class.
+	return se.Code()&0xff == sqlite3.SQLITE_BUSY
 }

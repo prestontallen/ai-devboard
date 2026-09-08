@@ -196,9 +196,21 @@ func TestReadsDoNotWaitOnTheWriteGate(t *testing.T) {
 	}
 }
 
-// TestConcurrentOpenMigratesOnce covers the double-checked read inside
-// migrate. Two openers of an unmigrated database race; exactly one
-// applies the migrations and neither may error on the other's DDL.
+// TestConcurrentOpenMigratesOnce covers two races at once, both on a
+// database that does not exist yet.
+//
+// The first is the double-checked read inside migrate: openers race,
+// exactly one applies the migrations, and nobody may error on another's
+// DDL. The second is subtler and is what this test caught in CI. Turning
+// a brand-new rollback-journal file into a WAL one happens while
+// database/sql establishes the connection and applies the DSN's pragmas,
+// which is before any code in this package runs — so concurrent CREATORS
+// race somewhere the write gate cannot reach, and the loser is refused
+// rather than made to wait. Roughly one run in five failed before
+// migrate learned to retry once under the gate.
+//
+// Because it is a race, a single green run proves nothing. Run it with
+// -count=100 when touching Open or migrate.
 func TestConcurrentOpenMigratesOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "worklog.db")
 
