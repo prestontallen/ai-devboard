@@ -32,7 +32,9 @@ test("an epic child's panel names the child and links to the child route", () =>
   mount()
   const p = panels().find((x) => x.textContent.includes('child a'))
   expect(p.querySelector('.qchild').textContent).toBe('child a')
-  expect(p.querySelector('.qsub a').getAttribute('href')).toBe('/#ai-devboard/lens-board/a')
+  // Was `/#ai-devboard/lens-board/a` — the row crossed to the outgoing board
+  // until adb-lens-epic-detail gave the child a route in this app.
+  expect(p.querySelector('.qsub a').getAttribute('href')).toBe('#/task/ai-devboard/lens-board/a')
 })
 
 test('detail renders inline as a pre, and is absent when the entry has none', () => {

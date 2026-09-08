@@ -117,6 +117,67 @@ export const task = (over = {}) => ({
   task: { title: 'A sample task', phase: 'implementing', ...(over.task || {}) },
 })
 
+/**
+ * An epic shaped to the live adb-devboard-lens-board.yaml, which is what makes
+ * it worth having: its done children keep the phase they were closed at
+ * (`adb-child-done-phase-sync`), so `state: done` sits beside `phase: verify`
+ * exactly as it does on disk. One child is active and carries a full body, one
+ * is pending, and one has no `state` at all.
+ */
+export const EPIC = {
+  repo: 'ai-devboard',
+  id: 'lens-epic',
+  file: 'ai-devboard/lens-epic.yaml',
+  mtime: fresh,
+  notes: '# Lens Board\n\nThe epic notes body.',
+  task: {
+    title: 'Devboard Lens Board',
+    type: 'epic',
+    worklog: 'adb-devboard-lens-board',
+    // Never used by a child row: each child runs its own agent.
+    session: 'sess-epic',
+    children: [
+      {
+        id: 'ledger',
+        title: 'Contract ledger',
+        state: 'done',
+        phase: 'verify',
+        plan: [{ text: 'ship it', state: 'done' }],
+        scorecard: [{ text: 'it shipped', verify: 'npm test', status: 'pass' }],
+      },
+      {
+        id: 'detail',
+        title: 'Epic and child detail',
+        state: 'active',
+        phase: 'implementing',
+        session: 'sess-child',
+        complexity: 'medium',
+        tier: 2,
+        branch: 'master',
+        needs_you: [{ type: 'checkpoint', text: 'approve the contract', detail: 'the whole thing' }],
+        plan: [{ text: 'routes', state: 'done' }, { text: 'adapter', state: 'in_progress' }],
+        scorecard: [
+          { text: 'the route renders', verify: 'npm test', status: 'pass' },
+          { text: 'the seam holds', verify: 'a grep over the source' },
+        ],
+        decisions: [{ what: 'state outranks phase', why: 'the writer lags', when: '2026-09-07' }],
+        scout: { mode: 'inline', why: 'subagents off', when: '2026-09-07' },
+        notes: '# Epic detail\n\nThe child notes body.',
+        // A key the UI has never been taught: the Other table must surface it
+        // while staying quiet about id/title/state.
+        mystery: 'an additive schema field',
+      },
+      { id: 'cutover', title: 'Lens cutover', state: 'pending' },
+      { id: 'stateless', title: 'No state recorded' },
+    ],
+  },
+}
+
+export const EPIC_EMPTY = {
+  repo: 'ai-devboard', id: 'barren', file: 'ai-devboard/barren.yaml', mtime: fresh,
+  task: { title: 'An epic with nothing under it', type: 'epic' },
+}
+
 export const SPIKE = task({ id: 'spike', task: { title: 'A spike', type: 'spike', phase: 'research' } })
 export const SPIKE_OFF_TRACK = task({ id: 'spikeoff', task: { title: 'Spike off track', type: 'spike', phase: 'verify' } })
 export const NO_PHASE = task({ id: 'nophase', task: { title: 'No phase', phase: undefined } })

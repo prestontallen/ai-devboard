@@ -93,7 +93,7 @@ export function App({ transport, load, now, matchPhone, onMove }) {
       <${ChipBar} counts=${counts} route=${route} />
       <main data-testid="lens" data-lens=${route || 'task'}>
         ${view.kind === 'task'
-          ? html`<${DetailView} db=${db} repo=${view.task.repo} id=${view.task.id}
+          ? html`<${DetailView} db=${db} repo=${view.task.repo} id=${view.task.id} child=${view.task.child}
                                 now=${now} isDesktop=${!isPhone()} onMove=${move} />`
           : html`<${Lens} route=${route} db=${db} now=${now} isDesktop=${!isPhone()} onMove=${move} />`}
       </main>

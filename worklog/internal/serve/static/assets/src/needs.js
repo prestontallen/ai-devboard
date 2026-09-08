@@ -1,9 +1,8 @@
 import { h } from 'preact'
 import htm from 'htm'
-import { needsRows } from './rows.js'
+import { needsRows, rowHref } from './rows.js'
 import { ago } from './phases.js'
 import { copyText } from './clipboard.js'
-import { hashForTask } from './routes.js'
 
 const html = htm.bind(h)
 
@@ -15,11 +14,6 @@ const PENDING = 'not wired up yet — needs adb-checkpoint-answer-endpoint'
 
 const KINDS = { checkpoint: 'checkpoint', question: 'question' }
 const kindOf = (entry) => KINDS[entry.type] || 'question'
-
-/** A plain task's row opens detail in this app. A child's still crosses to `/`
- *  on the legacy `#<repo>/<epic>/<child>` grammar, because child detail is
- *  adb-lens-epic-detail. */
-const rowHref = (r) => (r.childId ? `/#${r.repo}/${r.id}/${r.childId}` : hashForTask(r.repo, r.id))
 
 export function QueuePanel({ row, now, isDesktop }) {
   const kind = kindOf(row.entry)

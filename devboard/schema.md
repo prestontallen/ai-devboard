@@ -182,13 +182,27 @@ children:
 
 ### Per-child board routing
 
-A child's board-grid presence stays inside its epic's single nested card
-(the compact roster, and the expanded per-child sections on the epic's own
-detail page) — a child never gets its own top-level card. Both the roster
-chips and the per-child section headings link to a dedicated detail hash,
-`#<repo>/<epic-id>/<child-id>`, distinct from an epic's own
-`#<repo>/<epic-id>` and a standalone ticket's `#<repo>/<task-id>`, so a
-child's plan/scorecard/decisions/code can be read on its own without the
-rest of the epic's children in view. This is a UI routing convention only;
-no schema field carries it, and no per-child archive endpoint exists —
+A child's board-grid presence stays inside its epic's single nested card —
+a child never gets its own top-level card. Both the roster chips and the
+child cards on the epic's own detail page link to a dedicated detail hash,
+distinct from an epic's own and from a standalone ticket's, so a child's
+plan/scorecard/decisions/code can be read on its own without the rest of
+the epic's children in view. This is a UI routing convention only; no
+schema field carries it, and no per-child archive endpoint exists —
 archiving stays a whole-file action from the epic's own view.
+
+Two grammars are live during the cutover, one per board:
+
+|  | standalone | epic | child |
+|---|---|---|---|
+| `/` (outgoing) | `#<repo>/<id>` | `#<repo>/<epic-id>` | `#<repo>/<epic-id>/<child-id>` |
+| `/next` (Preact) | `#/task/<repo>/<id>` | `#/task/<repo>/<epic-id>` | `#/task/<repo>/<epic-id>/<child-id>` |
+
+The leading slash is what keeps them apart, so a hash pasted from either
+board resolves on the board it came from rather than landing somewhere
+wrong. `adb-lens-cutover` retires the first row.
+
+A child is addressed *through* its epic in both, because the epic file is
+what the route has to resolve. That is also why the payload attaches a
+child's `notes/<child-id>.md` to its `children[]` entry (see `API.md`):
+the child has no file of its own to carry a `worklog` key.

@@ -581,6 +581,7 @@ func TestEmbeddedManifest(t *testing.T) {
 		"static/assets/src/data.js":                 true,
 		"static/assets/src/detail.js":               true,
 		"static/assets/src/done.js":                 true,
+		"static/assets/src/epic.js":                 true,
 		"static/assets/src/friction.js":             true,
 		"static/assets/src/grid.js":                 true,
 		"static/assets/src/ledger.js":               true,
@@ -768,5 +769,89 @@ func TestNotesEmbedding(t *testing.T) {
 	body, _ = json.Marshal(s.allTasks())
 	if bytes.Contains(body, []byte("TOPSECRET")) {
 		t.Error("worklog traversal read outside notes/")
+	}
+}
+
+// epicWithChildren writes one epic file whose children carry the given ids,
+// alongside a notes dir, and returns a server over both.
+func epicWithChildren(t *testing.T, ids ...string) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "r")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	b.WriteString("title: An epic\ntype: epic\nchildren:\n")
+	for _, id := range ids {
+		fmt.Fprintf(&b, "  - id: %q\n    title: A child\n    state: active\n", id)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "epic.yaml"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return New(Config{DataDir: dir, WorklogDir: dir})
+}
+
+// childEntries pulls the epic's children out of a marshalled payload.
+func childEntries(t *testing.T, body []byte) []map[string]any {
+	t.Helper()
+	var payload struct {
+		Repos []struct {
+			Tasks []struct {
+				Task struct {
+					Children []map[string]any `json:"children"`
+				} `json:"task"`
+			} `json:"tasks"`
+		} `json:"repos"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	for _, r := range payload.Repos {
+		for _, task := range r.Tasks {
+			out = append(out, task.Task.Children...)
+		}
+	}
+	return out
+}
+
+// TestChildNotesEmbedding: a child of an epic has no task file and so no
+// top-level `worklog` key, but it is a worklog ticket in its own right and its
+// id is the notes filename (schema.md, "Epic files"). adb-lens-epic-detail.
+func TestChildNotesEmbedding(t *testing.T) {
+	s := epicWithChildren(t, "kid-1", "kid-2")
+	notes := filepath.Join(s.cfg.WorklogDir, "notes")
+	os.WriteFile(filepath.Join(notes, "kid-1.md"), []byte("Body of the child note."), 0o644)
+
+	body, _ := json.Marshal(s.allTasks())
+	if !bytes.Contains(body, []byte("Body of the child note.")) {
+		t.Error("child notes missing from payload")
+	}
+	// A child with no notes file gets no key at all — an empty string would
+	// render as a notes fold with nothing in it.
+	for _, c := range childEntries(t, body) {
+		if c["id"] == "kid-2" {
+			if _, ok := c["notes"]; ok {
+				t.Error("a child with no notes file was given a notes key")
+			}
+		}
+	}
+}
+
+// TestChildNotesTraversal: a child id reaches a filesystem path, out of a file
+// anyone can hand-edit, so it takes the same guard the worklog key does.
+func TestChildNotesTraversal(t *testing.T) {
+	for _, id := range []string{"../secret", "..", "a/b", `a\b`} {
+		s := epicWithChildren(t, id)
+		os.WriteFile(filepath.Join(s.cfg.WorklogDir, "secret.md"), []byte("TOPSECRET"), 0o644)
+		os.WriteFile(filepath.Join(s.cfg.WorklogDir, "notes", "secret.md"), []byte("TOPSECRET"), 0o644)
+		body, _ := json.Marshal(s.allTasks())
+		if bytes.Contains(body, []byte("TOPSECRET")) {
+			t.Errorf("child id %q read a file it should not reach", id)
+		}
 	}
 }

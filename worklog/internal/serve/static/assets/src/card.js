@@ -1,10 +1,10 @@
 import { h } from 'preact'
 import htm from 'htm'
-import { isError, isStale, isEpic, needsYou, waitingOn, phaseOf } from './counts.js'
+import { isError, isStale, isEpic, needsYou, waitingOn, phaseOf, childState, byChildState } from './counts.js'
 import { phasesFor, phaseIndex, planStats, checkStatuses, ago, itemText } from './phases.js'
 import { copyText } from './clipboard.js'
 import { MoveButton } from './archive.js'
-import { hashForTask } from './routes.js'
+import { hashForTask, hashForChild } from './routes.js'
 
 const html = htm.bind(h)
 
@@ -17,12 +17,14 @@ const html = htm.bind(h)
  *  live in the detail view, not behind a per-card toggle, because per-card
  *  expand state is what `openFolds` existed to rescue on the old board. */
 
-/** Plain tasks open in this app. Epics still cross to `/`: their detail is a
- *  roster of children with independent plans, and that route is
- *  adb-lens-epic-detail, not built yet. Linking them inward would land on a
- *  view that cannot render them. */
+/** Every card opens in this app now — epics included, since adb-lens-epic-detail
+ *  built the view that can render them. A child carries `parent` (the adapter
+ *  in epic.js sets it) and is addressed through its epic, because no child of
+ *  an epic has a task file of its own to address directly. */
 export const detailHref = (task) =>
-  isEpic(task) ? `/#${task.repo}/${task.id}` : hashForTask(task.repo, task.id)
+  task.parent
+    ? hashForChild(task.repo, task.parent, task.id)
+    : hashForTask(task.repo, task.id)
 
 /** Interactive controls sit inside the card's anchor, so each one must stop the
  *  click from also navigating the card — exactly as index.html does. */
@@ -41,11 +43,25 @@ function TypeBadge({ task }) {
     : html`<span class="badge spike">◇ spike</span>`
 }
 
+/** A phase-less task is a missing field and reads as one. A phase-less PENDING
+ *  child is not: `children[].state` says it has not been started, which is a
+ *  normal place to be, and labelling it "no phase" would report a healthy
+ *  roster entry as a data error. `state` is a children-only field, so a
+ *  standalone task file can never take this branch. */
+function emptyPhaseLabel(task) {
+  const k = task.task || {}
+  if (phaseOf(task)) return { text: `${k.phase} · unknown phase`, tone: 'unknown' }
+  return k.state && childState(k) === 'pending'
+    ? { text: 'not started', tone: 'idle' }
+    : { text: 'no phase', tone: 'unknown' }
+}
+
 function Track({ task }) {
   const type = task.task && task.task.type
   const phase = phaseOf(task)
   const list = phasesFor(type, phase)
   const i = phaseIndex(type, phase)
+  const empty = emptyPhaseLabel(task)
   return html`
     <div>
       <div class="track">
@@ -54,7 +70,7 @@ function Track({ task }) {
       </div>
       ${i >= 0
         ? html`<div class="phase-lbl">${phase} <small>· ${i + 1}/${list.length}</small></div>`
-        : html`<div class="phase-lbl unknown">${phase ? `${phase} · unknown phase` : 'no phase'}</div>`}
+        : html`<div class=${`phase-lbl ${empty.tone}`}>${empty.text}</div>`}
     </div>`
 }
 
@@ -96,18 +112,19 @@ function Resume({ task, isDesktop }) {
 function Roster({ task, onChild }) {
   const children = (task.task && task.task.children) || []
   if (!children.length) return html`<div class="rosterempty">no children started yet</div>`
-  const order = { active: 0, pending: 1, done: 2 }
   const mark = { active: '▶ ', pending: '○ ', done: '✓ ' }
-  const sorted = children.slice().sort((a, b) => (order[a.state] ?? 1) - (order[b.state] ?? 1))
+  // Same comparator the epic page's child grid uses, from counts.js — two
+  // copies of the order is how the roster and the grid drift apart.
+  const sorted = children.slice().sort(byChildState)
   return html`
     <div class="roster">
       ${sorted.map((c) => {
-        const state = c.state || 'pending'
+        const state = childState(c)
         const id = c.id || ''
         const go = (e) => {
           swallow(e)
           if (onChild) onChild(task.repo, task.id, id)
-          else location.assign(`/#${task.repo}/${task.id}/${id}`)
+          else location.assign(hashForChild(task.repo, task.id, id))
         }
         return html`
           <span class=${`childchip ${state}`} data-child=${id} data-state=${state}

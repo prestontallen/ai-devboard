@@ -23,19 +23,29 @@ export function hashForLens(lens) {
 }
 
 /**
- * Task detail: `#/task/<repo>/<id>`.
+ * Task detail: `#/task/<repo>/<id>`, and a child of an epic at
+ * `#/task/<repo>/<epic-id>/<child-id>`.
  *
  * Same leading-slash namespace as the lenses, deliberately. The outgoing
  * board's `#<repo>/<task>` grammar keeps meaning what it always did (a link
  * out to `/`), so nothing has to guess which board a pasted hash was copied
  * from. repo and id are the ones the payload carries, so both are matched
  * loosely and compared, never parsed for meaning.
+ *
+ * The third segment is optional rather than its own `#/child/...` namespace:
+ * one grammar, and it mirrors the legacy `#<repo>/<epic>/<child>` shape a
+ * reader already knows. `child` is always present and null for a plain task,
+ * so a caller dispatches on its value instead of on the key's existence.
  */
 export function taskFromHash(hash) {
-  const m = /^#\/task\/([^/]+)\/([^/]+)$/.exec(hash || '')
+  const m = /^#\/task\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/.exec(hash || '')
   if (!m) return null
   try {
-    return { repo: decodeURIComponent(m[1]), id: decodeURIComponent(m[2]) }
+    return {
+      repo: decodeURIComponent(m[1]),
+      id: decodeURIComponent(m[2]),
+      child: m[3] === undefined ? null : decodeURIComponent(m[3]),
+    }
   } catch {
     // A malformed %-escape must not take the page down; it is simply not a route.
     return null
@@ -44,6 +54,13 @@ export function taskFromHash(hash) {
 
 export function hashForTask(repo, id) {
   return `#/task/${encodeURIComponent(repo)}/${encodeURIComponent(id)}`
+}
+
+/** A child is addressed through its epic, never on its own: no child of an
+ *  epic gets a task file, so `<repo>/<epic-id>` is what resolves the payload
+ *  entry the child entry is read out of (schema.md, "Epic files"). */
+export function hashForChild(repo, epicId, childId) {
+  return `${hashForTask(repo, epicId)}/${encodeURIComponent(childId)}`
 }
 
 /** Any hash this app resolves to a view of its own. The lens set and the task

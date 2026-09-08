@@ -125,13 +125,16 @@ test('a parse-error task shows its error instead of throwing', () => {
   expect(screen.getByTestId('detail-error').textContent).toContain('yaml: unclosed')
 })
 
-// An epic's top-level plan/scorecard are unused, so rendering one here would
-// show an empty ledger and say nothing about its children.
-test('an epic is refused with a way onward, not half-rendered', () => {
+// An epic's top-level plan/scorecard are unused, so it gets the roster rather
+// than a ledger: rendering one would draw an empty agreement for every epic.
+// This was a refusal linking out to `/` until adb-lens-epic-detail built the
+// view; the no-ledger half of the claim is unchanged and still the point.
+test('an epic renders its roster, and never a ledger or a stepper', () => {
   const epic = { repo: 'ai-devboard', id: 'e', task: { title: 'An epic', type: 'epic', children: [] } }
   mount({ db: db(epic), id: 'e' })
-  expect(screen.getByTestId('detail-epic').textContent).toContain('is an epic')
+  expect(screen.getByTestId('detail-epic').textContent).toContain('no children started yet')
   expect(screen.queryByTestId('ledger')).toBe(null)
+  expect(screen.queryByTestId('stepper')).toBe(null)
 })
 
 test('the archive control appears only when the lens passes one', () => {

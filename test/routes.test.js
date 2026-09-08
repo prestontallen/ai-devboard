@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import {
-  LENSES, routeFromHash, hashForLens, defaultRoute, taskFromHash, hashForTask,
+  LENSES, routeFromHash, hashForLens, defaultRoute, taskFromHash, hashForTask, hashForChild,
 } from '../worklog/internal/serve/static/assets/src/routes.js'
 
 test('the six lenses ship in bar order, and backlog is not among them', () => {
@@ -45,17 +45,39 @@ test('a legacy deep link does not suppress the default rule', () => {
 // ---- task detail route (adb-devboard-contract-ledger) ----
 
 test('a task hash round-trips, including ids that need escaping', () => {
-  expect(taskFromHash('#/task/ai-devboard/adb-lens-card')).toEqual({ repo: 'ai-devboard', id: 'adb-lens-card' })
-  expect(taskFromHash(hashForTask('my repo', 'id/with slash'))).toEqual({ repo: 'my repo', id: 'id/with slash' })
+  expect(taskFromHash('#/task/ai-devboard/adb-lens-card'))
+    .toEqual({ repo: 'ai-devboard', id: 'adb-lens-card', child: null })
+  expect(taskFromHash(hashForTask('my repo', 'id/with slash')))
+    .toEqual({ repo: 'my repo', id: 'id/with slash', child: null })
 })
 
 test('anything that is not a task hash is not a task', () => {
-  for (const hash of ['#/board', '#ai-devboard/router', '#/task/only-one', '#/task/a/b/c', '#/task/', '', undefined]) {
+  // `#/task/a/b/c` left this list with adb-lens-epic-detail: three segments is
+  // now a child, and four is still nothing.
+  for (const hash of ['#/board', '#ai-devboard/router', '#/task/only-one', '#/task/a/b/c/d', '#/task/', '', undefined]) {
     expect(() => taskFromHash(hash)).not.toThrow()
     expect(taskFromHash(hash)).toBe(null)
   }
   // A malformed escape is not a route either, and must not throw.
   expect(taskFromHash('#/task/a/%E0%A4%A')).toBe(null)
+})
+
+// ---- child detail route (adb-lens-epic-detail) ----
+
+test('a child hash round-trips, and a plain task keeps a null child', () => {
+  expect(taskFromHash('#/task/ai-devboard/lens-board/adb-lens-card'))
+    .toEqual({ repo: 'ai-devboard', id: 'lens-board', child: 'adb-lens-card' })
+  expect(taskFromHash(hashForChild('my repo', 'ep/ic', 'kid/1')))
+    .toEqual({ repo: 'my repo', id: 'ep/ic', child: 'kid/1' })
+  expect(taskFromHash(hashForTask('r', 'i')).child).toBe(null)
+})
+
+// Same blocker as the task route, one segment deeper: a child link opened on a
+// phone must land on the child, not on needs-you.
+test('a child deep link counts as an explicit route, on a phone too', () => {
+  const hash = hashForChild('ai-devboard', 'lens-board', 'kid')
+  expect(defaultRoute({ hash, phone: true, needsYou: 5 })).toBe(null)
+  expect(defaultRoute({ hash, phone: false, needsYou: 0 })).toBe(null)
 })
 
 // The blocker this ticket's scout found: defaultRoute asked only about lenses,

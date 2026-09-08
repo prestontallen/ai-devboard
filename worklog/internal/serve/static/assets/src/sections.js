@@ -183,6 +183,11 @@ export const KNOWN = new Set([
   'schema', 'title', 'branch', 'tier', 'phase', 'plan', 'scorecard', 'decisions',
   'code', 'needs_you', 'waiting_on', 'links', 'session', 'worklog', 'complexity',
   'type', 'children', 'repo_path', 'scout',
+  // A `children[]` entry's own fields. They reach this table only because the
+  // child adapter feeds the entry through as a task body, and listing a
+  // child's id, state or server-attached notes as an unrecognised schema
+  // addition would report the epic format itself as a surprise.
+  'id', 'state', 'notes',
 ])
 
 export function Other({ task }) {

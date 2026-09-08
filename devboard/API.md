@@ -102,8 +102,14 @@ Task entry:
   decodes into the schema structs. **Additive policy:** new keys may appear
   at any time; consumers must ignore what they don't know. This is how
   schema growth (new phases, new fields) ships without a contract rev.
-- `notes` appears when `task.worklog` is a plain name (no `/`, no `..`)
-  and `<worklog>/notes/<name>.md` is readable.
+- `notes` appears when `task.worklog` is a plain name (no separator, no
+  `..`) and `<worklog>/notes/<name>.md` is readable.
+- **`task.children[].notes`** appears on the same terms, keyed by the child's
+  `id` instead: a child of an epic has no task file and so no `worklog` key of
+  its own, but it is a worklog ticket whose id IS the notes filename (see
+  `schema.md`, "Epic files"). The id runs through the same plain-name guard,
+  because it comes out of the same hand-editable file. A child with no
+  readable notes file carries no `notes` key at all, never an empty string.
 - A file that fails to parse yields an error card: `error` present,
   `task`/`mtime` absent, the board renders it as a card — never a 500.
 

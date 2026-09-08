@@ -24,14 +24,15 @@ test('a card renders title, repo, track, phase label, meter and pips', () => {
   expect(c.querySelector('.foot .age')).toBeTruthy()
 })
 
-test('a plain task links into this app, an epic still crosses to /', () => {
+test('every card links into this app — epics included, since epic detail exists', () => {
   const t = task({ repo: 'ai-devboard', id: 'sample' })
   expect(detailHref(t)).toBe('#/task/ai-devboard/sample')
   expect(one({ task: t }).getAttribute('href')).toBe('#/task/ai-devboard/sample')
-  // Epic detail is a roster of children with independent plans, and that route
-  // is adb-lens-epic-detail. Linking it inward would land nowhere useful.
+  // Was `/#ai-devboard/epic` until adb-lens-epic-detail built the view that can
+  // render an epic. Nothing crosses to the outgoing board any more.
   const e = task({ repo: 'ai-devboard', id: 'epic', task: { title: 'E', type: 'epic' } })
-  expect(detailHref(e)).toBe('/#ai-devboard/epic')
+  expect(detailHref(e)).toBe('#/task/ai-devboard/epic')
+  expect(one({ task: e }).getAttribute('href')).toBe('#/task/ai-devboard/epic')
 })
 
 // ---------- scalar tolerance: a shipped guarantee the port nearly lost ----------

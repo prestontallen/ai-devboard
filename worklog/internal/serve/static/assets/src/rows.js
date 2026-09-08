@@ -1,5 +1,6 @@
 import { flatten, inFlight, isError, isEpic } from './counts.js'
 import { itemText } from './phases.js'
+import { hashForTask, hashForChild } from './routes.js'
 
 /**
  * Queue rows: one row per entry in a needs_you / waiting_on queue.
@@ -53,6 +54,17 @@ function rowsFrom(tasks, field) {
  *  leftover queue is history, not something that still wants you. */
 export const needsRows = (db) => rowsFrom(inFlight(flatten(db)), 'needs_you')
 export const waitRows = (db) => rowsFrom(inFlight(flatten(db)), 'waiting_on')
+
+/**
+ * Where a row's subtitle points.
+ *
+ * It lives beside the row builder, not in each lens, because both lenses draw
+ * the same row and there is only one right answer for it. The two copies this
+ * replaces are how `waiting.js` kept a legacy `/#` link through the whole seam
+ * flip while `needs.js` was updated — the grep found it, a reader did not.
+ */
+export const rowHref = (r) =>
+  r.childId ? hashForChild(r.repo, r.id, r.childId) : hashForTask(r.repo, r.id)
 
 /** `asked` is an ISO date string, NOT epoch seconds — `ago()` would read it as
  *  1970. Longest-waiting first; an entry with no date sorts last rather than

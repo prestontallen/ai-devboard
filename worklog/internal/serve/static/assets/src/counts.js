@@ -33,6 +33,25 @@ export const isDone = (t) => !isError(t) && phaseOf(t) === 'done'
 export const isStale = (t, now = Date.now()) =>
   !isError(t) && !!t.mtime && now / 1000 - t.mtime > STALE_SECONDS
 
+/**
+ * `children[].state` is pending | active | done, and a child that has never
+ * been started carries none at all — the roster is written from the worklog
+ * relation before any agent touches the entry. Absent reads as pending, never
+ * as a fourth state, and an unrecognised value reads as pending too rather
+ * than sorting off the end of the list.
+ *
+ * This lives here, with the rest of the classification, because both the
+ * roster chips on an epic card and the child grid on epic detail order by it —
+ * two copies of the order is how they drift apart.
+ */
+export const childState = (c) => {
+  const s = (c && c.state) || ''
+  return s === 'active' || s === 'done' ? s : 'pending'
+}
+
+const CHILD_ORDER = { active: 0, pending: 1, done: 2 }
+export const byChildState = (a, b) => CHILD_ORDER[childState(a)] - CHILD_ORDER[childState(b)]
+
 /** An epic's own needs_you/waiting_on are unused — the real queues live per
  *  child (devboard/schema.md, "Epic files"), so both flatten across children. */
 function queue(t, field) {

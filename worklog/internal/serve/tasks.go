@@ -133,14 +133,55 @@ func (s *Server) parseTask(path string, archived bool) map[string]any {
 	}
 	entry["mtime"] = float64(st.ModTime().UnixNano()) / 1e9
 
-	if wl, ok := task["worklog"].(string); ok && wl != "" &&
-		!strings.Contains(wl, "/") && !strings.Contains(wl, "..") {
-		np := filepath.Join(s.cfg.WorklogDir, "notes", wl+".md")
-		if notes, err := os.ReadFile(np); err == nil {
-			entry["notes"] = string(notes)
+	if notes, ok := s.notesFor(task["worklog"]); ok {
+		entry["notes"] = notes
+	}
+	s.attachChildNotes(task)
+	return entry
+}
+
+// notesFor reads notes/<name>.md for a worklog id, or reports that there is
+// nothing to attach.
+//
+// The name reaches a filesystem path, and every task file on the board is
+// hand-editable, so it must be a plain name: no separator and no parent
+// reference. This is the whole guard — there is no second one downstream.
+func (s *Server) notesFor(v any) (string, bool) {
+	name, ok := v.(string)
+	if !ok || name == "" || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return "", false
+	}
+	notes, err := os.ReadFile(filepath.Join(s.cfg.WorklogDir, "notes", name+".md"))
+	if err != nil {
+		return "", false
+	}
+	return string(notes), true
+}
+
+// attachChildNotes gives each of an epic's children its own notes.
+//
+// A child of an epic has no task file, so it has no top-level `worklog` key to
+// resolve — but it is a worklog ticket in its own right, and its `id` IS the
+// notes filename (devboard/schema.md, "Epic files"). Without this a child's
+// detail page is the only one on the board with no notes, for a file sitting
+// on disk beside every other ticket's.
+//
+// The id runs through the same guard as `worklog`: it is read from the same
+// hand-editable file and reaches the same path join.
+func (s *Server) attachChildNotes(task map[string]any) {
+	children, ok := task["children"].([]any)
+	if !ok {
+		return
+	}
+	for _, c := range children {
+		child, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if notes, ok := s.notesFor(child["id"]); ok {
+			child["notes"] = notes
 		}
 	}
-	return entry
 }
 
 // parseFeedback reuses the CLI's own FEEDBACK.md parser — one parser, so the

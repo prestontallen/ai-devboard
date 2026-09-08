@@ -222,6 +222,26 @@
   .metarow { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
   .heroacts { display: flex; gap: .5rem; }
 
+  /* ---------- epic detail ---------- */
+  /* The roster IS the state on an epic page, so the aggregate is a summary
+     line, not a meter: an epic has no single progress bar to fill. */
+  .agg { font: .78rem var(--mono); color: var(--dim); margin: -.6rem 0 1rem; }
+  .agg b { color: var(--ink); font-weight: 600; }
+
+  /* A child's state, on its own detail hero. Blue active, green done, quiet
+     pending — the board's existing semantics, not a new palette. */
+  .badge.child { text-transform: lowercase; }
+  .badge.child.active { color: var(--signal);
+                        border-color: color-mix(in srgb, var(--signal) 45%, var(--border)); }
+  .badge.child.done { color: var(--go);
+                      border-color: color-mix(in srgb, var(--go) 45%, var(--border)); }
+  .badge.child.pending { color: var(--faint); }
+
+  /* Not the same as `.unknown`. A pending child has no phase because it has
+     not started, which is a normal place to be; `unknown` marks a value off
+     the enum, which is a data problem. They must not read alike. */
+  .phase-lbl.idle { color: var(--faint); }
+
   /* The card's track compressed to bare segments for want of room. Detail has
      the room, and the labels are why you came. */
   .stepper { display: grid; grid-template-columns: repeat(var(--steps), 1fr); gap: 4px; }
