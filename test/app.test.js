@@ -27,16 +27,18 @@ test('the shell mounts and renders with EventSource undefined', async () => {
   expect(lensName()).toBe('board')
 })
 
-test('exactly six chips render, in bar order, with no backlog chip', async () => {
+// Seven since adb-lens-backlog; backlog was held out only until the payload
+// could feed it, and it sits between friction and done.
+test('exactly seven chips render, in bar order', async () => {
   await mount()
   const labels = [...document.querySelectorAll('.chip')].map((c) => c.getAttribute('href'))
-  expect(labels).toEqual(['#/board', '#/needs-you', '#/waiting', '#/friction', '#/done', '#/archived'])
-  expect(chip('backlog')).toBe(null)
+  expect(labels).toEqual(['#/board', '#/needs-you', '#/waiting', '#/friction',
+    '#/backlog', '#/done', '#/archived'])
 })
 
 test('a zero-count chip stays in the DOM and dims', async () => {
   await mount({ load: () => Promise.resolve({ repos: [], feedback: [] }) })
-  for (const lens of ['board', 'needs-you', 'waiting', 'friction', 'done', 'archived']) {
+  for (const lens of ['board', 'needs-you', 'waiting', 'friction', 'backlog', 'done', 'archived']) {
     const el = chip(lens)
     expect(el, `${lens} chip must not be removed`).toBeTruthy()
     expect(el.className).toContain('zero')

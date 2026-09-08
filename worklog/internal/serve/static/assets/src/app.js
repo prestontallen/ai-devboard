@@ -5,6 +5,7 @@ import { BoardLens } from './board.js'
 import { NeedsYouLens } from './needs.js'
 import { WaitingLens } from './waiting.js'
 import { FrictionLens } from './friction.js'
+import { BacklogLens } from './backlog.js'
 import { DoneLens, ArchivedLens } from './done.js'
 import { DetailView } from './detail.js'
 import { archiveAction } from './archive.js'
@@ -37,15 +38,13 @@ export function ChipBar({ counts, route }) {
 
 /** Every route has a body. A lens takes the whole payload rather than a
  *  pre-filtered slice, because which tasks belong to it IS the lens — putting
- *  that decision out here would spread one lens across two files.
- *
- *  `backlog` is absent by design (routes.js): it needs a server half, and
- *  arrives with adb-lens-backlog. */
+ *  that decision out here would spread one lens across two files. */
 const LENS = {
   board: BoardLens,
   'needs-you': NeedsYouLens,
   waiting: WaitingLens,
   friction: FrictionLens,
+  backlog: BacklogLens,
   done: DoneLens,
   archived: ArchivedLens,
 }

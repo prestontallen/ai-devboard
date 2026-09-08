@@ -34,6 +34,12 @@ func corpusServer(t *testing.T) *Server {
 func normalize(payload map[string]any) {
 	payload["version"] = float64(0)
 	payload["generated"] = float64(0)
+	// server.py had no backlog key and capture_golden.py cannot produce one,
+	// so folding it into the golden would turn a capture into a part-authored
+	// fixture. Dropping it here keeps the golden's claim exact — everything
+	// server.py produced is unchanged — and the key is covered by
+	// TestBacklogPayload and friends instead (adb-lens-backlog).
+	delete(payload, "backlog")
 	repos, _ := payload["repos"].([]any)
 	for _, r := range repos {
 		repo, _ := r.(map[string]any)
@@ -573,6 +579,7 @@ func TestEmbeddedManifest(t *testing.T) {
 		"static/app.html":                           true,
 		"static/assets/src/app.js":                  true,
 		"static/assets/src/archive.js":              true,
+		"static/assets/src/backlog.js":              true,
 		"static/assets/src/board.js":                true,
 		"static/assets/src/card.js":                 true,
 		"static/assets/src/clipboard.js":            true,
@@ -838,6 +845,155 @@ func TestChildNotesEmbedding(t *testing.T) {
 			if _, ok := c["notes"]; ok {
 				t.Error("a child with no notes file was given a notes key")
 			}
+		}
+	}
+}
+
+// backlogOf pulls the backlog sections out of a payload, keyed by name.
+func backlogOf(t *testing.T, s *Server) map[string][]map[string]any {
+	t.Helper()
+	body, err := json.Marshal(s.allTasks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Backlog []struct {
+			Name  string           `json:"name"`
+			Items []map[string]any `json:"items"`
+		} `json:"backlog"`
+		Repos    []any `json:"repos"`
+		Feedback []any `json:"feedback"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string][]map[string]any{}
+	for _, s := range payload.Backlog {
+		out[s.Name] = s.Items
+	}
+	return out
+}
+
+const backlogWorkMD = `# Worklog — active
+
+## Now
+
+- [~] **STARTED** — Already in flight
+  - **ID**: started
+  - **Repo**: r
+
+## Next
+
+- [ ] **NOLE-DOCKER-NET** — Fix Docker container internet access
+  - **ID**: nole-docker-net
+  - **Repo**: prestontallen/nole
+  - **Tags**: nole, docker
+  - **Acceptance**: ollama pull succeeds inside the container
+
+- [ ] **AN-EPIC** — A cross-cutting effort
+  - **ID**: an-epic
+  - **Type**: epic
+  - **Repo**: r
+
+## Someday
+
+- [ ] **LATER** — Something for later
+  - **ID**: later
+`
+
+// backlogServer serves a corpus whose WORK.md is the fixture above.
+func backlogServer(t *testing.T, workMD string) *Server {
+	t.Helper()
+	dir := t.TempDir()
+	if workMD != "" {
+		if err := os.WriteFile(filepath.Join(dir, "WORK.md"), []byte(workMD), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return New(Config{DataDir: filepath.Join(dir, "data"), WorklogDir: dir})
+}
+
+// TestBacklogPayload: WORK.md's not-yet-started sections reach /api/tasks,
+// which is the half the backlog chip could not exist without. adb-lens-backlog.
+func TestBacklogPayload(t *testing.T) {
+	got := backlogOf(t, backlogServer(t, backlogWorkMD))
+
+	if len(got["Next"]) != 2 {
+		t.Fatalf("Next carried %d items, want 2: %+v", len(got["Next"]), got["Next"])
+	}
+	first := got["Next"][0]
+	for field, want := range map[string]any{
+		"id":         "nole-docker-net",
+		"title":      "Fix Docker container internet access",
+		"repo":       "prestontallen/nole",
+		"acceptance": "ollama pull succeeds inside the container",
+	} {
+		if first[field] != want {
+			t.Errorf("Next[0].%s = %v, want %v", field, first[field], want)
+		}
+	}
+	if tags, _ := first["tags"].([]any); len(tags) != 2 {
+		t.Errorf("Next[0].tags = %v, want two", first["tags"])
+	}
+	if got["Next"][1]["type"] != "epic" {
+		t.Errorf("an epic lost its type: %v", got["Next"][1]["type"])
+	}
+	if len(got["Someday"]) != 1 {
+		t.Errorf("Someday carried %d items, want 1", len(got["Someday"]))
+	}
+	// Now and Waiting are absent by construction: started work already
+	// reaches the board as task files, and counting it twice would double it
+	// against the Board chip.
+	if _, ok := got["Now"]; ok {
+		t.Error("Now reached the backlog; started work is already on the board")
+	}
+}
+
+// TestBacklogDegrades: the backlog is one lens of seven, so a missing or
+// unreadable WORK.md must cost the backlog and nothing else.
+func TestBacklogDegrades(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		workMD string
+	}{
+		{"absent", ""},
+		{"unparseable", "\x00\x00 not a work file at all\n## \n- [ ] **"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := backlogServer(t, tc.workMD)
+			got := backlogOf(t, s)
+			for _, section := range []string{"Next", "Someday"} {
+				items, ok := got[section]
+				if !ok {
+					t.Fatalf("%s section missing entirely; want present and empty", section)
+				}
+				if len(items) != 0 {
+					t.Errorf("%s = %+v, want empty", section, items)
+				}
+			}
+			// The rest of the payload has to survive intact.
+			body, _ := json.Marshal(s.allTasks())
+			var whole map[string]any
+			if err := json.Unmarshal(body, &whole); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"repos", "feedback", "version", "generated"} {
+				if _, ok := whole[key]; !ok {
+					t.Errorf("%q vanished from the payload", key)
+				}
+			}
+		})
+	}
+}
+
+// TestBacklogSectionsAlwaysPresent: the lens draws a group per section, so an
+// empty section is rendered as empty rather than being absent — otherwise the
+// two cases are indistinguishable to the front end.
+func TestBacklogSectionsAlwaysPresent(t *testing.T) {
+	got := backlogOf(t, backlogServer(t, "# Worklog — active\n\n## Next\n\n## Someday\n"))
+	for _, section := range []string{"Next", "Someday"} {
+		if items, ok := got[section]; !ok || items == nil {
+			t.Errorf("%s = %v, want present and empty", section, got[section])
 		}
 	}
 }

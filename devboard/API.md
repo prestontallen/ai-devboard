@@ -73,7 +73,8 @@ and 404s, as `/static/index.html` always has.
   "repos": [
     { "repo": "<dir name>", "tasks": [ <entry>... ] }
   ],
-  "feedback": [ <feedback entry>... ]
+  "feedback": [ <feedback entry>... ],
+  "backlog":  [ <backlog section>... ]
 }
 ```
 
@@ -112,6 +113,28 @@ Task entry:
   readable notes file carries no `notes` key at all, never an empty string.
 - A file that fails to parse yields an error card: `error` present,
   `task`/`mtime` absent, the board renders it as a card — never a 500.
+
+Backlog section (parsed from `<worklog>/WORK.md` by the same package the
+CLI parses it with) — the not-yet-started work the task files cannot carry,
+since a task file exists only once a ticket is started:
+
+```
+{ "name": "Next", "items": [ { ...model.Block... } ] }
+```
+
+- `backlog` is a list of sections in bar order: `Next`, then `Someday`.
+  `Now` and `Waiting` are deliberately absent — that work is already on the
+  board as task files, and carrying it twice would double it against the
+  Board and Waiting chips.
+- Each section is **always present**, empty when it has no items, so "no
+  tickets queued" and "the server never reported this section" stay
+  distinguishable.
+- An item is a `model.Block`: `id`, `title`, `type`, `repo`, `tags`,
+  `acceptance`, `parent`, `links` and the rest of the WORK.md metadata.
+- A missing, unreadable or malformed `WORK.md` yields empty sections, never
+  an error — the backlog is one lens of seven and must not take the payload
+  down. Unstarted children of an epic never appear, because `WORK.md`
+  carries only an epic's *active* children.
 
 Feedback entry (parsed from `<worklog>/FEEDBACK.md` by the same package
 the CLI writes it with):

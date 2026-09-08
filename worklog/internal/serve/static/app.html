@@ -222,6 +222,33 @@
   .metarow { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
   .heroacts { display: flex; gap: .5rem; }
 
+  /* ---------- backlog lens ---------- */
+  /* Rows, not cards: a backlog item has no phase, plan or scorecard, so it
+     gets a shape that does not imply one. Deliberately quieter than the grid
+     — this is the list you browse, not the work you are doing. */
+  .backlog { display: flex; flex-direction: column; gap: 1.5rem; }
+  .bgroup h3 { font: .72rem var(--mono); color: var(--dim); text-transform: uppercase;
+               letter-spacing: .08em; margin-bottom: .55rem; }
+  .bgroup h3 .count { margin-left: .4rem; color: var(--faint); }
+  /* padding: 0 is load-bearing, not tidiness: a ul keeps its 40px
+     padding-inline-start through the reset, which indents every row off the
+     lens's left edge. .steps and .checks carry the same line for the same
+     reason, and no headless test can see it. */
+  .brows { display: flex; flex-direction: column; gap: .5rem; list-style: none; padding: 0; }
+  .brow { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+          padding: .6rem .75rem; display: flex; flex-direction: column; gap: .3rem; }
+  .bhead { display: flex; align-items: baseline; gap: .45rem; }
+  .btitle { font-size: .92rem; color: var(--ink); line-height: 1.35;
+            overflow-wrap: anywhere; }
+  /* Same invariant the card's badges carry: the badge never squeezes the
+     title, which is the fix the per-child-cards attempt was really about. */
+  .bhead .badge { flex: none; }
+  .bhead .badge.repo { margin-left: auto; }
+  .btags { font: .68rem var(--mono); color: var(--faint); }
+  .bacc { font: .72rem var(--mono); color: var(--dim); line-height: 1.5;
+          overflow-wrap: anywhere; }
+  .bacc .k { color: var(--faint); margin-right: .4rem; }
+
   /* ---------- epic detail ---------- */
   /* The roster IS the state on an epic page, so the aggregate is a summary
      line, not a meter: an epic has no single progress bar to fill. */

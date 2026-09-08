@@ -12,11 +12,15 @@ test('every count is what its lens draws', () => {
   // count would say 2. waiting still counts tasks: its two entries sit on two
   // different tasks. board is 4, not 3: the malformed entry stays in flight so
   // it cannot silently vanish.
+  // backlog is 0 because this fixture carries no backlog key at all — the
+  // task corpus and WORK.md are separate sources. Its counting is covered in
+  // backlog.test.js.
   expect(lensCounts(DB)).toEqual({
     board: 4,
     'needs-you': 3,
     waiting: 2,
     friction: 1,
+    backlog: 0,
     done: 1,
     archived: 1,
   })

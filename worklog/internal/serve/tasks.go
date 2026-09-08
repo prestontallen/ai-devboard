@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/feedback"
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
+	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/yamlx"
 )
 
@@ -70,7 +72,47 @@ func (s *Server) allTasks() map[string]any {
 		"generated": float64(time.Now().UnixNano()) / 1e9,
 		"repos":     repos,
 		"feedback":  s.parseFeedback(),
+		"backlog":   s.parseBacklog(),
 	}
+}
+
+// backlogSection is one WORK.md section as the backlog lens draws it.
+type backlogSection struct {
+	Name  string         `json:"name"`
+	Items []*model.Block `json:"items"`
+}
+
+// backlogSections are the two the lens shows, in bar order. `Now` is
+// deliberately absent: started work already reaches the board as task
+// files, and listing it twice would double it against the Board chip.
+// `Waiting` is absent for the same reason — it has its own lens.
+var backlogSections = []model.SectionName{model.SectionNext, model.SectionSomeday}
+
+// parseBacklog reads WORK.md's not-yet-started sections.
+//
+// This is the one place the server opens WORK.md. It reads the projection
+// rather than the store because the projection is what the human reads,
+// and because reaching for the store would put a second reader (and its
+// locking) inside a process whose whole job is to render.
+//
+// Any problem yields empty sections, never an error: the backlog is one
+// lens among seven, and a malformed or absent WORK.md must not take the
+// whole board down — the same rule parseFeedback follows.
+func (s *Server) parseBacklog() []backlogSection {
+	out := make([]backlogSection, 0, len(backlogSections))
+	doc, err := parse.File(filepath.Join(s.cfg.WorklogDir, "WORK.md"))
+	for _, name := range backlogSections {
+		section := backlogSection{Name: string(name), Items: []*model.Block{}}
+		if err == nil {
+			if found := doc.Section(name); found != nil {
+				for i := range found.Blocks {
+					section.Items = append(section.Items, &found.Blocks[i])
+				}
+			}
+		}
+		out = append(out, section)
+	}
+	return out
 }
 
 func sortedTaskFiles(dir string) []string {

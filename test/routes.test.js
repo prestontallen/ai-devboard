@@ -3,9 +3,10 @@ import {
   LENSES, routeFromHash, hashForLens, defaultRoute, taskFromHash, hashForTask, hashForChild,
 } from '../worklog/internal/serve/static/assets/src/routes.js'
 
-test('the six lenses ship in bar order, and backlog is not among them', () => {
-  expect(LENSES).toEqual(['board', 'needs-you', 'waiting', 'friction', 'done', 'archived'])
-  expect(LENSES).not.toContain('backlog')
+// backlog joined with adb-lens-backlog, which added the server half it was
+// waiting on; it sits between friction and done per the design brief.
+test('the seven lenses ship in bar order', () => {
+  expect(LENSES).toEqual(['board', 'needs-you', 'waiting', 'friction', 'backlog', 'done', 'archived'])
 })
 
 test('a lens hash resolves to its lens', () => {

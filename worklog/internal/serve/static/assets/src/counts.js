@@ -70,6 +70,13 @@ export const flatten = (db) =>
  *  must remain visible (devboard/README.md), not vanish from the board. */
 export const inFlight = (tasks) => tasks.filter((t) => !isArchived(t) && !isDone(t))
 
+/** WORK.md's not-yet-started sections, as the payload carries them. Absent on
+ *  a payload from a server older than adb-lens-backlog, which is why every
+ *  reader goes through here rather than touching `db.backlog` directly. */
+export const backlogSections = (db) => ((db && db.backlog) || []).filter((s) => s && s.name)
+
+export const backlogItems = (db) => backlogSections(db).flatMap((s) => s.items || [])
+
 export function lensCounts(db) {
   const all = flatten(db)
   const live = all.filter((t) => !isArchived(t))
@@ -77,6 +84,9 @@ export function lensCounts(db) {
   const feedback = ((db && db.feedback) || []).filter((e) => !e.resolved)
   return {
     board: open.length,
+    // Items across both sections: the lens draws a row per ticket, and the
+    // chip counts what the lens draws.
+    backlog: backlogItems(db).length,
     // Items, not tasks: the needs-you lens draws a panel per entry, and one
     // task can hold several. See the counting grammar above.
     'needs-you': open.reduce((n, t) => n + needsYou(t).length, 0),

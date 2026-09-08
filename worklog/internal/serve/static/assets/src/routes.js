@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'preact/hooks'
 
-/** The lens set, in bar order. `backlog` is deliberately absent: /api/tasks
- *  carries only started work, so its chip would read 0 forever. It returns
- *  with adb-lens-backlog, which adds the server half too. */
-export const LENSES = ['board', 'needs-you', 'waiting', 'friction', 'done', 'archived']
+/** The lens set, in bar order. `backlog` sits between friction and done, where
+ *  the design brief put it: the four before it are work you already own, the
+ *  two after it are work you are finished with, and the backlog is the seam. */
+export const LENSES = ['board', 'needs-you', 'waiting', 'friction', 'backlog', 'done', 'archived']
 
 export const PHONE = '(max-width: 640px)'
 
