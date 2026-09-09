@@ -10,7 +10,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
@@ -157,7 +156,7 @@ func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := sqlitestore.Open(path)
+	s, _, err := openStore(storeExisting, path)
 	if err != nil {
 		return nil, fmt.Errorf("opening store: %w", err)
 	}

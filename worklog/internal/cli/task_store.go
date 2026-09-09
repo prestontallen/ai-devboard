@@ -9,7 +9,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 )
 
 // storeMutateTaskOrChild is what every task<sub> subcommand's mutation
@@ -38,7 +37,7 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 	if err != nil {
 		return "", "", err
 	}
-	s, err := sqlitestore.Open(dbPath)
+	s, _, err := openStore(storeExisting, dbPath)
 	if err != nil {
 		return "", "", fmt.Errorf("task: opening store: %w", err)
 	}

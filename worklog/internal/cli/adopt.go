@@ -14,8 +14,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/freeze"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
@@ -155,16 +153,12 @@ func runAdopt(cmd *cobra.Command, commit bool) error {
 // the real database for a commit.
 func adoptStore(dataDir string, commit bool) (store.Store, func(), error) {
 	if !commit {
-		return memstore.New(), func() {}, nil
+		return openStore(storeEphemeral, "")
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, func() {}, err
 	}
-	s, err := sqlitestore.Open(storepath.DBIn(dataDir))
-	if err != nil {
-		return nil, func() {}, err
-	}
-	return s, func() { s.Close() }, nil
+	return openStore(storeCreate, storepath.DBIn(dataDir))
 }
 
 func runAdoptRollback(cmd *cobra.Command, dir string) error {

@@ -9,7 +9,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/serve"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
@@ -73,7 +72,7 @@ func loadStoreSnapshot() (*serve.StoreSnapshot, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	ss, err := sqlitestore.Open(path)
+	ss, _, err := openStore(storeExisting, path)
 	if err != nil {
 		return nil, err
 	}
