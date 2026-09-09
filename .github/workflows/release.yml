@@ -1,6 +1,19 @@
-# Release: on a v* tag push, GoReleaser builds worklog for linux/darwin
-# (amd64+arm64) and publishes binaries + checksums.txt to a GitHub release.
-# The install.sh bootstrap downloads releases/latest/download/worklog_<os>_<arch>.
+# Release: on a v* tag push, run the test suite, then GoReleaser builds
+# worklog for linux/darwin (amd64+arm64) and publishes binaries +
+# checksums.txt to a GitHub release. The install.sh bootstrap downloads
+# releases/latest/download/worklog_<os>_<arch>.
+#
+# The test step is the gate, and it is here rather than inherited from ci.yml
+# because ci.yml triggers on branch pushes and pull requests, never on a tag.
+# A tag can point at a commit CI never ran, or be pushed while CI is still
+# running, so "master was green" is not the same claim as "this tag is green".
+#
+# It was written once already and lost: the subtree import left a second
+# release workflow under worklog/, which is where GitHub does NOT look, and
+# that dead copy is the one that had the gate. Every release between then and
+# now published untested. Note the working-directory below — the dead copy
+# had no equivalent because worklog/ was its repo root, so lifting its step
+# verbatim would fail on a missing go.mod.
 name: release
 
 on:
@@ -21,6 +34,14 @@ jobs:
         with:
           go-version-file: worklog/go.mod
           cache-dependency-path: worklog/go.sum
+
+      # Publishing is what makes this gate matter: install.sh pulls
+      # releases/latest/download on any machine without Go, so an untested
+      # binary is exactly what a fresh install gets.
+      - name: test
+        working-directory: worklog
+        run: go test ./...
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
