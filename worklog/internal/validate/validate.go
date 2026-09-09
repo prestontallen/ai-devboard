@@ -197,9 +197,15 @@ func checkThreePlaceConsistency(res *Result, wd model.Workdir, doc *model.WorkDo
 			})
 		}
 
+		// The third place is that the epic HAS a notes file, not what is
+		// written in it. The child list is one stored relation — the
+		// child's ParentID, rendered into **Active children** above — and
+		// the scaffold `add --type epic` writes says so outright: "no
+		// roster list to maintain here". Requiring a `- [ ]` line per
+		// child contradicted that scaffold, so every epic built with it
+		// failed, and the count grew with each `add --parent`.
 		notesPath := wd.NotesFile(child.Parent)
-		matched, err := notesHasOpenChild(notesPath, child.ID)
-		switch {
+		switch _, err := os.Stat(notesPath); {
 		case errors.Is(err, os.ErrNotExist):
 			res.Violations = append(res.Violations, Violation{
 				Check: CheckThreePlaceConsistency,
@@ -212,33 +218,8 @@ func checkThreePlaceConsistency(res *Result, wd model.Workdir, doc *model.WorkDo
 				Check:   CheckThreePlaceConsistency,
 				Message: fmt.Sprintf("%s: read failed: %v", notesPath, err),
 			})
-		case !matched:
-			res.Violations = append(res.Violations, Violation{
-				Check: CheckThreePlaceConsistency,
-				Message: fmt.Sprintf(
-					"%s has no `- [ ]` line mentioning %s", notesPath, child.ID),
-			})
 		}
 	}
-}
-
-var notesChildRe = regexp.MustCompile(`(?i)^- \[ \].*`) // any open checkbox; we then check for id substring
-
-func notesHasOpenChild(path, childID string) (bool, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	low := strings.ToLower(childID)
-	for _, line := range strings.Split(string(data), "\n") {
-		if !notesChildRe.MatchString(line) {
-			continue
-		}
-		if strings.Contains(strings.ToLower(line), low) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 var indexRefRe = regexp.MustCompile(`(archive/[0-9]{4}-[0-9]{2}\.md|notes/[a-zA-Z0-9_-]+\.md)`)

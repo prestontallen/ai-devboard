@@ -148,7 +148,7 @@ func TestThreePlaceConsistencyAllGood(t *testing.T) {
   - **Active children**: child-1
 ## Someday
 `,
-		"notes/epic-1.md": "# Epic\n\nChildren:\n- [ ] child-1: do the thing\n",
+		"notes/epic-1.md": "# Epic\n\n<!-- Notes for epic epic-1. Children are tracked automatically (add --parent\n     epic-1, then worklog start <child-id>); no roster list to maintain here. -->\n\n## Background\n",
 	})
 	res, err := Run(wd)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestThreePlaceConsistencyMissingActive(t *testing.T) {
   - **Active children**: <none>
 ## Someday
 `,
-		"notes/epic-1.md": "- [ ] child-1\n",
+		"notes/epic-1.md": "# Epic\n\n<!-- Notes for epic epic-1. Children are tracked automatically (add --parent\n     epic-1, then worklog start <child-id>); no roster list to maintain here. -->\n\n## Background\n",
 	})
 	res, err := Run(wd)
 	if err != nil {
@@ -185,9 +185,19 @@ func TestThreePlaceConsistencyMissingActive(t *testing.T) {
 	}
 }
 
-func TestThreePlaceConsistencyMissingNotesEntry(t *testing.T) {
-	wd := writeWorkdir(t, map[string]string{
-		"WORK.md": `## Now
+// An epic's notes file is not a roster. A file naming a DIFFERENT child, or
+// naming none at all, says nothing about whether child-1 is parented here —
+// the ParentID relation does, and **Active children** renders it. This is the
+// case that used to fail for every epic the current scaffold builds.
+func TestThreePlaceConsistencyNotesNeedNoRoster(t *testing.T) {
+	for name, notes := range map[string]string{
+		"scaffold":               "# Epic\n\n<!-- Notes for epic epic-1. Children are tracked automatically (add --parent\n     epic-1, then worklog start <child-id>); no roster list to maintain here. -->\n\n## Background\n",
+		"names some other child": "- [ ] child-9\n",
+		"empty":                  "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			wd := writeWorkdir(t, map[string]string{
+				"WORK.md": `## Now
 - [~] **CHILD-1** — first
   - **ID**: child-1
   - **Parent**: epic-1
@@ -200,7 +210,36 @@ func TestThreePlaceConsistencyMissingNotesEntry(t *testing.T) {
   - **Active children**: child-1
 ## Someday
 `,
-		"notes/epic-1.md": "- [ ] child-9\n",
+				"notes/epic-1.md": notes,
+			})
+			res, err := Run(wd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hasViolation(res, CheckThreePlaceConsistency) {
+				t.Errorf("did not expect 3-place violation; got %+v", res.Violations)
+			}
+		})
+	}
+}
+
+// The file's existence is still the third place: an epic with no notes file
+// at all is a real inconsistency, and dropping the roster rule must not take
+// this with it.
+func TestThreePlaceConsistencyMissingNotesFile(t *testing.T) {
+	wd := writeWorkdir(t, map[string]string{
+		"WORK.md": `## Now
+- [~] **CHILD-1** — first
+  - **ID**: child-1
+  - **Parent**: epic-1
+  - **Started**: 2026-05-15
+## Next
+- [ ] **EPIC** — e (epic)
+  - **ID**: epic-1
+  - **Type**: epic
+  - **Active children**: child-1
+## Someday
+`,
 	})
 	res, err := Run(wd)
 	if err != nil {
