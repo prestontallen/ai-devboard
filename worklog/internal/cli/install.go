@@ -14,11 +14,13 @@ import (
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
+	"github.com/prestontallen/ai-devboard/worklog/internal/version"
 )
 
 func newInstallCmd() *cobra.Command {
 	var (
 		flagRepo     string
+		flagRelate   string
 		flagCheck    bool
 		flagDryRun   bool
 		flagWithHook bool
@@ -39,6 +41,17 @@ Modes: (default) install/update · --check report drift, exit 1 · --dry-run
 narrate, touch nothing. Check and dry-run never write the config, never
 prompt, never build.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --relate answers one question and exits: how would moving from
+			// this binary's version to the given one go? It lives here, in
+			// the binary that knows its own stamp, because the shell had no
+			// comparison at all — only string equality — and that is what
+			// let a nine-commits-newer build be replaced by an old release.
+			// The shell now asks rather than guesses.
+			if flagRelate != "" {
+				fmt.Fprintln(cmd.OutOrStdout(),
+					string(version.Relate(version.Parse(BuildVersion()), version.Parse(flagRelate))))
+				return nil
+			}
 			if flagCheck && flagDryRun {
 				return errWithExit(64, "cannot combine --check and --dry-run")
 			}
@@ -55,6 +68,8 @@ prompt, never build.`,
 			return runInstall(cmd, flagRepo, mode, flagWithHook)
 		},
 	}
+	cmd.Flags().StringVar(&flagRelate, "relate", "",
+		"compare this binary's version against the given one and print upgrade|downgrade|same|unknown, then exit")
 	cmd.Flags().StringVar(&flagRepo, "repo", "", "path to the ai-devboard checkout (persisted; usually passed by install.sh)")
 	cmd.Flags().BoolVar(&flagCheck, "check", false, "report drift; exit 1 if anything differs")
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "print what would happen; change nothing")
@@ -114,14 +129,22 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, withHo
 
 	// Self-staleness: rebuild-and-exec so the run continues on the fresh
 	// binary (a process cannot replace its own executable and carry on).
-	// Release-stamped binaries skip the rev comparison entirely — their
-	// commit can never match a moving checkout, and their currency is
-	// judged against the latest release tag (by the bootstrap, which has
-	// the network path); a false rev-drift here would rebuild users off
-	// their verified release binary.
+	//
+	// This used to skip the comparison for anything whose version string did
+	// not literally contain "-dev" or "-snapshot" — the same substring test
+	// that, on the bootstrap side, let a build nine commits ahead be replaced
+	// by the release it contained. Both halves failed identically because
+	// they asked the same badly-posed question.
+	//
+	// The question that matters here is different from the bootstrap's, and
+	// worth stating: not "which is newer" but "was this binary built from
+	// THIS checkout". A commit mismatch is the whole test. What the version
+	// stamp is for is deciding whether a rebuild is even appropriate — a
+	// binary someone downloaded should not be silently rebuilt out from
+	// under them just because a checkout happens to sit nearby.
 	// WORKLOG_INSTALL_REEXEC breaks rebuild loops on racing dirty trees.
-	releaseStamped := !strings.Contains(BuildVersion(), "-dev") && !strings.Contains(BuildVersion(), "-snapshot")
-	if rev, err := installer.RepoRev(repoRoot); err == nil && !releaseStamped && rev != BuildCommit() {
+	fromRelease := version.Parse(BuildVersion()).IsRelease()
+	if rev, err := installer.RepoRev(repoRoot); err == nil && !fromRelease && rev != BuildCommit() {
 		switch mode {
 		case installer.ModeCheck:
 			fmt.Fprintln(out, style.Bad.Render(fmt.Sprintf(
@@ -332,13 +355,34 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 // devboardRunning reports whether something already serves the board: the
 // systemd user unit, or a container (the compose fallback, or the retired
 // Python deployment still supervising itself).
+// runCommand is the seam for shelling out to the machine's service manager.
+//
+// It exists because the devboard paths call real systemctl and real docker,
+// and today they are only unreachable under test by accident: the extras sit
+// behind promptAllowed(), and go test never has a TTY. The moment any of them
+// gains a headless flag — which the consent ticket will add — the suite would
+// start reloading the developer's systemd units and inspecting their
+// containers. A package-level var is the smallest thing that makes that
+// impossible rather than merely unlikely.
+//
+// installer.HookBinPath already avoids os.Executable() for exactly this
+// reason; installDevboardUnit did not, and does now.
+var runCommand = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
+// selfPath is the seam for os.Executable(). Under go test that returns the
+// test binary in the build cache, so a unit file written from it would name a
+// path that disappears.
+var selfPath = os.Executable
+
 func devboardRunning() bool {
-	if state, err := exec.Command("systemctl", "--user", "is-active", "devboard.service").Output(); err == nil &&
+	if state, err := runCommand("systemctl", "--user", "is-active", "devboard.service"); err == nil &&
 		strings.TrimSpace(string(state)) == "active" {
 		return true
 	}
 	if _, err := exec.LookPath("docker"); err == nil {
-		ps, _ := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+		ps, _ := runCommand("docker", "ps", "--format", "{{.Names}}")
 		if strings.Contains(string(ps), "devboard") {
 			return true
 		}
@@ -361,7 +405,7 @@ WantedBy=default.target
 // and enables it now. Pointing at the installed path (not a copied
 // binary) means upgrades take effect on the unit's next restart.
 func installDevboardUnit() error {
-	bin, err := os.Executable()
+	bin, err := selfPath()
 	if err != nil {
 		return err
 	}
@@ -377,10 +421,10 @@ func installDevboardUnit() error {
 	if err := os.WriteFile(unitPath, []byte(fmt.Sprintf(devboardUnit, bin)), 0o644); err != nil {
 		return err
 	}
-	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+	if _, err := runCommand("systemctl", "--user", "daemon-reload"); err != nil {
 		return fmt.Errorf("daemon-reload: %w", err)
 	}
-	if err := exec.Command("systemctl", "--user", "enable", "--now", "devboard.service").Run(); err != nil {
+	if _, err := runCommand("systemctl", "--user", "enable", "--now", "devboard.service"); err != nil {
 		return fmt.Errorf("enable --now: %w", err)
 	}
 	return nil

@@ -59,11 +59,6 @@ which step 3 below depends on. Otherwise fetch the release binary directly:
 
 (swap `linux_amd64` for `darwin_arm64` on a Mac)
 
-Known wrinkle: if `install.sh` reports everything current but
-`worklog --version` still says an older version, it compared a
-release-stamped binary against the latest tag and skipped the rebuild. Use
-the `curl` path instead.
-
 Confirm `worklog adopt --help` works before continuing.
 
 ## Step 1 — take your own backup first

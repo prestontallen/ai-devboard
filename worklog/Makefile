@@ -13,7 +13,15 @@ BINARY   ?= worklog
 MAIN     := ./cmd/worklog
 GO       ?= go
 BIN_DIR  := bin
-LDFLAGS  ?=
+# Stamp the build. An unstamped binary carries main.version="dev", which
+# carries no version at all — the installer cannot order it against anything
+# and must refuse to touch it. That was a permanent hole in the guard: a
+# supported build target producing an uninstallable binary. `git describe
+# --long` gives the shape internal/version parses: <tag>-<commits>-g<sha>.
+VERSION  ?= $(shell git describe --tags --long --always --dirty 2>/dev/null || echo dev)
+COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS  ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
 # Platforms supported by scripts/detect-platform.sh
 PLATFORM_TARGETS := linux-amd64 linux-arm64 darwin-amd64 darwin-arm64

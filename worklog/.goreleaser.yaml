@@ -12,7 +12,10 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
+      # -0- because a release IS its tag, zero commits past it. The
+      # installer orders on (tag, commits-ahead), so the release needs the
+      # same shape as a local build or the two cannot be compared.
+      - -s -w -X main.version=v{{.Version}}-0-g{{.ShortCommit}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
     targets:
       - linux_amd64
       - linux_arm64
