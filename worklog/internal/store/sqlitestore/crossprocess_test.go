@@ -433,7 +433,7 @@ func runSoakReader(path, deadlineStr string) (n int, err error) {
 		if err != nil {
 			return n, fmt.Errorf("open (cycle %d): %w", n, err)
 		}
-		files, _, renderErr := projection.RenderSnapshot(s)
+		files, renderErr := projection.Render(s)
 		closeErr := s.Close()
 		if renderErr != nil {
 			return n, fmt.Errorf("render (cycle %d): %w", n, renderErr)

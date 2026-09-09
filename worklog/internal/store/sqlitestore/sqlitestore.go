@@ -28,9 +28,12 @@ var migration2 string
 //go:embed schema3.sql
 var migration3 string
 
+//go:embed schema4.sql
+var migration4 string
+
 // migrations are applied in order inside one transaction each; index+1 is
 // the resulting PRAGMA user_version.
-var migrations = []string{migration1, migration2, migration3}
+var migrations = []string{migration1, migration2, migration3, migration4}
 
 type SQLite struct {
 	db *sql.DB
@@ -161,30 +164,6 @@ func (s *SQLite) userVersion() (int, error) {
 
 func (s *SQLite) Close() error { return s.db.Close() }
 
-// TouchBoardRendered is the column's sole writer — PutTicket's explicit
-// column list omits board_rendered_at on purpose, so this single UPDATE
-// is the only statement that can move the stamp.
-func (s *SQLite) TouchBoardRendered(id store.ID, at int64) error {
-	release, err := s.gate()
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	res, err := s.db.Exec("UPDATE tickets SET board_rendered_at = ? WHERE id = ?", at, string(id))
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return store.NotFound("ticket " + string(id))
-	}
-	return nil
-}
-
 func jstr(v any) string {
 	raw, _ := json.Marshal(v)
 	return string(raw)
@@ -244,6 +223,15 @@ func (s *SQLite) PutTicket(t *store.Ticket) error {
 	t.Decisions = store.DedupeDecisions(t.Decisions)
 	store.MintSubItemIDs(t)
 
+	// A write that changes nothing does not happen. Without this it still
+	// rewrote every sub-item row, journalled nothing, and moved
+	// updated_at — so the board reported a change that had not occurred,
+	// and every consumer downstream had to tell the two apart for itself
+	// (adb-retire-devboard-dir-2).
+	if prev != nil && store.SameFacts(prev, t) {
+		return tx.Commit()
+	}
+
 	scoutMode, scoutWhy, scoutWhen := "", "", ""
 	if t.Scout != nil {
 		scoutMode, scoutWhy, scoutWhen = t.Scout.Mode, t.Scout.Why, t.Scout.When
@@ -256,14 +244,17 @@ func (s *SQLite) PutTicket(t *store.Ticket) error {
 	if slug != "" {
 		slugCol = slug
 	}
+	// One clock reading for the whole write, so created_at and updated_at
+	// agree exactly on a first insert.
+	stamp := timeNow().UnixNano()
 	_, err = tx.Exec(`
 INSERT INTO tickets (id, slug, title, type, state, rank, roster_rank, section, parent_id, repo,
   tags, started, waiting_since, pr, source, files, acceptance, status,
   plan_text, archived, completed, summary, time_spent, archive_feedback,
   archive_month, board_tracked, board_archived, tier, complexity, phase,
   branch, session, repo_path, scout_mode, scout_why, scout_when,
-  notes_preamble, extra, extra_fields)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  notes_preamble, extra, extra_fields, created_at, updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   slug=excluded.slug, title=excluded.title, type=excluded.type,
   state=excluded.state, rank=excluded.rank, roster_rank=excluded.roster_rank,
@@ -280,14 +271,15 @@ ON CONFLICT(id) DO UPDATE SET
   session=excluded.session, repo_path=excluded.repo_path,
   scout_mode=excluded.scout_mode, scout_why=excluded.scout_why,
   scout_when=excluded.scout_when, notes_preamble=excluded.notes_preamble,
-  extra=excluded.extra, extra_fields=excluded.extra_fields`,
+  extra=excluded.extra, extra_fields=excluded.extra_fields,
+  updated_at=excluded.updated_at`,
 		string(t.ID), slugCol, t.Title, t.Type, t.State, t.Rank, t.RosterRank, t.Section, parent, t.Repo,
 		jstr(t.Tags), t.Started, t.WaitingSince, t.PR, t.Source, jstr(t.Files),
 		t.Acceptance, t.Status, t.PlanText, t.Archived, t.Completed, t.Summary,
 		t.TimeSpent, jstr(t.ArchiveFeedback), t.ArchiveMonth, t.BoardTracked,
 		t.BoardArchived, t.Tier, t.Complexity, t.Phase, t.Branch, t.Session,
 		t.RepoPath, scoutMode, scoutWhy, scoutWhen, t.NotesPreamble,
-		jstr(t.Extra), jstr(t.ExtraFields))
+		jstr(t.Extra), jstr(t.ExtraFields), stamp, stamp)
 	if err != nil {
 		return err
 	}
@@ -471,7 +463,7 @@ SELECT id, slug, title, type, state, rank, roster_rank, section, parent_id, repo
   archived, completed, summary, time_spent, archive_feedback, archive_month,
   board_tracked, board_archived, tier, complexity, phase, branch, session,
   repo_path, scout_mode, scout_why, scout_when, notes_preamble, extra,
-  extra_fields, board_rendered_at
+  extra_fields, created_at, updated_at
 FROM tickets WHERE id = ?`, string(id)).Scan(
 		&idS, &slugCol, &t.Title, &t.Type, &t.State, &t.Rank, &t.RosterRank, &t.Section, &parent,
 		&t.Repo, &tags, &t.Started, &t.WaitingSince, &pr, &t.Source, &files,
@@ -479,7 +471,7 @@ FROM tickets WHERE id = ?`, string(id)).Scan(
 		&t.Summary, &t.TimeSpent, &afb, &t.ArchiveMonth, &t.BoardTracked,
 		&t.BoardArchived, &t.Tier, &t.Complexity, &t.Phase, &t.Branch,
 		&t.Session, &t.RepoPath, &scoutMode, &scoutWhy, &when,
-		&t.NotesPreamble, &extra, &extraFields, &t.BoardRenderedAt)
+		&t.NotesPreamble, &extra, &extraFields, &t.CreatedAt, &t.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, store.NotFound("ticket " + string(id))
 	}
@@ -727,3 +719,7 @@ func (s *SQLite) Journal(entity store.ID) ([]store.FieldChange, error) {
 }
 
 var _ store.Store = (*SQLite)(nil)
+
+// timeNow is the clock seam for created_at/updated_at, so a test can pin
+// them and ask whether a write moved the row rather than how fast it ran.
+var timeNow = time.Now

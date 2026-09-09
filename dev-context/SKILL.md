@@ -193,10 +193,10 @@ Devboard is the human's dashboard — a browser view rendered from task files
 current is part of the workflow, not optional polish: a stale dashboard
 misleads the human, which is worse than no dashboard.
 
-**All updates go through the `worklog` CLI — never hand-edit task YAML.**
-Every command below is a silent no-op when the devboard data dir doesn't
-exist, so run them unconditionally; the CLI absorbs the check. `--id` is
-the task slug; omit it when the current repo has exactly one task file.
+**All updates go through the `worklog` CLI.** Every command below writes
+the store, always: there is no data directory to set up and nothing to
+opt into, so a command that reports success wrote something. `--id` is
+the ticket slug; omit it when the current repo has exactly one.
 
 Mandatory sync points:
 
@@ -247,12 +247,8 @@ epic's own top-level fields are unused, so each child keeps its own
 independent phase/plan/scorecard/branch/session (this is what lets more
 than one child of the same epic be in flight at once without one child's
 detail clobbering another's). Passing the child's own slug as `--id`
-is refused outright, pointing at the correct `--id`/`--child` pair — so
-there's no stray file left to clean up in the first place; `worklog task
-untrack` remains available only as an escape hatch for a hand-authored or
-pre-existing stray file.
-
-Tier 0 tasks skip devboard entirely. Never create the data dir unprompted.
+is refused outright, pointing at the correct `--id`/`--child` pair, so
+there is no stray entry to clean up in the first place.
 
 ## Amendments
 

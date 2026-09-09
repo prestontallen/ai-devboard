@@ -25,7 +25,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 	t.Run("ChildrenSingleRelation", func(t *testing.T) { testChildren(t, open(t)) })
 	t.Run("TicketsOrderByRank", func(t *testing.T) { testTicketRank(t, open(t)) })
 	t.Run("ChildrenOrderByRosterRank", func(t *testing.T) { testRosterRank(t, open(t)) })
-	t.Run("BoardRenderedAtTouchOnly", func(t *testing.T) { testBoardRenderedAt(t, open(t)) })
+	t.Run("RowTimestamps", func(t *testing.T) { testRowTimestamps(t, open(t)) })
 }
 
 // testRosterRank: Children() honors RosterRank, so an epic's roster keeps
@@ -88,32 +88,39 @@ func testTicketRank(t *testing.T, s store.Store) {
 	}
 }
 
-// testBoardRenderedAt: TouchBoardRendered is the field's sole writer.
-// PutTicket must ignore the incoming value both on create and on update —
-// otherwise an aggregate read before another process's render and written
-// back after would silently regress the stamp (adb-store-serve-shadow).
-// memstore clones by JSON round-trip and would inherit the field for
-// free, so the ignore behavior is asserted explicitly per implementation.
-func testBoardRenderedAt(t *testing.T, s store.Store) {
-	tk := base("brt")
-	tk.BoardRenderedAt = 999 // must not survive the Put
+// Row timekeeping: PutTicket owns both stamps, CreatedAt on insert only
+// and UpdatedAt on every write. Asserted per implementation because
+// memstore clones by JSON round-trip and would otherwise inherit whatever
+// the caller passed in.
+func testRowTimestamps(t *testing.T, s store.Store) {
+	tk := base("ts")
+	tk.CreatedAt, tk.UpdatedAt = 999, 999 // must not survive the Put
 	got := put(t, s, tk)
-	if got.BoardRenderedAt != 0 {
-		t.Fatalf("PutTicket wrote BoardRenderedAt on create: got %d, want 0", got.BoardRenderedAt)
+	if got.CreatedAt == 999 || got.UpdatedAt == 999 {
+		t.Fatalf("PutTicket kept the caller's stamps: created %d updated %d", got.CreatedAt, got.UpdatedAt)
+	}
+	if got.CreatedAt == 0 || got.UpdatedAt == 0 {
+		t.Fatalf("PutTicket left a stamp unset: created %d updated %d", got.CreatedAt, got.UpdatedAt)
+	}
+	if got.CreatedAt != got.UpdatedAt {
+		t.Errorf("a first insert disagrees with itself: created %d, updated %d", got.CreatedAt, got.UpdatedAt)
 	}
 
-	if err := s.TouchBoardRendered(got.ID, 42); err != nil {
-		t.Fatalf("TouchBoardRendered: %v", err)
+	// A write that changes nothing does not happen, so it moves neither.
+	before := got.UpdatedAt
+	if err := s.PutTicket(got); err != nil {
+		t.Fatalf("PutTicket (no-op): %v", err)
 	}
 	got, err := s.Ticket(got.ID)
 	if err != nil {
 		t.Fatalf("Ticket: %v", err)
 	}
-	if got.BoardRenderedAt != 42 {
-		t.Fatalf("BoardRenderedAt after touch = %d, want 42", got.BoardRenderedAt)
+	if got.UpdatedAt != before {
+		t.Errorf("a no-op write moved UpdatedAt: %d -> %d", before, got.UpdatedAt)
 	}
 
-	got.BoardRenderedAt = 7 // stale value riding an aggregate write
+	created, firstUpdate := got.CreatedAt, got.UpdatedAt
+	got.Title = "changed"
 	if err := s.PutTicket(got); err != nil {
 		t.Fatalf("PutTicket: %v", err)
 	}
@@ -121,12 +128,11 @@ func testBoardRenderedAt(t *testing.T, s store.Store) {
 	if err != nil {
 		t.Fatalf("Ticket: %v", err)
 	}
-	if got.BoardRenderedAt != 42 {
-		t.Fatalf("PutTicket moved the stamp: got %d, want 42", got.BoardRenderedAt)
+	if got.CreatedAt != created {
+		t.Errorf("an update moved CreatedAt: %d -> %d", created, got.CreatedAt)
 	}
-
-	if err := s.TouchBoardRendered(store.NewID(), 1); !store.IsNotFound(err) {
-		t.Fatalf("TouchBoardRendered(unknown) = %v, want NotFound", err)
+	if got.UpdatedAt < firstUpdate {
+		t.Errorf("an update moved UpdatedAt backwards: %d -> %d", firstUpdate, got.UpdatedAt)
 	}
 }
 

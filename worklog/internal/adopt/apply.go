@@ -67,7 +67,7 @@ func Run(s store.Store, o Options) (*Result, error) {
 	}
 
 	// 1. Census.
-	cen, err := census.Walk(o.Roots.Worklog, o.Roots.Devboard)
+	cen, err := census.Walk(o.Roots.Worklog)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func Run(s store.Store, o Options) (*Result, error) {
 	}
 
 	// 3. Hazards.
-	haz, err := hazard.Scan(o.Roots.Worklog, o.Roots.Devboard)
+	haz, err := hazard.Scan(o.Roots.Worklog)
 	if err != nil {
 		return nil, err
 	}
@@ -125,17 +125,6 @@ func Run(s store.Store, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 6. Orphans. A devboard file with no `worklog:` key and no ticket of its
-	// name cannot be placed, and the delete class would unlink it. Refuse
-	// like an unclassified file rather than destroying content nothing else
-	// holds — this is the protection the retired producer class provided.
-	if orph := plan.Paths(OpOrphan); len(orph) > 0 {
-		return nil, fmt.Errorf("%w: %d devboard file(s) have no `worklog:` key and no ticket of that name, "+
-			"so adoption cannot place them:\n  %s\n"+
-			"give each one a `worklog:` key, rename it to match its ticket, or remove it",
-			ErrRefused, len(orph), strings.Join(orph, "\n  "))
-	}
-
 	res := &Result{Plan: plan}
 	if !o.Apply {
 		return res, nil
@@ -165,7 +154,7 @@ func Run(s store.Store, o Options) (*Result, error) {
 	// write now warns and proceeds — so the check stands on its own merit:
 	// an adoption that left the corpus disagreeing with the store has not
 	// finished its job, whatever the next command would tolerate.
-	edited, err := projection.EditedIn(s, projection.Layout{WorklogDir: o.Roots.Worklog, DevboardDir: o.Roots.Devboard})
+	edited, err := projection.EditedIn(s, projection.Layout{WorklogDir: o.Roots.Worklog})
 	if err != nil {
 		return res, rollback(o, err)
 	}
@@ -180,7 +169,7 @@ func Run(s store.Store, o Options) (*Result, error) {
 
 // applyPlan performs the writes and the deletes.
 func applyPlan(s store.Store, o Options, plan *Plan) error {
-	layout := projection.Layout{WorklogDir: o.Roots.Worklog, DevboardDir: o.Roots.Devboard}
+	layout := projection.Layout{WorklogDir: o.Roots.Worklog}
 	if err := projection.RenderTo(s, layout); err != nil {
 		return fmt.Errorf("rendering projections: %w", err)
 	}
@@ -205,29 +194,23 @@ func rollback(o Options, cause error) error {
 	return fmt.Errorf("%w: %v (rolled back; the corpus is byte-identical to before)", ErrRefused, cause)
 }
 
-// stage lays the two roots out the way ReadCorpusDir expects: one root with
-// devboard/ nested inside. It copies rather than reading in place so the
-// conversion cannot be affected by a concurrent write mid-read.
+// stage lays the root out the way ReadCorpusDir expects. It copies rather
+// than reading in place so the conversion cannot be affected by a
+// concurrent write mid-read.
 func stage(r Roots) (string, func(), error) {
 	dir, err := os.MkdirTemp("", "worklog-adopt-stage-*")
 	if err != nil {
 		return "", func() {}, err
 	}
 	cleanup := func() { os.RemoveAll(dir) }
-	if err := copyTree(r.Worklog, dir, r.Devboard, map[string]string{}); err != nil {
+	if err := copyTree(r.Worklog, dir, "", map[string]string{}); err != nil {
 		cleanup()
 		return "", func() {}, err
-	}
-	if r.Devboard != "" {
-		if err := copyTree(r.Devboard, filepath.Join(dir, "devboard"), "", map[string]string{}); err != nil {
-			cleanup()
-			return "", func() {}, err
-		}
 	}
 	return dir, cleanup, nil
 }
 
-// outsideRoots refuses a snapshot destination inside either live root.
+// outsideRoots refuses a snapshot destination inside the live root.
 // convert.ReadCorpusDir ingests any *.md under notes/ or archive/ and
 // refuses on a note whose slug names no ticket, so a backup written inside
 // the corpus breaks every later conversion.
@@ -236,7 +219,7 @@ func outsideRoots(dest string, r Roots) error {
 	if err != nil {
 		return err
 	}
-	for _, root := range []string{r.Worklog, r.Devboard} {
+	for _, root := range []string{r.Worklog} {
 		if root == "" {
 			continue
 		}

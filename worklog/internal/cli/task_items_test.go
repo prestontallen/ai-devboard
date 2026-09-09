@@ -1,8 +1,7 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -12,7 +11,6 @@ import (
 func seedItems(t *testing.T) string {
 	t.Helper()
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	mustRun := func(args ...string) {
 		t.Helper()
@@ -31,18 +29,18 @@ func seedItems(t *testing.T) string {
 	}
 	mustRun("plan", "done", "1")
 	mustRun("plan", "start", "2")
-	return p
+	return dir
 }
 
 func TestTaskItemEdit(t *testing.T) {
-	p := seedItems(t)
+	dir := seedItems(t)
 
 	// Rewording a criterion keeps its status, and leaves verify alone when
 	// --verify isn't passed.
 	if _, _, err := runTask(t, "scorecard", "edit", "2", "reworded criterion", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task := loadTask(t, p)
+	task := loadTask(t, dir)
 	if task.Score[1].Text != "reworded criterion" {
 		t.Errorf("text = %q", task.Score[1].Text)
 	}
@@ -61,7 +59,7 @@ func TestTaskItemEdit(t *testing.T) {
 		"--verify", "go test ./new", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task = loadTask(t, p)
+	task = loadTask(t, dir)
 	if task.Score[1].Verify != "go test ./new" {
 		t.Errorf("verify = %q, want it rewritten", task.Score[1].Verify)
 	}
@@ -73,7 +71,7 @@ func TestTaskItemEdit(t *testing.T) {
 	if _, _, err := runTask(t, "plan", "edit", "2", "reworded step", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task = loadTask(t, p)
+	task = loadTask(t, dir)
 	if task.Plan[1].Text != "reworded step" {
 		t.Errorf("text = %q", task.Plan[1].Text)
 	}
@@ -83,12 +81,12 @@ func TestTaskItemEdit(t *testing.T) {
 }
 
 func TestTaskItemRemove(t *testing.T) {
-	p := seedItems(t)
+	dir := seedItems(t)
 
 	if _, _, err := runTask(t, "scorecard", "remove", "2", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task := loadTask(t, p)
+	task := loadTask(t, dir)
 	if len(task.Score) != 2 {
 		t.Fatalf("len = %d, want 2: %+v", len(task.Score), task.Score)
 	}
@@ -102,7 +100,7 @@ func TestTaskItemRemove(t *testing.T) {
 	if _, _, err := runTask(t, "plan", "remove", "1", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task = loadTask(t, p)
+	task = loadTask(t, dir)
 	if len(task.Plan) != 2 {
 		t.Fatalf("len = %d, want 2: %+v", len(task.Plan), task.Plan)
 	}
@@ -116,17 +114,14 @@ func TestTaskItemRemove(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if task = loadTask(t, p); len(task.Plan) != 0 {
+	if task = loadTask(t, dir); len(task.Plan) != 0 {
 		t.Errorf("plan = %+v, want empty", task.Plan)
 	}
 }
 
 func TestTaskItemBadIndex(t *testing.T) {
-	p := seedItems(t)
-	before, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir := seedItems(t)
+	before := loadTask(t, dir)
 
 	cases := []struct {
 		name string
@@ -156,29 +151,9 @@ func TestTaskItemBadIndex(t *testing.T) {
 			if ec.ExitCode() != 64 {
 				t.Errorf("exit code = %d, want 64 (%v)", ec.ExitCode(), err)
 			}
-			after, rerr := os.ReadFile(p)
-			if rerr != nil {
-				t.Fatal(rerr)
-			}
-			if string(after) != string(before) {
-				t.Errorf("task file changed on the failure path:\n%s", string(after))
+			if after := loadTask(t, dir); !reflect.DeepEqual(after, before) {
+				t.Errorf("the ticket changed on the failure path:\n%+v", after)
 			}
 		})
-	}
-}
-
-func TestTaskItemEditRejectsUnknownTaskFile(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	if err := os.MkdirAll(filepath.Join(dir, "somerepo"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// edit/remove must not create a task file the way `add` does.
-	_, _, err := runTask(t, "scorecard", "edit", "1", "x", "--id", "missing")
-	if err == nil {
-		t.Fatal("expected an error for a task file that doesn't exist")
-	}
-	if _, serr := os.Stat(filepath.Join(dir, "somerepo", "missing.yaml")); serr == nil {
-		t.Error("edit created a task file; only add should")
 	}
 }

@@ -1,14 +1,14 @@
 package cli
 
 import (
+	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
+	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
+	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
-	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
 
@@ -16,29 +16,38 @@ import (
 // real store the CLI's unconditionally store-backed write path can open.
 func storeWriteFixture(t *testing.T) (live, board, dataDir string) {
 	t.Helper()
-	live, board = canonicalWorklogFixture(t)
-	// The store is derived from the corpus, so pointing WORKLOG_DIR at the
-	// fixture is all it takes to keep this test off the real database.
+	// The corpus is loaded straight into the real store. It used to be
+	// rendered to files and adopted back, which carried board-tracking and
+	// in-flight detail through the rendered devboard YAML; with that
+	// projection retired a file round trip drops both
+	// (adb-retire-devboard-dir-2).
+	live = t.TempDir()
+	board = filepath.Join(live, "nowhere")
 	dataDir = storepath.Dir(live)
 	t.Setenv("DEVBOARD_DATA", board)
 	t.Setenv("WORKLOG_DIR", live)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", live); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
-	return live, board, dataDir
-}
 
-func readBoard(t *testing.T, board, repo, slug string) devboard.Task {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(board, repo, slug+".yaml"))
+	c, err := convert.ReadCorpusDir("../convert/testdata/corpus")
 	if err != nil {
-		t.Fatalf("reading rendered board file: %v", err)
-	}
-	var task devboard.Task
-	if err := yaml.Unmarshal(data, &task); err != nil {
 		t.Fatal(err)
 	}
-	return task
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sq, err := sqlitestore.Open(storepath.DB(live))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := convert.Load(sq, c); err != nil {
+		t.Fatal(err)
+	}
+	if err := projection.RenderTo(sq, projection.Layout{WorklogDir: live}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sq.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return live, board, dataDir
 }
 
 // TestStoreWriteRendersThrough is M3c's core claim: with the store as the
@@ -47,7 +56,7 @@ func readBoard(t *testing.T, board, repo, slug string) devboard.Task {
 // returns — no async gap, so the dashboard and the session-start hook
 // keep reading live files with nothing else changed.
 func TestStoreWriteRendersThrough(t *testing.T) {
-	live, board, _ := storeWriteFixture(t)
+	live, _, _ := storeWriteFixture(t)
 
 	_, stderr := runCLI(t, "task", "scorecard", "add", "a new criterion",
 		"--verify", "go test ./...", "--id", "solo", "--dir", live)
@@ -55,7 +64,7 @@ func TestStoreWriteRendersThrough(t *testing.T) {
 		t.Fatalf("scorecard add failed: %s", stderr)
 	}
 
-	task := readBoard(t, board, "nole", "solo")
+	task := boardOf(t, live, "solo")
 	var found bool
 	for _, c := range task.Score {
 		if c.Text == "a new criterion" {
@@ -114,14 +123,14 @@ func TestStoreWriteWarnsOverHandEditedProjection(t *testing.T) {
 // that survive, which is what round-tripping the store's ULIDs through
 // devboard.Task's Ident buys.
 func TestStoreWriteKeepsSubItemIdentity(t *testing.T) {
-	live, board, _ := storeWriteFixture(t)
+	live, _, _ := storeWriteFixture(t)
 
 	for _, text := range []string{"first", "second", "third"} {
 		if _, stderr := runCLI(t, "task", "plan", "add", text, "--id", "solo", "--dir", live); strings.Contains(stderr, "error") {
 			t.Fatalf("plan add %q: %s", text, stderr)
 		}
 	}
-	before := readBoard(t, board, "nole", "solo")
+	before := boardOf(t, live, "solo")
 	if len(before.Plan) < 3 {
 		t.Fatalf("want 3 plan steps, got %d", len(before.Plan))
 	}
@@ -130,7 +139,7 @@ func TestStoreWriteKeepsSubItemIdentity(t *testing.T) {
 	if _, stderr := runCLI(t, "task", "plan", "remove", "1", "--id", "solo", "--dir", live); strings.Contains(stderr, "error") {
 		t.Fatalf("plan remove: %s", stderr)
 	}
-	after := readBoard(t, board, "nole", "solo")
+	after := boardOf(t, live, "solo")
 	if len(after.Plan) != n-1 {
 		t.Fatalf("want %d steps after remove, got %d", n-1, len(after.Plan))
 	}

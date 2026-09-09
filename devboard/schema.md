@@ -1,20 +1,21 @@
 # Devboard task file schema (v1)
 
-Location: `<data-root>/<repo>/<task-slug>.yaml` (or `.yml` / `.json` — same
-structure). The repo grouping comes from the directory name, never from file
-content. Producers should write atomically (temp file + rename). Unknown
-top-level fields are rendered generically in an "Other" section — additive
+This is the shape of a task on the wire, not of a file on disk. There is
+no task file any more: the board is built from worklog tickets, and this
+document describes what one looks like once it reaches the frontend
+(`devboard/API.md` freezes the envelope around it). Unknown top-level
+fields are rendered generically in an "Other" section — additive
 extensions don't break the renderer.
 
-Archived tasks live in `<data-root>/<repo>/_archive/` — the devboard UI
-moves files there (and back) via its archive/un-archive buttons; the file
-content is untouched and no schema field is involved. Producers should
-write only to the repo dir, never into `_archive/`.
+Repo grouping is the ticket's own repo attribution, and a ticket with none
+groups under `unknown`. Archiving is a flag on the ticket rather than a
+move: an archived task leaves the Board lens and appears under the
+Archived chip. Nothing is deleted either way (adb-retire-devboard-dir-2).
 
 ## Ownership (one author per field)
 
-Worklog is the system of record; a devboard task file is disposable live
-telemetry. Where both systems describe the same task, **each field has
+Worklog is the system of record; the board is a disposable live view of
+it. Where both systems describe the same task, **each field has
 exactly one author**, and mirroring flows worklog→devboard only. The
 `worklog` binary is the privileged writer of these files — but never a
 required one: a bare schema-valid file with no worklog ticket is fully
@@ -30,7 +31,7 @@ supported.
 | `tier`, `complexity`, `branch`, `session`, `repo_path`, `scout` | agent | identity/telemetry |
 | `plan`, `scorecard`, `decisions`, `code` | agent | in-flight detail; deliberately NOT stored in worklog |
 | `needs_you`, `waiting_on` | nobody, since 2026-09 | the commands that wrote them were removed after neither ever carried an entry on a real board. The keys stay readable so pre-existing data still parses; nothing new writes them |
-| notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the worklog data dir, never copied into this file |
+| notes (rendered section) | worklog (`notes/<id>.md`) | rendered live from the ticket, never copied into this shape |
 
 ```yaml
 schema: 1                 # required; schema version
@@ -47,7 +48,7 @@ session: 5cc41a6e-9f2c-4c11-b0a6-2f4e7f1d8a33
                           # working this task — the UI shows a button that
                           # copies `claude --resume <session>`
 worklog: embed-retry      # optional; worklog ticket id (join key). Shown
-                          # as a badge; when the worklog data dir is
+                          # as a badge; when the worklog notes are
                           # mounted, notes/<id>.md renders in a Notes
                           # section (render, never copied)
 tier: 2                   # optional; dev-context tier 0-3

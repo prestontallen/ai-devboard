@@ -160,7 +160,7 @@ func openStoreForWrite(wd model.Workdir) (*storeSession, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening store: %w", err)
 	}
-	layout := projection.Layout{WorklogDir: wd.Root, DevboardDir: devboard.DataDir()}
+	layout := projection.Layout{WorklogDir: wd.Root}
 
 	warnHandEdits(s, layout)
 	return &storeSession{s: s, layout: layout, wd: wd}, nil
@@ -188,7 +188,6 @@ func warnHandEdits(s store.Store, layout projection.Layout) {
 	if err != nil {
 		return
 	}
-	edited = dropAbsentBoard(edited, layout)
 	if len(edited) == 0 {
 		return
 	}
@@ -205,32 +204,6 @@ func warnHandEdits(s store.Store, layout projection.Layout) {
 	fmt.Fprintf(os.Stderr,
 		"warning: overwriting %d hand-edited file(s) — the store is the source and this render wins:\n  %s%s\n",
 		len(edited), strings.Join(shown, "\n  "), suffix)
-}
-
-// dropAbsentBoard removes board files from the warning when the board
-// directory itself is not there.
-//
-// EditedIn counts a rendered file missing from disk as an edit, which is
-// right for a deletion and wrong for a machine that simply has no board
-// set up: every board file the store knows about is "missing", so a corpus
-// with no devboard directory produced 46 warning lines on every single
-// write. Under the old refusal that state was a hard stop, loud once. As a
-// warning it would be noise forever, and noise is how a real warning gets
-// missed.
-func dropAbsentBoard(edited []string, layout projection.Layout) []string {
-	if layout.DevboardDir == "" {
-		return edited
-	}
-	if _, err := os.Stat(layout.DevboardDir); err == nil {
-		return edited
-	}
-	kept := edited[:0]
-	for _, rel := range edited {
-		if !strings.HasPrefix(rel, "devboard/") {
-			kept = append(kept, rel)
-		}
-	}
-	return kept
 }
 
 func (ss *storeSession) close() { ss.s.Close() }
@@ -269,7 +242,7 @@ func (ss *storeSession) render() error {
 
 // ensureBoardTracked replicates the one create-if-missing devboard hook
 // the legacy write surface had (devboard.OnStart — done/pr/link's hooks
-// all no-op on a missing entry, matching devboard.Find's contract). A
+// all no-op on a missing entry). A
 // ticket that has never been on the board gets BoardTracked, its session
 // (for the dashboard's resume button — dev-context documents this as
 // automatic on start), branch, and repo path; an already-tracked ticket
@@ -285,9 +258,12 @@ func ensureBoardTracked(t *store.Ticket, declaredRepo string) {
 		}
 		return
 	}
-	if !devboard.Enabled() {
-		return // devboard is opt-in by dir presence; a first tracking is a no-op, not a create
-	}
+	// No opt-in gate. It used to be os.Stat of the devboard data dir, from
+	// the era when worklog wrote those YAML files itself and must not
+	// create a directory nobody asked for. Every write verb is store-backed
+	// now and board-tracking is one column in a database this command
+	// already opened, so there is nothing to opt into
+	// (adb-retire-devboard-dir-2).
 	t.BoardTracked = true
 	if s := os.Getenv("CLAUDE_CODE_SESSION_ID"); s != "" {
 		t.Session = s
@@ -318,30 +294,6 @@ func ensureParentBoardTracked(ss *storeSession, t *store.Ticket) error {
 	}
 	ensureBoardTracked(parent, parent.Repo)
 	return ss.s.PutTicket(parent)
-}
-
-// clearBoardTracked is untrack's store-side half. Render only ever writes
-// the files it expects (every BoardTracked, non-child ticket); it never
-// prunes a file that fell out of that set, so deleting a task file alone
-// would leave it recreated on the next write that happens to re-render.
-// No-op (not an error) when id doesn't resolve to a store ticket — a bare
-// producer file (no worklog: join key) has nothing in the store to clear,
-// and the caller deletes the file directly in that case.
-func clearBoardTracked(wd model.Workdir, id string) error {
-	ss, err := openStoreForWrite(wd)
-	if err != nil {
-		return err
-	}
-	defer ss.close()
-	t, err := ss.s.TicketBySlug(id)
-	if store.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	t.BoardTracked = false
-	return ss.commit(t)
 }
 
 func dirExists(p string) bool {

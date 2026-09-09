@@ -9,9 +9,7 @@ import (
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
 // fakeLister replaces the toolchain seam. A real nested `go test -list` inside
@@ -59,31 +57,14 @@ func scorecardFixture(t *testing.T, verify string) (dir string) {
 // rendered file's group to mismatch cwd and/or carry a recorded RepoPath.
 func scorecardFixtureWithRepoPath(t *testing.T, verify, repo, repoPath string) (dir string) {
 	t.Helper()
-	s := memstore.New()
-	if err := s.PutTicket(&store.Ticket{
+	// Seeded straight into the store: a round trip through the markdown
+	// surfaces cannot carry a scorecard row (adb-retire-devboard-dir-2).
+	return seedStore(t, &store.Ticket{
 		Slug: "tkt", Title: "T", Type: store.TypeTicket,
 		State: store.StatePending, Section: store.SectionNext,
-		Repo: repo, RepoPath: repoPath,
-		// Scorecard content lives only in the rendered devboard YAML, so
-		// the ticket must be BoardTracked for RenderAll to write it —
-		// migrate then re-derives the sqlite store purely from what's on
-		// disk, with no visibility into this in-memory store at all.
-		BoardTracked: true,
-		Scorecard:    []store.ScoreItem{{Text: "c1", Verify: verify, Status: "pending"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	dir = t.TempDir()
-	if err := projection.RenderAll(s, dir); err != nil {
-		t.Fatal(err)
-	}
-	devDir := filepath.Join(dir, "devboard")
-	t.Setenv("DEVBOARD_DATA", devDir)
-	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
-	return dir
+		Repo: repo, RepoPath: repoPath, BoardTracked: true,
+		Scorecard: []store.ScoreItem{{Text: "c1", Verify: verify, Status: "pending"}},
+	})
 }
 
 // ---- criterion 1: wording rules, pure ----
@@ -289,62 +270,25 @@ func TestVerifyLintResolvesWorkingDir(t *testing.T) {
 
 // ---- criterion 8: devboard disabled ----
 
-func TestVerifyLintDisabledDevboardIsNoOp(t *testing.T) {
-	f := &fakeLister{names: nil}
-	f.install(t)
-	// TestMain points DEVBOARD_DATA at a nonexistent path; don't override it.
-	out, errOut, err := runTask(t, "scorecard", "add", "c1",
-		"--verify", "go test ./x -run TestNope", "--id", "tkt")
-	if err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	if f.calls != 0 {
-		t.Errorf("spawned %d toolchain queries with devboard disabled", f.calls)
-	}
-	if !strings.Contains(errOut, "no-op") {
-		t.Errorf("want the existing no-op notice, got stderr:\n%s", errOut)
-	}
-	if strings.Contains(out, "NOTE:") {
-		t.Errorf("must not warn about a mutation that did not happen, got:\n%s", out)
-	}
-}
-
 // ---- criterion 9: epic child path ----
 
 func TestVerifyLintChildPath(t *testing.T) {
 	f := &fakeLister{names: nil}
 	f.install(t)
 
-	s := memstore.New()
-	// Only the epic needs BoardTracked: its own file is what carries the
-	// rendered devboard YAML (Scorecard included) that migrate re-derives
-	// the store from; a child never gets a file of its own, and every
-	// child of a tracked epic nests into it regardless of its own flag.
+	// Only the epic needs BoardTracked: a child never gets a card of its
+	// own and nests into its epic's regardless of its own flag.
 	epic := &store.Ticket{
-		Slug: "epic", Title: "E", Type: store.TypeEpic,
+		ID: store.NewID(), Slug: "epic", Title: "E", Type: store.TypeEpic,
 		State: store.StatePending, Section: store.SectionNext,
 		Repo: devboard.RepoName(), BoardTracked: true,
 	}
-	if err := s.PutTicket(epic); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.PutTicket(&store.Ticket{
+	kid := &store.Ticket{
 		Slug: "kid", Title: "K", Type: store.TypeTicket,
 		State: store.StateActive, ParentID: epic.ID, Repo: devboard.RepoName(),
 		Scorecard: []store.ScoreItem{{Text: "c1", Verify: "go test ./x -run TestNope", Status: "pending"}},
-	}); err != nil {
-		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	if err := projection.RenderAll(s, dir); err != nil {
-		t.Fatal(err)
-	}
-	devDir := filepath.Join(dir, "devboard")
-	t.Setenv("DEVBOARD_DATA", devDir)
-	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
+	seedStore(t, epic, kid)
 
 	out, _, err := runTask(t, "scorecard", "pass", "1", "--id", "epic", "--child", "kid")
 	if err != nil {

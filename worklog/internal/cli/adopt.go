@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/adopt"
-	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/freeze"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
@@ -32,9 +31,19 @@ func newAdoptCmd() *cobra.Command {
 		Long: `adopt brings a worklog directory that predates the SQLite store into a
 state the store-backed write path accepts, without losing a byte.
 
+It is a ONE-TIME MIGRATION, not a recovery path. The markdown surfaces
+carry the ticket layer only — title, section, state, tags, repo,
+acceptance, dates, notes prose and archive records. In-flight detail
+(phase, plan, scorecard, decisions, code, complexity, scout) and pending
+epic children live in the database alone, because the rendered board YAML
+that used to carry them was retired (adb-retire-devboard-dir-2). Back up
+the database; adopting a corpus this store already owns will refuse on
+anything the files cannot describe, which is the honest answer rather than
+a partial restore.
+
 A dry run is the default: it prints what would change and writes nothing.
 --commit performs it, behind a freeze, after taking a verbatim
-digest-verified snapshot of both live directories.
+digest-verified snapshot of the live directory.
 
 Every check runs before the snapshot, and each one refuses rather than
 proceeding:
@@ -44,8 +53,7 @@ proceeding:
   convert  the strict parser's own refusals, unchanged
   hazard   constructs the parsers drop WITHOUT refusing, such as content
            before WORK.md's first section, an archive entry with no
-           Completed, a devboard title the reader never reads, or YAML
-           comments
+           Completed, or YAML comments
   stale    a ticket in the store but not in this corpus would be rendered
            back onto disk, resurrecting it
 
@@ -77,7 +85,7 @@ func adoptRoots() (adopt.Roots, string, error) {
 	if err := refuseRetiredStoreEnv(); err != nil {
 		return adopt.Roots{}, "", err
 	}
-	return adopt.Roots{Worklog: wd.Root, Devboard: devboard.DataDir()}, storepath.Dir(wd.Root), nil
+	return adopt.Roots{Worklog: wd.Root}, storepath.Dir(wd.Root), nil
 }
 
 func runAdopt(cmd *cobra.Command, commit bool) error {

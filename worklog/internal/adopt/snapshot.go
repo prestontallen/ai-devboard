@@ -28,22 +28,21 @@ const ManifestName = "manifest.json"
 // that silently half-worked is indistinguishable from a good one without
 // digests.
 type Manifest struct {
-	// Worklog and Devboard map slash-relative paths to lowercase hex
-	// sha256 of the file's bytes at snapshot time.
-	Worklog  map[string]string `json:"worklog"`
-	Devboard map[string]string `json:"devboard"`
+	// Worklog maps slash-relative paths to lowercase hex sha256 of the
+	// file's bytes at snapshot time. A second map covered the rendered
+	// board tree until that was retired (adb-retire-devboard-dir-2).
+	Worklog map[string]string `json:"worklog"`
 }
 
-// Roots is the pair of live directories a snapshot covers. Devboard may be
-// empty: it is opt-in by directory presence.
+// Roots is the live directory a snapshot covers. It was a pair until the
+// rendered board tree was retired.
 type Roots struct {
-	Worklog  string
-	Devboard string
+	Worklog string
 }
 
-func (m *Manifest) files() int { return len(m.Worklog) + len(m.Devboard) }
+func (m *Manifest) files() int { return len(m.Worklog) }
 
-// Snapshot copies both roots into dest verbatim and writes the manifest.
+// Snapshot copies the root into dest verbatim and writes the manifest.
 //
 // It enumerates with WalkDir rather than the suffix filters the converter
 // uses, because a snapshot that captures only the files the converter
@@ -53,15 +52,10 @@ func Snapshot(r Roots, dest string) (*Manifest, error) {
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return nil, err
 	}
-	m := &Manifest{Worklog: map[string]string{}, Devboard: map[string]string{}}
+	m := &Manifest{Worklog: map[string]string{}}
 
-	if err := copyTree(r.Worklog, filepath.Join(dest, "worklog"), r.Devboard, m.Worklog); err != nil {
+	if err := copyTree(r.Worklog, filepath.Join(dest, "worklog"), "", m.Worklog); err != nil {
 		return nil, err
-	}
-	if r.Devboard != "" {
-		if err := copyTree(r.Devboard, filepath.Join(dest, "devboard"), "", m.Devboard); err != nil {
-			return nil, err
-		}
 	}
 
 	data, err := json.MarshalIndent(m, "", " ")
@@ -103,7 +97,6 @@ func Verify(dest string) error {
 		files map[string]string
 	}{
 		{filepath.Join(dest, "worklog"), m.Worklog},
-		{filepath.Join(dest, "devboard"), m.Devboard},
 	} {
 		for _, rel := range sortedKeys(side.files) {
 			sum, err := hashFile(filepath.Join(side.dir, filepath.FromSlash(rel)))
@@ -140,7 +133,6 @@ func Restore(dest string, r Roots) error {
 		files    map[string]string
 	}{
 		{filepath.Join(dest, "worklog"), r.Worklog, m.Worklog},
-		{filepath.Join(dest, "devboard"), r.Devboard, m.Devboard},
 	} {
 		if side.to == "" {
 			continue
@@ -166,7 +158,6 @@ func Restore(dest string, r Roots) error {
 		files map[string]string
 	}{
 		{r.Worklog, m.Worklog},
-		{r.Devboard, m.Devboard},
 	} {
 		if side.dir == "" {
 			continue
@@ -332,7 +323,7 @@ func sortedKeys(m map[string]string) []string {
 
 // Describe is a one-line summary for the CLI.
 func (m *Manifest) Describe() string {
-	return fmt.Sprintf("%d files (%d worklog, %d devboard)", m.files(), len(m.Worklog), len(m.Devboard))
+	return fmt.Sprintf("%d files", m.files())
 }
 
 // StampName builds a snapshot directory name from a caller-supplied

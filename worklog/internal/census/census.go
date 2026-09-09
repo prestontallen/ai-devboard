@@ -46,8 +46,7 @@ type Entry struct {
 
 // Report is the full accounting for one census run.
 type Report struct {
-	Worklog  []Entry
-	Devboard []Entry
+	Worklog []Entry
 }
 
 // Unclassified returns every path no rule recognised, worklog paths first.
@@ -60,29 +59,18 @@ func (r Report) Unclassified() []string {
 			out = append(out, e.Path)
 		}
 	}
-	for _, e := range r.Devboard {
-		if e.Class == Unclassified {
-			out = append(out, filepath.Join("devboard", e.Path))
-		}
-	}
 	return out
 }
 
-// Walk enumerates both roots. devboardDir may sit inside worklogDir (the
-// test fixtures lay it out that way); it is walked once, under its own
-// rules, either way. A root that does not exist contributes nothing —
-// devboard is opt-in by directory presence, and a corpus with no archive
-// or notes is legitimate.
-func Walk(worklogDir, devboardDir string) (Report, error) {
+// Walk enumerates the worklog root. It walked a second, rendered board
+// root until that was retired (adb-retire-devboard-dir-2). A root that
+// does not exist contributes nothing: a corpus with no archive or notes is
+// legitimate.
+func Walk(worklogDir string) (Report, error) {
 	var r Report
 	var err error
-	if r.Worklog, err = walkRoot(worklogDir, devboardDir, classifyWorklog); err != nil {
-		return r, err
-	}
-	if r.Devboard, err = walkRoot(devboardDir, "", classifyDevboard); err != nil {
-		return r, err
-	}
-	return r, nil
+	r.Worklog, err = walkRoot(worklogDir, "", classifyWorklog)
+	return r, err
 }
 
 func walkRoot(root, skip string, classify func(rel string) Class) ([]Entry, error) {
@@ -145,28 +133,6 @@ func classifyWorklog(rel string) Class {
 		// ReadCorpusDir takes only *.md here, case-sensitively, and a
 		// ".MD" or a stray ".bak" is silently absent from the conversion.
 		if strings.HasSuffix(base, ".md") && !strings.Contains(base, "/") {
-			return Canon
-		}
-	}
-	return Unclassified
-}
-
-// classifyDevboard mirrors ReadCorpusDir's devboard rules: <repo>/<slug>.yaml
-// and <repo>/_archive/<slug>.yaml, nothing deeper.
-func classifyDevboard(rel string) Class {
-	base := baseOf(rel)
-	if isTransient(base) {
-		return Transient
-	}
-	parts := strings.Split(rel, "/")
-	yaml := strings.HasSuffix(base, ".yaml") || strings.HasSuffix(base, ".yml")
-	switch len(parts) {
-	case 2:
-		if yaml && !strings.HasPrefix(parts[0], ".") {
-			return Canon
-		}
-	case 3:
-		if yaml && parts[1] == "_archive" && !strings.HasPrefix(parts[0], ".") {
 			return Canon
 		}
 	}

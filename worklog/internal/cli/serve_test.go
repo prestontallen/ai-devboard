@@ -1,9 +1,11 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
+
+	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 )
 
 // TestStoreArchiveMoveSyncsBoardArchived covers the dashboard server's
@@ -11,19 +13,12 @@ import (
 // of a move the server already made — it IS the move: BoardArchived decides
 // which path the board task renders to, and the re-render places the file.
 func TestStoreArchiveMoveSyncsBoardArchived(t *testing.T) {
-	live, board, _ := storeWriteFixture(t)
+	live, _, _ := storeWriteFixture(t)
 	wd := mustWorkdirForTest(t, live)
 
-	// an-epic rather than solo: the fixture board-tracks it, so the
-	// projection actually writes its file and the move is observable. The
-	// earlier version of this test flipped the flag on a ticket render never
-	// writes, so it proved the field changed and nothing about the file.
-	livePath := filepath.Join(board, "ai-devboard", "an-epic.yaml")
-	arcPath := filepath.Join(board, "ai-devboard", "_archive", "an-epic.yaml")
-	if _, err := os.Stat(livePath); err != nil {
-		t.Fatalf("fixture should render an-epic live: %v", err)
-	}
-
+	// The flag IS the move. It used to be observable as a rendered file
+	// changing directory; with the board projection retired the flag is
+	// the whole of it (adb-retire-devboard-dir-2).
 	owned, err := storeArchiveMove(wd, "an-epic", true)
 	if err != nil {
 		t.Fatal(err)
@@ -31,38 +26,35 @@ func TestStoreArchiveMoveSyncsBoardArchived(t *testing.T) {
 	if !owned {
 		t.Fatal("the store board-tracks an-epic, so it must own the move")
 	}
-	// The flag IS the move: the re-render places the file and clears the
-	// path it left.
-	if _, err := os.Stat(arcPath); err != nil {
-		t.Errorf("archived file not written: %v", err)
-	}
-	if _, err := os.Stat(livePath); err == nil {
-		t.Error("the live file survived; the board would show the task twice")
+	if !archivedInStore(t, live, "an-epic") {
+		t.Error("the archive move did not set BoardArchived")
 	}
 
-	ss, err := openStoreForWrite(wd)
-	if err != nil {
-		t.Fatal(err)
+	if owned, err = storeArchiveMove(wd, "an-epic", false); err != nil || !owned {
+		t.Fatalf("unarchive: owned=%v err=%v", owned, err)
 	}
-	defer ss.close()
-	tk, err := ss.s.TicketBySlug("an-epic")
-	if err != nil {
-		t.Fatal(err)
+	if archivedInStore(t, live, "an-epic") {
+		t.Error("the unarchive move did not clear BoardArchived")
 	}
-	if !tk.BoardArchived {
-		t.Error("BoardArchived not set after storeArchiveMove(archived=true)")
-	}
+}
 
-	if owned, err := storeArchiveMove(wd, "an-epic", false); err != nil || !owned {
-		t.Fatalf("un-archive: owned=%v err=%v", owned, err)
-	}
-	tk2, err := ss.s.TicketBySlug("an-epic")
+// archivedInStore reads the flag the move sets.
+func archivedInStore(t *testing.T, dir, slug string) bool {
+	t.Helper()
+	wd, err := model.NewWorkdir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tk2.BoardArchived {
-		t.Error("BoardArchived still set after storeArchiveMove(archived=false)")
+	s, _, err := openStore(storeExisting, storepath.DB(wd.Root))
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer s.Close()
+	tk, err := s.TicketBySlug(slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tk.BoardArchived
 }
 
 // TestStoreArchiveMoveDisownsWhatItCannotPlace: this used to be an error,

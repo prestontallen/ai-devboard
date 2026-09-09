@@ -1,16 +1,15 @@
 # Devboard
 
-A browser dashboard over a directory of task files, so the human
-can follow agent work without living in terminal scrollback. Agents (or
-anyone) drop one YAML/JSON file per task into `<data-root>/<repo>/`; the
-page renders plan todos, the contract scorecard, decisions, code-to-know,
+A browser dashboard over the worklog store, so the human can follow agent
+work without living in terminal scrollback. Every card is a worklog
+ticket; the page renders plan todos, the contract scorecard, decisions, code-to-know,
 a "needs you" attention queue, tier/complexity/worklog badges, and a
 copy-`claude --resume` button per task (from the `session` field) — and
 hot-reloads within ~2s of any file change, no refresh needed (SSE,
 auto-reconnecting).
 
 Tasks with a `worklog:` join key also render the ticket's
-`notes/<id>.md` live from the worklog data dir (second read-only mount) —
+`notes/<id>.md` live from the worklog notes —
 rendered, never copied, and note edits hot-reload too. That mount also
 carries `FEEDBACK.md`, rendered as the global Friction panel (see below).
 
@@ -44,33 +43,27 @@ directly:
 systemctl --user status devboard   # the unit installed by `worklog install`
 ```
 
-Defaults: data dir `~/.local/share/devboard`, port `8484`, worklog dir
-`~/.local/share/worklog` (for notes rendering). Override with the
-environment: `DEVBOARD_DATA`, `DEVBOARD_WORKLOG`, `DEVBOARD_PORT`,
-`DEVBOARD_SCAN_INTERVAL`. The server reads the worklog dir and never
-writes under it; the data dir is written for exactly one operation:
-archiving (see below). The response shape is frozen as the frontend
-contract — see [API.md](API.md).
+Defaults: port `8484`, worklog dir `~/.local/share/worklog` (the store
+sits beside it). Override with the environment: `DEVBOARD_WORKLOG`,
+`DEVBOARD_PORT`, `DEVBOARD_SCAN_INTERVAL`. The store is the only thing the
+server reads, and archiving is the only thing it writes. The response
+shape is frozen as the frontend contract — see [API.md](API.md).
 
-## Directory layout
+## Where the data lives
 
-```
-<data-root>/
-  <repo-name>/          # grouping = directory name
-    <task-slug>.yaml    # one file per task (.yml/.json also fine)
-    _archive/           # archived tasks (moved here by the UI; kept on disk)
-      <task-slug>.yaml
-```
+In the worklog store, a SQLite database beside the worklog directory.
+There is no task directory: the board reads tickets, and the rendered YAML
+tree it used to read was retired (adb-retire-devboard-dir-2).
 
-See [schema.md](schema.md) for the task file format (`schema: 1`).
+See [schema.md](schema.md) for the shape of a task on the wire
+(`schema: 1`), and [API.md](API.md) for the payload around it.
 
 ## Archive / un-archive
 
 The board's only write action. The archive button (on done cards and in
-every task's detail view) moves the task's file into `<repo>/_archive/`;
-archived tasks leave the Board lens and appear under the Archived chip,
-with un-archive buttons that move them back. Nothing is ever deleted, and
-the worklog dir is never touched.
+every task's detail view) sets a flag on the ticket; archived tasks leave
+the Board lens and appear under the Archived chip, with un-archive buttons
+that clear it. Nothing is ever deleted.
 
 For a task the worklog store knows, the **store** performs the move: the
 endpoint records it and the re-render writes the file at its new path and
@@ -134,7 +127,7 @@ is exactly what that lens draws.
 | Friction | unresolved `FEEDBACK.md` entries | entries |
 | Backlog | `WORK.md`'s Next and Someday | tickets |
 | Done | finished, not archived | tasks |
-| Archived | moved to `_archive/` | tasks |
+| Archived | the ticket's archived flag | tasks |
 
 Zero-count chips dim rather than vanish, so the bar never changes shape.
 Stale is a per-card badge rather than a chip. There are no folds on the

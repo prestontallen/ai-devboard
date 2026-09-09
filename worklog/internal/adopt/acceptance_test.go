@@ -26,18 +26,11 @@ func TestAdoptRealPreCutoverCorpus(t *testing.T) {
 	if src == "" {
 		t.Skip("set WORKLOG_SNAPSHOT to run the acceptance gate")
 	}
-	board := os.Getenv("DEVBOARD_SNAPSHOT")
 
 	root := t.TempDir()
 	r := Roots{Worklog: filepath.Join(root, "worklog")}
 	if err := copyTree(src, r.Worklog, "", map[string]string{}); err != nil {
 		t.Fatal(err)
-	}
-	if board != "" {
-		r.Devboard = filepath.Join(root, "devboard")
-		if err := copyTree(board, r.Devboard, "", map[string]string{}); err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	// The real pre-cutover corpus carries one hazard: csk-integration's
@@ -50,9 +43,6 @@ func TestAdoptRealPreCutoverCorpus(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "csk-integration") {
 		t.Errorf("refusal did not name the offending file: %v", err)
 	}
-
-	// Resolve it the way an operator would, then adopt for real.
-	fixTitle(t, r, "csk-integration")
 
 	// The store the ORIGINAL corpus converts to, before anything is written.
 	orig := memstore.New()
@@ -131,31 +121,6 @@ func TestAdoptRealPreCutoverCorpus(t *testing.T) {
 	t.Logf("board tracking healed on %d ticket(s)", gained)
 	if lost > 0 {
 		t.Errorf("adoption silently removed board tracking from %d ticket(s)", lost)
-	}
-}
-
-// fixTitle drops the unread top-level title from a board file, which is how
-// an operator resolves a devboard-title-mismatch: the ticket is the source
-// of a title, and the board copy is never read.
-func fixTitle(t *testing.T, r Roots, slug string) {
-	t.Helper()
-	matches, err := filepath.Glob(filepath.Join(r.Devboard, "*", slug+".yaml"))
-	if err != nil || len(matches) == 0 {
-		t.Fatalf("locating %s: %v (matches %v)", slug, err, matches)
-	}
-	data, err := os.ReadFile(matches[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "title:") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if err := os.WriteFile(matches[0], []byte(strings.Join(kept, "\n")), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
 

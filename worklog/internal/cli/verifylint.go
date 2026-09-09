@@ -4,11 +4,8 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
@@ -245,63 +242,49 @@ func parseListedTests(out string) []string {
 // the mutation has already committed and rendered, so a toolchain query
 // here never holds anything else up.
 //
-// add and edit carry the cell on --verify. pass names an index instead, so the
-// cell is read back from the file the mutation just wrote.
-func verifyLintHook(verb, flagVerify, indexArg, child string) func(string) []string {
+// add and edit carry the cell on --verify. pass names an index instead, so
+// the cell comes from the board shape the mutation produced.
+func verifyLintHook(verb, flagVerify, indexArg, child string) func(*boardWarn) []string {
 	switch verb {
 	case "add", "edit":
 		if strings.TrimSpace(flagVerify) == "" {
 			return nil
 		}
-		return func(string) []string { return lintVerify(flagVerify) }
+		return func(*boardWarn) []string { return lintVerify(flagVerify) }
 	case "pass":
-		return func(taskPath string) []string {
-			text := verifyCellAt(taskPath, child, indexArg)
+		return func(bw *boardWarn) []string {
+			text := verifyCellAt(bw, indexArg)
 			if strings.TrimSpace(text) == "" {
 				return nil
 			}
-			return append(lintVerify(text), lintTestExistence(taskPath, text)...)
+			return append(lintVerify(text), lintTestExistence(bw, text)...)
 		}
 	}
 	return nil
 }
 
-// verifyCellAt reads the verify text of a 1-based scorecard item, from the
-// child's entry when child is set and the top-level scorecard otherwise.
-func verifyCellAt(taskPath, child, indexArg string) string {
-	raw, err := os.ReadFile(taskPath)
+// verifyCellAt reads the verify text of a 1-based scorecard item off the
+// board shape the mutation just produced. With --child that shape is the
+// child's own, so there is no roster to search.
+func verifyCellAt(bw *boardWarn, indexArg string) string {
+	if bw == nil || bw.Task == nil {
+		return ""
+	}
+	i, err := index1(indexArg, len(bw.Task.Score), "scorecard")
 	if err != nil {
 		return ""
 	}
-	var t devboard.Task
-	if err := yaml.Unmarshal(raw, &t); err != nil {
-		return ""
-	}
-	score := t.Score
-	if child != "" {
-		score = nil
-		for _, c := range t.Children {
-			if strings.EqualFold(c.ID, child) {
-				score = c.Score
-				break
-			}
-		}
-	}
-	i, err := index1(indexArg, len(score), "scorecard")
-	if err != nil {
-		return ""
-	}
-	return score[i].Verify
+	return bw.Task.Score[i].Verify
 }
 
 // lintTestExistence checks that a cell's `go test -run` pattern matches
 // something. Silent whenever it cannot answer.
-func lintTestExistence(taskPath, text string) []string {
+func lintTestExistence(bw *boardWarn, text string) []string {
 	run, ok := parseGoTestRun(text)
 	if !ok {
 		return nil
 	}
-	dir := lintWorkingDir(taskPath)
+	dir := lintWorkingDir(bw)
 	if dir == "" {
 		return nil
 	}
@@ -322,29 +305,29 @@ func lintTestExistence(taskPath, text string) []string {
 }
 
 // lintWorkingDir picks the directory to run the toolchain in: cwd when it
-// resolves to the repo the task file is grouped under (which is also right
-// inside a linked worktree), otherwise the repo_path the ticket recorded.
+// resolves to the repo the ticket is attributed to (which is also right
+// inside a linked worktree), otherwise the repo path the ticket recorded.
 // Empty means "don't guess" — running against the wrong tree is worse than
 // not running.
-func lintWorkingDir(taskPath string) string {
-	group := filepath.Base(filepath.Dir(taskPath))
-	if strings.EqualFold(devboard.RepoName(), group) {
+//
+// Both values come from the ticket now. Deriving the group from the task
+// file's parent directory also meant that for a board-archived ticket the
+// path carried no _archive segment, the read failed, and the lint silently
+// did nothing.
+func lintWorkingDir(bw *boardWarn) string {
+	if bw == nil {
+		return ""
+	}
+	if bw.Repo != "" && strings.EqualFold(devboard.RepoName(), bw.Repo) {
 		if wd, err := os.Getwd(); err == nil {
 			return wd
 		}
 	}
-	raw, err := os.ReadFile(taskPath)
-	if err != nil {
+	if bw.RepoPath == "" {
 		return ""
 	}
-	var meta struct {
-		RepoPath string `yaml:"repo_path"`
-	}
-	if err := yaml.Unmarshal(raw, &meta); err != nil || meta.RepoPath == "" {
+	if fi, err := os.Stat(bw.RepoPath); err != nil || !fi.IsDir() {
 		return ""
 	}
-	if fi, err := os.Stat(meta.RepoPath); err != nil || !fi.IsDir() {
-		return ""
-	}
-	return meta.RepoPath
+	return bw.RepoPath
 }

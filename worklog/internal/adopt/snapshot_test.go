@@ -75,7 +75,7 @@ func keys(m map[string]string) []string {
 func corpus(t *testing.T) (Roots, string) {
 	t.Helper()
 	root := t.TempDir()
-	r := Roots{Worklog: filepath.Join(root, "worklog"), Devboard: filepath.Join(root, "devboard")}
+	r := Roots{Worklog: filepath.Join(root, "worklog")}
 	write(t, r.Worklog, "WORK.md", "# Worklog — active\n\n## Next\n")
 	write(t, r.Worklog, "FEEDBACK.md", "# Worklog Feedback Log\n")
 	write(t, r.Worklog, "notes/a.md", "note a\n")
@@ -84,7 +84,6 @@ func corpus(t *testing.T) (Roots, string) {
 	// exactly why a snapshot must.
 	write(t, r.Worklog, "notes/stale.md.bak", "old\n")
 	write(t, r.Worklog, "INDEX.md", "# Index\n")
-	write(t, r.Devboard, "repo/a.yaml", "schema: 1\nworklog: a\n")
 	return r, filepath.Join(root, "snap")
 }
 
@@ -101,18 +100,13 @@ func TestSnapshotCapturesEveryFile(t *testing.T) {
 			t.Errorf("snapshot missed %s", rel)
 		}
 	}
-	if _, ok := m.Devboard["repo/a.yaml"]; !ok {
-		t.Error("snapshot missed the devboard file")
-	}
 	equalTrees(t, fingerprint(t, r.Worklog), fingerprint(t, filepath.Join(dest, "worklog")), "worklog copy")
-	equalTrees(t, fingerprint(t, r.Devboard), fingerprint(t, filepath.Join(dest, "devboard")), "devboard copy")
 }
 
 // TestRestoreIsByteExact is criterion 8.
 func TestRestoreIsByteExact(t *testing.T) {
 	r, dest := corpus(t)
 	before := fingerprint(t, r.Worklog)
-	beforeBoard := fingerprint(t, r.Devboard)
 	if _, err := Snapshot(r, dest); err != nil {
 		t.Fatal(err)
 	}
@@ -123,13 +117,11 @@ func TestRestoreIsByteExact(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, r.Worklog, "notes/invented.md", "should not survive a rollback\n")
-	write(t, r.Devboard, "repo/b.yaml", "schema: 1\nworklog: b\n")
 
 	if err := Restore(dest, r); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after restore")
-	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after restore")
 }
 
 // TestRestoreSurvivesTheCheckersBeingWrong is criterion 9, and it is the
@@ -205,24 +197,6 @@ func TestSnapshotRefusesNonRegularFiles(t *testing.T) {
 	}
 }
 
-// TestRestoreWithoutDevboard: devboard is opt-in by directory presence.
-func TestRestoreWithoutDevboard(t *testing.T) {
-	root := t.TempDir()
-	r := Roots{Worklog: filepath.Join(root, "worklog")}
-	write(t, r.Worklog, "WORK.md", "# Worklog — active\n")
-	dest := filepath.Join(root, "snap")
-
-	before := fingerprint(t, r.Worklog)
-	if _, err := Snapshot(r, dest); err != nil {
-		t.Fatal(err)
-	}
-	write(t, r.Worklog, "WORK.md", "changed\n")
-	if err := Restore(dest, r); err != nil {
-		t.Fatal(err)
-	}
-	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after restore")
-}
-
 // TestSnapshotRoundTripSnapshot exercises snapshot → destructive mutation →
 // restore against a real corpus copy named by WORKLOG_SNAPSHOT.
 func TestSnapshotRoundTripSnapshot(t *testing.T) {
@@ -235,14 +209,7 @@ func TestSnapshotRoundTripSnapshot(t *testing.T) {
 	if err := copyTree(src, r.Worklog, "", map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
-	if board := os.Getenv("DEVBOARD_SNAPSHOT"); board != "" {
-		r.Devboard = filepath.Join(root, "devboard")
-		if err := copyTree(board, r.Devboard, "", map[string]string{}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
+	before := fingerprint(t, r.Worklog)
 	m, err := Snapshot(r, filepath.Join(root, "snap"))
 	if err != nil {
 		t.Fatal(err)
@@ -264,5 +231,4 @@ func TestSnapshotRoundTripSnapshot(t *testing.T) {
 		t.Fatalf("restore: %v", err)
 	}
 	equalTrees(t, before, fingerprint(t, r.Worklog), "real worklog after restore")
-	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "real devboard after restore")
 }

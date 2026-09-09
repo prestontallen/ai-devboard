@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/prestontallen/ai-devboard/worklog/internal/convert"
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
@@ -114,21 +112,23 @@ func invokeDoneInDir(t *testing.T, dir string, args ...string) (string, error) {
 	return buf.String(), err
 }
 
-func loadEpicTask(t *testing.T, devDir, epicID string) devboard.Task {
+// loadEpicTask reads the epic's board shape, children and all, from the
+// store. It globbed for a rendered YAML until that projection was retired
+// (adb-retire-devboard-dir-2).
+func loadEpicTask(t *testing.T, dir, epicID string) devboard.Task {
 	t.Helper()
-	matches, err := filepath.Glob(filepath.Join(devDir, "*", epicID+".yaml"))
-	if err != nil || len(matches) != 1 {
-		t.Fatalf("expected one %s.yaml, got %v (err %v)", epicID, matches, err)
+	return boardOf(t, dir, epicID)
+}
+
+// childHasNoCardOfItsOwn is what the glob for a stray per-child file
+// asserted: a child never gets a card of its own, it nests in its epic's.
+// It is board-tracked either way; the renderer skips it for having a
+// parent.
+func childHasNoCardOfItsOwn(t *testing.T, dir, slug string) {
+	t.Helper()
+	if rendersOwnCard(t, dir, slug) {
+		t.Fatalf("%s would render a card of its own; a child must nest in its epic's", slug)
 	}
-	var task devboard.Task
-	raw, err := os.ReadFile(matches[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := yaml.Unmarshal(raw, &task); err != nil {
-		t.Fatal(err)
-	}
-	return task
 }
 
 func childByID(t *testing.T, task devboard.Task, id string) devboard.ChildEntry {
@@ -144,16 +144,14 @@ func childByID(t *testing.T, task devboard.Task, id string) devboard.ChildEntry 
 
 // Criterion 1.
 func TestChildOfEpicStartCreatesNoStandaloneFile(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file created: %v", matches)
-	}
-	task := loadEpicTask(t, devDir, "epic-a")
+	childHasNoCardOfItsOwn(t, live, "child-1")
+	task := loadEpicTask(t, live, "epic-a")
 	if task.Type != "epic" || task.Title != "Cross-cutting epic" || task.Worklog != "epic-a" {
 		t.Fatalf("bad epic identity: %+v", task)
 	}
@@ -169,7 +167,7 @@ func TestChildOfEpicStartCreatesNoStandaloneFile(t *testing.T) {
 
 // Criterion 3.
 func TestChildOfEpicResumeSyncsEpic(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("setup start: %v", err)
@@ -177,17 +175,13 @@ func TestChildOfEpicResumeSyncsEpic(t *testing.T) {
 	if _, err := invokeWait(t, live, "child-1"); err != nil {
 		t.Fatalf("setup wait: %v", err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file present after wait: %v", matches)
-	}
+	childHasNoCardOfItsOwn(t, live, "child-1")
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file created on resume: %v", matches)
-	}
-	task := loadEpicTask(t, devDir, "epic-a")
+	childHasNoCardOfItsOwn(t, live, "child-1")
+	task := loadEpicTask(t, live, "epic-a")
 	if childByID(t, task, "child-1").State != devboard.ChildActive {
 		t.Fatalf("child-1 not active after resume: %+v", task.Children)
 	}
@@ -195,7 +189,7 @@ func TestChildOfEpicResumeSyncsEpic(t *testing.T) {
 
 // Criterion 4.
 func TestChildOfEpicDoneMarksChildDone(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("setup start: %v", err)
@@ -203,10 +197,8 @@ func TestChildOfEpicDoneMarksChildDone(t *testing.T) {
 	if _, err := invokeDoneInDir(t, live, "child-1", "--summary", "done"); err != nil {
 		t.Fatalf("done: %v", err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file present after done: %v", matches)
-	}
-	task := loadEpicTask(t, devDir, "epic-a")
+	childHasNoCardOfItsOwn(t, live, "child-1")
+	task := loadEpicTask(t, live, "epic-a")
 	if childByID(t, task, "child-1").State != devboard.ChildDone {
 		t.Fatalf("child-1 not done: %+v", task.Children)
 	}
@@ -214,7 +206,7 @@ func TestChildOfEpicDoneMarksChildDone(t *testing.T) {
 
 // Criterion 5.
 func TestTwoActiveChildrenIndependentState(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("start child-1: %v", err)
@@ -230,7 +222,7 @@ func TestTwoActiveChildrenIndependentState(t *testing.T) {
 		t.Fatalf("mutate child-2: %v", err)
 	}
 
-	task := loadEpicTask(t, devDir, "epic-a")
+	task := loadEpicTask(t, live, "epic-a")
 	c1, c2 := childByID(t, task, "child-1"), childByID(t, task, "child-2")
 	if c1.State != devboard.ChildActive || c2.State != devboard.ChildActive {
 		t.Fatalf("both children should be active: c1=%+v c2=%+v", c1, c2)
@@ -295,7 +287,7 @@ func TestTaskChildRejectedOnPlainTicket(t *testing.T) {
 
 // Criterion 8.
 func TestTaskChildSlugRefuses(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("setup start: %v", err)
@@ -305,14 +297,12 @@ func TestTaskChildSlugRefuses(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "epic-a") || !strings.Contains(err.Error(), "--child") {
 		t.Fatalf("expected refusal pointing at --id epic-a --child child-1, got %v", err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file created despite refusal: %v", matches)
-	}
+	childHasNoCardOfItsOwn(t, live, "child-1")
 }
 
 // Criterion 9.
 func TestChildOfEpicPRMirrorsToEpicFile(t *testing.T) {
-	live, devDir := epicChildStoreFixture(t)
+	live, _ := epicChildStoreFixture(t)
 
 	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
 		t.Fatalf("setup start: %v", err)
@@ -320,10 +310,8 @@ func TestChildOfEpicPRMirrorsToEpicFile(t *testing.T) {
 	if _, err := invokePR(t, live, "child-1", "https://example.com/pull/9"); err != nil {
 		t.Fatalf("pr: %v", err)
 	}
-	if matches, _ := filepath.Glob(filepath.Join(devDir, "*", "child-1.yaml")); len(matches) != 0 {
-		t.Fatalf("stray per-child file created by pr: %v", matches)
-	}
-	task := loadEpicTask(t, devDir, "epic-a")
+	childHasNoCardOfItsOwn(t, live, "child-1")
+	task := loadEpicTask(t, live, "epic-a")
 	c1 := childByID(t, task, "child-1")
 	if len(c1.Links) != 1 || c1.Links[0].Label != "PR" || c1.Links[0].URL != "https://example.com/pull/9" {
 		t.Fatalf("PR not mirrored onto child entry: %+v", c1)
@@ -333,24 +321,9 @@ func TestChildOfEpicPRMirrorsToEpicFile(t *testing.T) {
 	if _, err := invokePR(t, live, "child-1", "--clear"); err != nil {
 		t.Fatalf("pr --clear: %v", err)
 	}
-	task = loadEpicTask(t, devDir, "epic-a")
+	task = loadEpicTask(t, live, "epic-a")
 	if len(childByID(t, task, "child-1").Links) != 0 {
 		t.Fatalf("PR link not cleared: %+v", childByID(t, task, "child-1"))
-	}
-}
-
-// Sad path: devboard disabled, child-of-epic start/done remain no-ops.
-func TestChildOfEpicNoopWhenDevboardDisabled(t *testing.T) {
-	live := epicChildFreshStoreFixture(t)
-
-	if _, err := invokeStartInDir(t, live, "child-1"); err != nil {
-		t.Fatalf("start should succeed even with devboard disabled: %v", err)
-	}
-	if _, err := invokeDoneInDir(t, live, "child-1", "--summary", "done"); err != nil {
-		t.Fatalf("done should succeed even with devboard disabled: %v", err)
-	}
-	if _, err := os.Stat(devboard.DataDir()); !os.IsNotExist(err) {
-		t.Fatalf("devboard data dir should stay absent (opt-in by presence), got err=%v", err)
 	}
 }
 

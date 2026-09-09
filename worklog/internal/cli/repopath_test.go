@@ -4,13 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/sqlitestore"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
 )
@@ -32,30 +30,14 @@ import (
 // scenario needs, since ensureBoardTracked's git detection reads cwd.
 func repoPathFixture(t *testing.T, declaredRepo string) (dir string) {
 	t.Helper()
-	s := memstore.New()
-	if err := s.PutTicket(&store.Ticket{
+	// No devboard directory is created: the gate that needed one is gone
+	// (adb-retire-devboard-dir-2), so board-tracking happens on start
+	// regardless.
+	dir = seedStore(t, &store.Ticket{
 		Slug: "tkt", Title: "T", Type: store.TypeTicket,
 		State: store.StatePending, Section: store.SectionNext,
 		Repo: declaredRepo,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	dir = t.TempDir()
-	if err := projection.RenderAll(s, dir); err != nil {
-		t.Fatal(err)
-	}
-	devDir := filepath.Join(dir, "devboard")
-	// The fixture ticket isn't BoardTracked yet, so RenderAll never creates
-	// devboard/ — but ensureBoardTracked (which these tests exercise) is
-	// gated on devboard.Enabled(), which checks the directory exists.
-	if err := os.MkdirAll(devDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("DEVBOARD_DATA", devDir)
-	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
+	})
 	return dir
 }
 
@@ -71,7 +53,7 @@ func startInRepo(t *testing.T, repoName, declaredRepo string) (devboard.Task, st
 	if _, err := invokeStartInDir(t, worklogDir, "tkt"); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	return loadTask(t, findTaskFile(t)), resolvedPath(t, root)
+	return boardOf(t, worklogDir, "tkt"), resolvedPath(t, root)
 }
 
 func newGitRepo(t *testing.T, name string) string {
@@ -109,34 +91,6 @@ func resolvedPath(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return r
-}
-
-// findTaskFile locates "tkt"'s rendered devboard file. Unlike
-// taskFilePath (which assumes the file's group is devboard.RepoName()),
-// this walks the whole data dir — the render path is keyed off the
-// ticket's own declared Repo, which several tests here deliberately
-// mismatch against cwd's repo name, and an owner-qualified Repo
-// ("prestontallen/nole") nests the file a level deeper than
-// devboard.Find's single-level group scan expects.
-func findTaskFile(t *testing.T) string {
-	t.Helper()
-	var found string
-	err := filepath.WalkDir(devboard.DataDir(), func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
-		}
-		if d.Name() == "tkt.yaml" {
-			found = p
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if found == "" {
-		t.Fatal("tkt task file not found under the devboard data dir")
-	}
-	return found
 }
 
 func TestRepoPathRecordedOnStart(t *testing.T) {
@@ -180,7 +134,7 @@ func TestRepoPathAbsentOutsideAGitRepo(t *testing.T) {
 	if _, err := invokeStartInDir(t, worklogDir, "tkt"); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	if got := loadTask(t, findTaskFile(t)).RepoPath; got != "" {
+	if got := boardOf(t, worklogDir, "tkt").RepoPath; got != "" {
 		t.Errorf("repo_path = %q, want empty outside a repo", got)
 	}
 }
@@ -207,7 +161,7 @@ func setStoreRepoPath(t *testing.T, worklogDir, slug, repoPath string) {
 	if err := s.PutTicket(tk); err != nil {
 		t.Fatal(err)
 	}
-	layout := projection.Layout{WorklogDir: worklogDir, DevboardDir: devboard.DataDir()}
+	layout := projection.Layout{WorklogDir: worklogDir}
 	if err := projection.RenderTo(s, layout); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +175,7 @@ func TestRepoPathRefreshRules(t *testing.T) {
 	if _, err := invokeStartInDir(t, worklogDir, "tkt"); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	task := loadTask(t, findTaskFile(t))
+	task := boardOf(t, worklogDir, "tkt")
 	if task.RepoPath != resolvedPath(t, root) {
 		t.Fatalf("setup: repo_path = %q, want %q", task.RepoPath, root)
 	}
@@ -238,7 +192,7 @@ func TestRepoPathRefreshRules(t *testing.T) {
 	if _, err := invokeStartInDir(t, worklogDir, "tkt"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if got := loadTask(t, findTaskFile(t)).RepoPath; got != stable {
+	if got := boardOf(t, worklogDir, "tkt").RepoPath; got != stable {
 		t.Errorf("repo_path = %q, want the existing %q left untouched", got, stable)
 	}
 
@@ -251,7 +205,7 @@ func TestRepoPathRefreshRules(t *testing.T) {
 	if _, err := invokeStartInDir(t, worklogDir, "tkt"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if got := loadTask(t, findTaskFile(t)).RepoPath; got != resolvedPath(t, root) {
+	if got := boardOf(t, worklogDir, "tkt").RepoPath; got != resolvedPath(t, root) {
 		t.Errorf("repo_path = %q, want refreshed to %q", got, root)
 	}
 }
@@ -261,16 +215,12 @@ func TestRepoPathRefreshRules(t *testing.T) {
 func TestRepoPathNotAddedByOtherMutations(t *testing.T) {
 	root := newGitRepo(t, "ai-devboard")
 	chdirTest(t, root)
-	repoPathFixture(t, "ai-devboard")
+	worklogDir := repoPathFixture(t, "ai-devboard")
 
 	if _, _, err := runTask(t, "phase", "verify", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(findTaskFile(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(raw), "repo_path") {
-		t.Errorf("repo_path must not appear from an unrelated mutation:\n%s", raw)
+	if got := boardOf(t, worklogDir, "tkt").RepoPath; got != "" {
+		t.Errorf("repo_path must not appear from an unrelated mutation: %q", got)
 	}
 }

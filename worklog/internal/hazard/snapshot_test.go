@@ -12,7 +12,7 @@ func TestScanSnapshot(t *testing.T) {
 	if live == "" {
 		t.Skip("set WORKLOG_SNAPSHOT to scan a real corpus")
 	}
-	found, err := Scan(live, os.Getenv("DEVBOARD_SNAPSHOT"))
+	found, err := Scan(live)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}

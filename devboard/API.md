@@ -119,8 +119,10 @@ Task entry:
 - `file` is composed from the ticket's repo, archived state and id. It
   names no file the server reads; the frontend uses it as a card-title
   fallback and it is kept because the shape is frozen.
-- `mtime` is when the ticket's board shape last changed, which is the
-  instant the rendered file's mtime used to report.
+- `mtime` is the ticket row's `updated_at`: when the ticket was last
+  written. It moves for the ticket that was written and for no other, and
+  a write that changes nothing does not move it, because the store
+  recognises an unchanged aggregate and skips the write outright.
 - `notes` appears when the ticket has a notes file. **`task.children[].notes`**
   appears on the same terms, keyed by the child's id: a child of an epic
   has no entry of its own but is a worklog ticket with its own notes. A

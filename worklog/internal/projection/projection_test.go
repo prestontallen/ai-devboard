@@ -48,6 +48,38 @@ func impls(t *testing.T) map[string]store.Store {
 // round-trip tests read unchanged. The whole-struct comparator it
 // replaced lived here and silently dropped every child's real
 // ExtraFields.
+// storeOnly names the fields the markdown projections cannot carry.
+var storeOnly = []string{
+	"BoardTracked", "BoardArchived", "Phase", "Tier", "Complexity", "Scout",
+	"PlanSteps", "Scorecard", "Decisions", "CodeRefs", "Links",
+	"NeedsYou", "WaitingOn", "Transitions", "Extra", "Branch", "Session", "RepoPath",
+}
+
+// ticketLayer is the canonical form with the store-only fields blanked, so
+// the round trip is compared on exactly what the markdown surfaces carry.
+func ticketLayer(t *testing.T, s store.Store) []byte {
+	t.Helper()
+	var docs map[string]any
+	if err := json.Unmarshal(normalized(t, s), &docs); err != nil {
+		t.Fatal(err)
+	}
+	tickets, _ := docs["tickets"].([]any)
+	for _, raw := range tickets {
+		tk, _ := raw.(map[string]any)
+		for _, f := range storeOnly {
+			if _, ok := tk[f]; !ok {
+				t.Fatalf("storeOnly names %q, which no longer exists on a ticket", f)
+			}
+			delete(tk, f)
+		}
+	}
+	out, err := json.MarshalIndent(docs, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func normalized(t *testing.T, s store.Store) []byte {
 	t.Helper()
 	out, err := store.Canonical(s)
@@ -57,9 +89,20 @@ func normalized(t *testing.T, s store.Store) []byte {
 	return out
 }
 
-// TestSemanticRoundTrip is criterion 1: corpus → store → render → re-parse
-// → second store, and the two stores hold the same facts. Runs against
-// both implementations (criterion 15).
+// TestSemanticRoundTrip is criterion 1, narrowed: corpus → store → render
+// → re-parse → second store, and the two stores hold the same TICKET-LAYER
+// facts. Runs against both implementations (criterion 15).
+//
+// It used to cover the whole aggregate, because the rendered board YAML
+// carried in-flight detail and nothing else has anywhere to put a plan
+// step or a scorecard row. Retiring that projection leaves the fields in
+// storeOnly below living in the database alone, so the markdown corpus is
+// no longer a complete backup — the database is the thing to back up
+// (adb-retire-devboard-dir-2, Preston's decision 2026-09-09).
+//
+// storeOnly is written out rather than derived so that a new in-flight
+// field added later fails here and forces the same decision consciously,
+// instead of quietly joining the set of things a restore would lose.
 func TestSemanticRoundTrip(t *testing.T) {
 	for name, s1 := range impls(t) {
 		t.Run(name, func(t *testing.T) {
@@ -71,7 +114,7 @@ func TestSemanticRoundTrip(t *testing.T) {
 			s2 := memstore.New()
 			loadCorpus(t, s2, dir)
 
-			want, got := normalized(t, s1), normalized(t, s2)
+			want, got := ticketLayer(t, s1), ticketLayer(t, s2)
 			if !bytes.Equal(want, got) {
 				t.Errorf("round-trip drift:\n--- direct conversion\n%s\n--- via projections\n%s", want, got)
 			}
@@ -288,7 +331,7 @@ func TestBannerOnMarkdownSurfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var sawNotes, sawArchive, sawBoard bool
+	var sawNotes, sawArchive bool
 	for rel, content := range files {
 		has := bytes.HasPrefix(content, []byte(Banner+"\n"))
 		switch {
@@ -298,20 +341,18 @@ func TestBannerOnMarkdownSurfaces(t *testing.T) {
 			}
 			sawNotes = sawNotes || strings.HasPrefix(rel, "notes/")
 			sawArchive = sawArchive || strings.HasPrefix(rel, "archive/")
-		case rel == "FEEDBACK.md", strings.HasPrefix(rel, "devboard/"):
+		case rel == "FEEDBACK.md":
 			if has {
 				t.Errorf("%s: banner must not be emitted here", rel)
 			}
-			sawBoard = sawBoard || strings.HasPrefix(rel, "devboard/")
 		}
 	}
 	// Guard against the assertions above passing vacuously.
 	if _, ok := files["WORK.md"]; !ok {
 		t.Fatal("corpus rendered no WORK.md")
 	}
-	if !sawNotes || !sawArchive || !sawBoard {
-		t.Fatalf("corpus did not exercise every surface: notes=%v archive=%v board=%v",
-			sawNotes, sawArchive, sawBoard)
+	if !sawNotes || !sawArchive {
+		t.Fatalf("corpus did not exercise every surface: notes=%v archive=%v", sawNotes, sawArchive)
 	}
 }
 

@@ -9,7 +9,7 @@ Skills for structured software development with Claude Code.
 | [fan-out](fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. Instances: the contract-phase risk scout and the research sweep. |
 | *tone hook* | Not a repo component: dev-context's ship phase drafts all outbound text (commits, PR text, replies, messages) using whatever personal `*tone*` skill is installed on the machine, falling back to a lead-with-the-point default. Personal tone skills are gitignored here; install.sh checks for one and reports. |
 | [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics — archivable via `done` once all children complete — a cap-exempt `## Waiting` section, archives, notes, search, standup, and `edit` for fixing fields in place). Also devboard's privileged writer: `start`/`done`/`pr` mirror automatically, and the `worklog task` family edits in-flight dashboard state. Imported from `day2day` with history; skill files deploy via `install.sh`, or `worklog install` once a binary exists. |
-| [devboard](devboard/README.md) | Live telemetry: dashboard served by `worklog serve` (frontend embedded in the Go binary, vendored Preact/HTM included — npm is dev/test-only and never required to build or run; systemd user unit via `worklog install`, Docker as fallback) rendering per-task state (plan, scorecard, decisions, code-to-know, needs-you, waiting-on) plus live worklog notes. The devboard data dir is read-write (archive/un-archive is the board's one write action); the worklog dir is only ever read. |
+| [devboard](devboard/README.md) | Live telemetry: dashboard served by `worklog serve` (frontend embedded in the Go binary, vendored Preact/HTM included — npm is dev/test-only and never required to build or run; systemd user unit via `worklog install`) rendering per-task state (plan, scorecard, decisions, code-to-know) plus live worklog notes, all read from the worklog store. Archive and un-archive is the board's one write action. |
 
 Ownership model: worklog is the durable system of record, devboard is
 disposable live telemetry; every shared field has exactly one author, and
@@ -54,21 +54,18 @@ plan, contract scorecard, decisions, code-to-know, a "needs you" attention
 queue, a "waiting on" queue for questions out with other people,
 tier/complexity/worklog badges, a copy-`claude --resume` button per task,
 and (for tasks with a `worklog:` join key) the ticket's worklog notes
-rendered live from a second, read-only mount. Hot-reloads on any file or
-note change. Finished and parked work stays out of the way: done tasks
-collapse into a fold below the grid, the attention queues collapse into
-slim folds, and the board's one write action — archive / un-archive —
-moves a task's file into `<repo>/_archive/` and back.
+rendered live. Hot-reloads whenever the store changes. Finished and parked
+work stays out of the way: done tasks collapse into a fold below the grid,
+the attention queues collapse into slim folds, and the board's one write
+action, archive and un-archive, is a flag on the ticket.
 
 All updates flow through the worklog CLI, never hand-edited YAML
 ("Devboard sync" in dev-context): `worklog start/done/pr` mirror lifecycle
 state automatically, and `worklog task` (`complexity`, `phase`, `plan`,
-`scorecard`, `decision`, `amend`, `scout`, `needs-you`, `waiting-on`,
-`code`, `untrack`)
-edits the in-flight detail — `untrack` stops dashboard tracking by
-deleting only the task file. Every command is a silent no-op when the data
-dir doesn't exist, so devboard stays opt-in by directory presence. Schema
-and field-ownership rules: [devboard/schema.md](devboard/schema.md).
+`scorecard`, `decision`, `amend`, `scout`, `code`) edits the in-flight
+detail. Every command writes the store, always: there is nothing to set up
+and nothing to opt into. Schema and field-ownership rules:
+[devboard/schema.md](devboard/schema.md).
 
 ## Install
 

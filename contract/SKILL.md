@@ -130,8 +130,8 @@ the contract becomes the scorecard: every criterion gets ✅/❌ plus evidence.
 ## Devboard integration
 
 When the contract reaches **agreed**, mirror it into the devboard task
-file via the worklog CLI (never hand-edit the YAML; the commands no-op
-when devboard isn't set up):
+file via the worklog CLI (never hand-edit the rendered output; the
+commands write the store directly):
 
 - each acceptance criterion: `worklog task scorecard add "<criterion>"
   --verify "<check>" --id <slug>`

@@ -108,7 +108,7 @@ func TestDoneClosesOutTheBoardFile(t *testing.T) {
 		t.Fatalf("done: %s", stderr)
 	}
 
-	task := loadTask(t, taskFilePath(dir))
+	task := loadTask(t, dir)
 	if task.Phase != "done" {
 		t.Errorf("board file phase = %q, want done", task.Phase)
 	}
@@ -150,7 +150,7 @@ func seedQueues(t *testing.T, worklogDir, slug string) {
 	// Re-render so the board file on disk matches what was just stored;
 	// the assertions below read the file, not the store.
 	if err := projection.RenderTo(s, projection.Layout{
-		WorklogDir: worklogDir, DevboardDir: devboard.DataDir(),
+		WorklogDir: worklogDir,
 	}); err != nil {
 		t.Fatal(err)
 	}

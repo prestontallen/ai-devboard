@@ -455,24 +455,6 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 		fmt.Fprintln(errw, style.Warn.Render("WARN: no personal *tone* skill installed — dev-context ship phase falls back to its default voice"))
 	}
 
-	devboardDir := os.Getenv("DEVBOARD_DATA")
-	if devboardDir == "" {
-		devboardDir = filepath.Join(home, ".local", "share", "devboard")
-	}
-	if fi, err := os.Stat(devboardDir); err != nil || !fi.IsDir() {
-		switch mode {
-		case installer.ModeCheck:
-			fmt.Fprintln(out, style.Bad.Render("drift: devboard data dir missing: "+devboardDir))
-			rep.Drift = true
-		case installer.ModeDryRun:
-			fmt.Fprintln(out, "would: create "+devboardDir)
-		case installer.ModeInstall:
-			if err := os.MkdirAll(devboardDir, 0o755); err == nil {
-				fmt.Fprintln(out, "devboard data dir: created "+devboardDir)
-			}
-		}
-	}
-
 	reportHookState(cmd, home, mode, rep, with[installer.ExtraSessionHook])
 	reportDirectiveState(cmd, home, repoRoot, mode, rep)
 

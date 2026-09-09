@@ -37,7 +37,7 @@ func opts(r Roots, dest string, apply bool) Options {
 // TestApplyDryRunTouchesNothing: the default is a preview.
 func TestApplyDryRunTouchesNothing(t *testing.T) {
 	r, dest := preCutover(t)
-	before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
+	before := fingerprint(t, r.Worklog)
 
 	res, err := Run(memstore.New(), opts(r, dest, false))
 	if err != nil {
@@ -50,7 +50,6 @@ func TestApplyDryRunTouchesNothing(t *testing.T) {
 		t.Error("a de-canonicalised corpus should plan writes")
 	}
 	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after a dry run")
-	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after a dry run")
 	if _, err := os.Stat(dest); !os.IsNotExist(err) {
 		t.Error("a dry run wrote a snapshot")
 	}
@@ -112,7 +111,7 @@ func TestRefusalsLeaveLiveDirsUnchanged(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r, dest := preCutover(t)
 			breakIt(t, r)
-			before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
+			before := fingerprint(t, r.Worklog)
 
 			_, err := Run(memstore.New(), opts(r, dest, true))
 			if err == nil {
@@ -122,7 +121,6 @@ func TestRefusalsLeaveLiveDirsUnchanged(t *testing.T) {
 				t.Errorf("error does not wrap ErrRefused: %v", err)
 			}
 			equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after a "+name+" refusal")
-			equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after a "+name+" refusal")
 		})
 	}
 }
@@ -145,7 +143,7 @@ func TestRefusesSnapshotInsideLiveRoot(t *testing.T) {
 // corpus byte-identical, not half-applied.
 func TestRollsBackWhenAStepFails(t *testing.T) {
 	r, dest := preCutover(t)
-	before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
+	before := fingerprint(t, r.Worklog)
 
 	o := opts(r, dest, true)
 	o.Reindex = func() error { return errors.New("boom") }
@@ -158,7 +156,6 @@ func TestRollsBackWhenAStepFails(t *testing.T) {
 		t.Errorf("error = %v, want it to say the corpus was rolled back", err)
 	}
 	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after a mid-run failure")
-	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after a mid-run failure")
 }
 
 // TestApplyRunsReindex checks the hook fires in the success path, in the
@@ -188,67 +185,4 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
-}
-
-// TestRefusesUnplaceableBareFile: a devboard file with no `worklog:` key and
-// no ticket of its name cannot be placed. The delete class would unlink it,
-// so adoption refuses instead and names it. This is the protection the
-// retired producer class actually provided.
-func TestRefusesUnplaceableBareFile(t *testing.T) {
-	r, dest := preCutover(t)
-	stray := filepath.Join(r.Devboard, "some-repo", "not-a-ticket.yaml")
-	if err := os.MkdirAll(filepath.Dir(stray), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := []byte("schema: 1\nphase: implementing\n")
-	if err := os.WriteFile(stray, body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
-
-	_, err := Run(memstore.New(), opts(r, dest, true))
-	if !errors.Is(err, ErrRefused) {
-		t.Fatalf("want ErrRefused, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "not-a-ticket.yaml") {
-		t.Errorf("refusal must name the file, got: %v", err)
-	}
-	got, err2 := os.ReadFile(stray)
-	if err2 != nil || string(got) != string(body) {
-		t.Errorf("the refused file must be untouched: %v / %q", err2, got)
-	}
-	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after a refusal")
-	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after a refusal")
-}
-
-// TestAbsorbsBareFileNamedForATicket: the same unplaceable file, renamed to
-// match a ticket in the corpus, is absorbed rather than refused, and its
-// detail lands on that ticket.
-func TestAbsorbsBareFileNamedForATicket(t *testing.T) {
-	r, dest := preCutover(t)
-	// "solo" is a ticket in the fixture corpus; the file carries no
-	// `worklog:` key, so only its name can place it.
-	bare := filepath.Join(r.Devboard, "some-repo", "solo.yaml")
-	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	body := []byte("schema: 1\nphase: verify\nplan:\n  - text: absorbed step\n    state: done\n")
-	if err := os.WriteFile(bare, body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	s := memstore.New()
-	if _, err := Run(s, opts(r, dest, true)); err != nil {
-		t.Fatalf("absorb should not refuse: %v", err)
-	}
-	tk, err := s.TicketBySlug("solo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tk.Phase != "verify" {
-		t.Errorf("phase not absorbed: %q", tk.Phase)
-	}
-	if len(tk.PlanSteps) != 1 || tk.PlanSteps[0].Text != "absorbed step" {
-		t.Errorf("plan not absorbed: %+v", tk.PlanSteps)
-	}
 }

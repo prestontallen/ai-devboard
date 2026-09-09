@@ -3,14 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
@@ -99,77 +96,8 @@ format and field-ownership rules.`,
 		newTaskScoutCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskDecisionCmd(&flagID, &flagChild, &flagForce, &flagJSON),
 		newTaskCodeCmd(&flagID, &flagChild, &flagForce, &flagJSON),
-		newTaskUntrackCmd(&flagID, &flagForce, &flagJSON),
 	)
 	return cmd
-}
-
-// taskDisabled reports (and handles) the data-dir-absent case: notice to
-// stderr, success to the caller.
-func taskDisabled(cmd *cobra.Command) bool {
-	if devboard.Enabled() {
-		return false
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(),
-		"devboard: data dir %s not present; no-op\n", devboard.DataDir())
-	return true
-}
-
-// resolveTaskPath maps --id (or the cwd repo's single task) to an
-// EXISTING file path — every task<sub> command now resolves its target
-// against the store (storeMutateTaskOrChild), which creates on first use
-// itself, so the only remaining caller is untrack, which only ever
-// operates on a file that's already there.
-//
-// devboard.Find searches every repo group by filename alone, so an --id
-// that collides with an unrelated task in another repo would otherwise be
-// silently adopted (or, worse, mutated). force=false refuses that case;
-// force=true is the deliberate escape hatch (e.g. the same repo checked
-// out under two different directory names).
-func resolveTaskPath(id string, force bool) (string, error) {
-	if id != "" {
-		p, err := devboard.Find(id)
-		if err != nil {
-			return "", err
-		}
-		if p != "" {
-			if !force && filepath.Base(filepath.Dir(p)) != devboard.RepoName() {
-				rel, relErr := filepath.Rel(devboard.DataDir(), p)
-				if relErr != nil {
-					rel = p
-				}
-				return "", errWithExit(1,
-					"task: id %q already used by %s (different repo); pass --force to reuse it there, or choose a different --id",
-					id, rel)
-			}
-			return p, nil
-		}
-		return "", errWithExit(1, "task: no task file found for id %q", id)
-	}
-	all, err := devboard.List()
-	if err != nil {
-		return "", err
-	}
-	repo := devboard.RepoName()
-	var candidates []string
-	for _, p := range all {
-		if filepath.Base(filepath.Dir(p)) == repo {
-			candidates = append(candidates, p)
-		}
-	}
-	switch len(candidates) {
-	case 1:
-		return candidates[0], nil
-	case 0:
-		return "", errWithExit(64, "task: no task files for repo %q; pass --id", repo)
-	default:
-		names := make([]string, len(candidates))
-		for i, p := range candidates {
-			names[i] = strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-		}
-		return "", errWithExit(64, "task: %d task files for repo %q (%s); pass --id",
-			len(candidates), repo, strings.Join(names, ", "))
-	}
 }
 
 type taskResult struct {
@@ -201,15 +129,12 @@ func emitTaskResult(cmd *cobra.Command, asJSON bool, res taskResult) error {
 // mutateTask is the shared body of every subcommand: resolve against the
 // store, mutate, commit, emit. child routes the mutation to that child's
 // own entry when --id names an epic — see storeMutateTaskOrChild.
-// warn hooks run after the mutation, using the file it landed in. Variadic
-// so the ten other callers stay untouched.
+// warn hooks run after the mutation, against the board shape it produced.
+// Variadic so the ten other callers stay untouched.
 func mutateTask(cmd *cobra.Command, id, child string, asJSON bool,
 	action, detail string, fn func(*devboard.Task) error,
-	warn ...func(string) []string) error {
-	if taskDisabled(cmd) {
-		return nil
-	}
-	path, _, err := storeMutateTaskOrChild(id, child, fn)
+	warn ...func(*boardWarn) []string) error {
+	slug, bw, _, err := storeMutateTaskOrChild(id, child, fn)
 	if err != nil {
 		code := 1
 		if ec, ok := err.(exitCoder); ok { // e.g. bad index, or missing/invalid --child
@@ -220,12 +145,11 @@ func mutateTask(cmd *cobra.Command, id, child string, asJSON bool,
 	var warnings []string
 	for _, w := range warn {
 		if w != nil {
-			warnings = append(warnings, w(path)...)
+			warnings = append(warnings, w(bw)...)
 		}
 	}
-	rel, _ := filepath.Rel(devboard.DataDir(), path)
 	return emitTaskResult(cmd, asJSON,
-		taskResult{File: rel, Action: action, Detail: detail, Warnings: warnings})
+		taskResult{File: slug, Action: action, Detail: detail, Warnings: warnings})
 }
 
 // index1 parses a 1-based list index against a length.
@@ -354,7 +278,7 @@ stays a single document.`,
 					})
 					return nil
 				},
-				func(string) []string {
+				func(*boardWarn) []string {
 					if !clearedScout {
 						return nil
 					}
@@ -363,7 +287,7 @@ stays a single document.`,
 						"no longer attests it. Re-run the scout and attest again."}
 				},
 				scoutGateHook(*child, "", true),
-				func(string) []string { return resyncChecklist(*child) })
+				func(*boardWarn) []string { return resyncChecklist(*child) })
 		},
 	}
 	cmd.Flags().StringVar(&flagWhy, "why", "", "rationale for the amendment")
@@ -428,31 +352,17 @@ has no attestation.`,
 // phase it just set, while `complexity` and `amend` must only fire once the
 // work is past the point where the scout should have run — complexity is rated
 // at intake, before any scout could have happened.
-func scoutGateHook(child string, phaseJustSet string, requirePastContract bool) func(string) []string {
-	return func(taskPath string) []string {
-		raw, err := os.ReadFile(taskPath)
-		if err != nil {
+func scoutGateHook(child string, phaseJustSet string, requirePastContract bool) func(*boardWarn) []string {
+	return func(bw *boardWarn) []string {
+		if bw == nil || bw.Task == nil {
 			return nil
 		}
-		var t devboard.Task
-		if err := yaml.Unmarshal(raw, &t); err != nil {
-			return nil
-		}
+		// The mutated target, which with --child is the child itself. The
+		// roster search this used to do existed only because it read the
+		// epic's file; the case-insensitive --child match now happens once,
+		// in resolveStoreTarget, rather than again here.
+		t := bw.Task
 		complexity, phase, scout := t.Complexity, t.Phase, t.Scout
-		if child != "" {
-			var found bool
-			for _, c := range t.Children {
-				// EqualFold, matching findOrAppendChild: a differently-cased
-				// --child must not make the warning vanish.
-				if strings.EqualFold(c.ID, child) {
-					complexity, phase, scout, found = c.Complexity, c.Phase, c.Scout, true
-					break
-				}
-			}
-			if !found {
-				return nil
-			}
-		}
 		if scout != nil {
 			return nil
 		}
@@ -735,46 +645,6 @@ func newTaskCodeCmd(id, child *string, force *bool, asJSON *bool) *cobra.Command
 	cmd.Flags().StringVar(&flagNote, "note", "", "why the human should care")
 	cmd.Flags().StringVar(&flagSnippet, "snippet", "", "code snippet ('-' reads stdin)")
 	return cmd
-}
-
-func newTaskUntrackCmd(id *string, force *bool, asJSON *bool) *cobra.Command {
-	return &cobra.Command{
-		Use:   "untrack",
-		Args:  cobra.NoArgs,
-		Short: "Stop showing this task on the dashboard (deletes only its task file)",
-		Long: `untrack removes the task's devboard YAML (and its lock file), so the
-dashboard stops rendering it. Nothing else is touched: the worklog ticket,
-notes, and archive entries all remain.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if taskDisabled(cmd) {
-				return nil
-			}
-			path, err := resolveTaskPath(*id, *force)
-			if err != nil {
-				if ec, ok := err.(exitCoder); ok {
-					return jsonOrTextError(cmd, *asJSON, ec.ExitCode(), "%v", err)
-				}
-				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
-			}
-			wd, err := resolveWorkdir()
-			if err != nil {
-				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
-			}
-			// *id may be empty (single-task-in-repo resolution), so derive
-			// the slug from the file resolveTaskPath actually found.
-			slug := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			if err := clearBoardTracked(wd, slug); err != nil {
-				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
-			}
-			if err := os.Remove(path); err != nil {
-				return jsonOrTextError(cmd, *asJSON, 1, "%v", err)
-			}
-			os.Remove(path + ".lock") // best-effort
-			rel, _ := filepath.Rel(devboard.DataDir(), path)
-			return emitTaskResult(cmd, *asJSON, taskResult{
-				File: rel, Action: "untracked", Detail: "task file removed; worklog data untouched"})
-		},
-	}
 }
 
 func readAllStdin(cmd *cobra.Command) (string, error) {

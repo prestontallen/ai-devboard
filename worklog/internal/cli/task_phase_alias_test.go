@@ -10,24 +10,22 @@ import (
 // what lands on disk.
 func TestTaskPhaseImplementAlias(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "implement", "--id", "tkt"); err != nil {
 		t.Fatalf("phase implement: %v", err)
 	}
-	if got := loadTask(t, p).Phase; got != "implementing" {
+	if got := loadTask(t, dir).Phase; got != "implementing" {
 		t.Errorf("stored phase = %q, want %q", got, "implementing")
 	}
 }
 
 func TestTaskPhaseCanonicalStillAccepted(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "implementing", "--id", "tkt"); err != nil {
 		t.Fatalf("phase implementing: %v", err)
 	}
-	if got := loadTask(t, p).Phase; got != "implementing" {
+	if got := loadTask(t, dir).Phase; got != "implementing" {
 		t.Errorf("stored phase = %q, want %q", got, "implementing")
 	}
 }

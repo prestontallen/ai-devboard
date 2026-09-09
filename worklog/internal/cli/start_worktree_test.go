@@ -5,8 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
-	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 )
 
 // End-to-end cover for the worktree grouping bug: task files created from a
@@ -77,14 +75,4 @@ func worktreeFixture(t *testing.T) (repoName, worktree, dataDir string) {
 	t.Cleanup(func() { _ = os.Chdir(prev) })
 
 	return "acme-api", wt, dataDir
-}
-
-func TestPendingNewGroupQuietWhenDisabled(t *testing.T) {
-	worktreeFixture(t)
-	// Point at a path that doesn't exist: devboard is opt-in by dir presence,
-	// so nothing should be reported.
-	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "absent"))
-	if got := devboard.PendingNewGroup(); got != "" {
-		t.Errorf("PendingNewGroup() = %q, want empty when devboard is disabled", got)
-	}
 }

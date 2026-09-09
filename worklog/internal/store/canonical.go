@@ -25,7 +25,9 @@ type canonTicket struct {
 // the adoption oracle.
 //
 // What it removes is exactly what is minted rather than observed: ticket
-// and sub-item ULIDs, and ParentID (carried as ParentSlug instead).
+// and sub-item ULIDs, ParentID (carried as ParentSlug instead), and the
+// row's own CreatedAt/UpdatedAt, which the store stamps on write and no
+// corpus can carry.
 // Everything else is compared, including ExtraFields, which is the whole
 // reason unmodeled `- **Field**: value` bullets are durable.
 //
@@ -51,6 +53,7 @@ func Canonical(s Store) ([]byte, error) {
 		}
 		t.ID = ""
 		t.ParentID = ""
+		t.CreatedAt, t.UpdatedAt = 0, 0
 		zeroSubItemIDs(t)
 		out = append(out, c)
 	}
@@ -109,4 +112,50 @@ func zeroSubItemIDs(t *Ticket) {
 	for i := range t.NoteEntries {
 		t.NoteEntries[i].ID = ""
 	}
+}
+
+// SameFacts reports whether two tickets hold the same facts. Every
+// exported field participates, for the same reason Canonical's embedded
+// Ticket does: a field added later is compared automatically instead of
+// quietly escaping an explicit list.
+//
+// What it ignores is what the store mints rather than observes — sub-item
+// ULIDs and the row's own CreatedAt/UpdatedAt — so a caller that dropped
+// sub-item ids, or carried stale timestamps, still compares equal when the
+// facts match.
+//
+// It exists so that a write which changes nothing can be recognised and
+// skipped outright. Such a write used to rewrite every sub-item row,
+// journal nothing, and move updated_at, so the board reported a change
+// that had not happened. A guard is cheaper than teaching everything
+// downstream to tell the two apart.
+func SameFacts(a, b *Ticket) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	fa, fb := factsOf(a), factsOf(b)
+	// An unmarshalable ticket is never "the same": failing this open means
+	// doing the write, which is the safe direction.
+	return len(fa) > 0 && len(fb) > 0 && string(fa) == string(fb)
+}
+
+// factsOf renders one ticket for comparison. It round-trips through JSON
+// so the copy is deep: zeroing ids on a shallow copy would reach through
+// the shared sub-item slices and mutate the caller's ticket.
+func factsOf(t *Ticket) []byte {
+	raw, err := json.Marshal(t)
+	if err != nil {
+		return nil
+	}
+	var c Ticket
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return nil
+	}
+	c.CreatedAt, c.UpdatedAt = 0, 0
+	zeroSubItemIDs(&c)
+	out, err := json.Marshal(&c)
+	if err != nil {
+		return nil
+	}
+	return out
 }

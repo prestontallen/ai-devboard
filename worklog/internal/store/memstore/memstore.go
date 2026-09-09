@@ -79,29 +79,24 @@ func (m *Mem) PutTicket(t *store.Ticket) error {
 		m.journal[t.ID] = append(m.journal[t.ID], ch)
 	}
 
+	// A write that changes nothing does not happen; mirror sqlitestore.
+	if prev != nil && store.SameFacts(prev, t) {
+		return nil
+	}
+
 	stored := clone(t)
-	// PutTicket never writes BoardRenderedAt (TouchBoardRendered is its
-	// sole writer) — mirror sqlitestore, whose column list omits it: a
-	// new row gets the DEFAULT, an update keeps the stored value.
-	stored.BoardRenderedAt = 0
+	// Row timekeeping is PutTicket's, not the caller's: mirror
+	// sqlitestore, where created_at is insert-only and updated_at is
+	// written every time.
+	stamp := timeNow().UnixNano()
+	stored.CreatedAt, stored.UpdatedAt = stamp, stamp
 	if prev != nil {
-		stored.BoardRenderedAt = prev.BoardRenderedAt
+		stored.CreatedAt = prev.CreatedAt
 	}
 	m.tickets[t.ID] = stored
 	if slug != "" {
 		m.bySlug[slug] = t.ID
 	}
-	return nil
-}
-
-func (m *Mem) TouchBoardRendered(id store.ID, at int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	t, ok := m.tickets[id]
-	if !ok {
-		return store.NotFound("ticket " + string(id))
-	}
-	t.BoardRenderedAt = at
 	return nil
 }
 
@@ -217,3 +212,6 @@ func (m *Mem) String() string {
 	sort.Strings(slugs)
 	return "memstore[" + strings.Join(slugs, " ") + "]"
 }
+
+// timeNow mirrors sqlitestore's clock seam.
+var timeNow = time.Now

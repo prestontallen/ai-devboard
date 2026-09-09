@@ -135,7 +135,7 @@ func storeSnapshot(s store.Store) (*serve.StoreSnapshot, error) {
 		}
 		snap.Tasks = append(snap.Tasks, serve.StoreTask{
 			Repo: repo, Slug: t.Slug, Archived: t.BoardArchived,
-			MTime: t.BoardRenderedAt, Task: task,
+			MTime: t.UpdatedAt, Task: task,
 		})
 	}
 	snap.Backlog[model.SectionNext] = blockmap.Blocks(tickets, store.SectionNext)

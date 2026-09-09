@@ -55,8 +55,9 @@ var feedbackFields = map[string]bool{
 	"Trigger": true, "Excerpt": true, "Context": true, "Resolved": true,
 }
 
-// Scan runs every detector over a corpus. devboardDir may be empty.
-func Scan(worklogDir, devboardDir string) ([]Finding, error) {
+// Scan runs every detector over a corpus. It scanned a second, rendered
+// board root until that was retired (adb-retire-devboard-dir-2).
+func Scan(worklogDir string) ([]Finding, error) {
 	var out []Finding
 
 	work := filepath.Join(worklogDir, "WORK.md")
@@ -85,14 +86,6 @@ func Scan(worklogDir, devboardDir string) ([]Finding, error) {
 			return nil, err
 		}
 		out = append(out, scanArchive("archive/"+m.Name(), lines)...)
-	}
-
-	if devboardDir != "" {
-		db, err := scanDevboard(worklogDir, devboardDir)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, db...)
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -228,79 +221,6 @@ func scanFeedback(lines []string) []Finding {
 		}
 	}
 	return out
-}
-
-// scanDevboard covers the YAML constructs plus the two cross-file ones.
-//
-// It decodes with yaml.v3's Node API rather than scanning text: comments,
-// anchors and quoting are exactly what these detectors are about, and a
-// regex over raw lines gets them wrong. A first cut did, reporting three
-// findings on the live corpus that were all artefacts of guessing at
-// quoting rather than real hazards.
-func scanDevboard(worklogDir, devboardDir string) ([]Finding, error) {
-	titles, err := corpusTitles(worklogDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []Finding
-	joins := map[string][]string{}
-
-	err = filepath.Walk(devboardDir, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
-			return err
-		}
-		if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
-			return nil
-		}
-		rel, _ := filepath.Rel(devboardDir, p)
-		rel = "devboard/" + filepath.ToSlash(rel)
-
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		var doc yaml.Node
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			out = append(out, Finding{rel, 0, "yaml-unparseable", err.Error()})
-			return nil
-		}
-		out = append(out, walkYAML(rel, &doc)...)
-
-		root := docRoot(&doc)
-		if root == nil {
-			return nil
-		}
-		if v, line := mapValue(root, "worklog"); v != "" {
-			joins[v] = append(joins[v], rel)
-			_ = line
-		}
-		// boardFragment never reads a top-level title; the renderer
-		// re-derives it from the ticket, so a disagreeing value here is
-		// silently replaced on the next write.
-		if got, line := mapValue(root, "title"); got != "" {
-			slug := strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-			if want, ok := titles[slug]; ok && want != "" && got != want {
-				out = append(out, Finding{rel, line, "devboard-title-mismatch",
-					fmt.Sprintf("title %q is never read; the ticket's %q replaces it on render", got, want)})
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// convert merges board files onto a ticket with no duplicate check, so
-	// two files claiming one slug silently collapse.
-	for slug, files := range joins {
-		if len(files) > 1 {
-			sort.Strings(files)
-			out = append(out, Finding{files[0], 0, "devboard-duplicate-join",
-				fmt.Sprintf("slug %q is claimed by %s; they merge with no duplicate check", slug, strings.Join(files, ", "))})
-		}
-	}
-	return out, nil
 }
 
 // walkYAML reports comments, anchors, aliases and duplicate mapping keys.

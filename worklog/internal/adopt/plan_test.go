@@ -30,7 +30,7 @@ func canonical(t *testing.T) (store.Store, Roots, []string) {
 	if err := projection.RenderAll(s, live); err != nil {
 		t.Fatal(err)
 	}
-	return s, Roots{Worklog: live, Devboard: filepath.Join(live, "devboard")}, rep.Skipped
+	return s, Roots{Worklog: live}, rep.Skipped
 }
 
 func ops(p *Plan) map[string]Op {
@@ -58,51 +58,6 @@ func TestPlanOnACanonicalCorpusIsAllKeep(t *testing.T) {
 	}
 	if len(p.Changes) == 0 {
 		t.Fatal("plan is empty; it should account for every rendered file")
-	}
-}
-
-// TestPlanDeletesAnOrphanBoardFile is the RenderTo-never-prunes gap.
-// Without a delete class, a misfiled or orphaned board file survives beside
-// its canonical twin and the dashboard renders both.
-func TestPlanDeletesAnOrphanBoardFile(t *testing.T) {
-	s, r, skipped := canonical(t)
-	orphan := filepath.Join(r.Devboard, "some-repo", "gone-away.yaml")
-	if err := os.MkdirAll(filepath.Dir(orphan), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Carries a worklog join, so it is store-shaped rather than producer-owned.
-	if err := os.WriteFile(orphan, []byte("schema: 1\nworklog: gone-away\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	p, err := BuildPlan(s, r, skipped)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := ops(p)["devboard/some-repo/gone-away.yaml"]; got != OpDelete {
-		t.Errorf("orphan board file = %q, want %q", got, OpDelete)
-	}
-}
-
-// TestPlanKeepsBareProducerFiles: a devboard file with no worklog join is
-// producer-owned. adb-cutover's criterion 8 made keeping it an explicit
-// promise, so it must be reported as considered, not silently deleted.
-func TestPlanReportsUnplaceableBareFile(t *testing.T) {
-	s, r, _ := canonical(t)
-	bare := filepath.Join(r.Devboard, "some-repo", "producer.yaml")
-	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bare, []byte("schema: 1\ntitle: hand written\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	p, err := BuildPlan(s, r, []string{"some-repo/producer.yaml"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := ops(p)["devboard/some-repo/producer.yaml"]; got != OpOrphan {
-		t.Errorf("unplaceable bare file = %q, want %q", got, OpOrphan)
 	}
 }
 
@@ -180,7 +135,7 @@ func TestPlanAgainstSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
-	p, err := BuildPlan(s, Roots{Worklog: staged, Devboard: filepath.Join(staged, "devboard")}, rep.Skipped)
+	p, err := BuildPlan(s, Roots{Worklog: staged}, rep.Skipped)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,32 +144,5 @@ func TestPlanAgainstSnapshot(t *testing.T) {
 		if ch.Op == OpDelete || ch.Op == OpCreate || ch.Op == OpOrphan {
 			t.Logf("%s", ch)
 		}
-	}
-}
-
-// TestPlanKeepsArchivedProducerFiles pins the bug the real-corpus preview
-// caught. convert.Load reports a skipped file as <repo>/<slug>.yaml even
-// when it lives under <repo>/_archive/, so matching on the full relative
-// path missed every archived producer and planned to DELETE it. Two of the
-// three bare producer files on the real corpus were archived.
-func TestPlanReportsArchivedUnplaceableFile(t *testing.T) {
-	s, r, _ := canonical(t)
-	bare := filepath.Join(r.Devboard, "nole", "_archive", "embed-retry.yaml")
-	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bare, []byte("schema: 1\ntitle: hand written\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// convert.Load now reports the true relative path, _archive/ included. It
-	// used to flatten every skipped file to <repo>/<name>, so an archived one
-	// was reported at an address it did not occupy and the plan deleted it.
-	p, err := BuildPlan(s, r, []string{"nole/_archive/embed-retry.yaml"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := ops(p)["devboard/nole/_archive/embed-retry.yaml"]; got != OpOrphan {
-		t.Errorf("archived unplaceable file = %q, want %q; it must never fall to delete", got, OpOrphan)
 	}
 }

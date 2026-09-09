@@ -89,7 +89,7 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 		return nil, err
 	}
 
-	layout := projection.Layout{WorklogDir: r.Worklog, DevboardDir: r.Devboard}
+	layout := projection.Layout{WorklogDir: r.Worklog}
 	orphan := map[string]bool{}
 	for _, p := range skipped {
 		orphan[filepath.ToSlash(p)] = true
@@ -114,7 +114,7 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 	}
 
 	// Everything on disk the store does not render.
-	cen, err := census.Walk(r.Worklog, r.Devboard)
+	cen, err := census.Walk(r.Worklog)
 	if err != nil {
 		return nil, err
 	}
@@ -130,21 +130,6 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 			changes = append(changes, Change{rel, OpDelete})
 		}
 	}
-	for _, e := range cen.Devboard {
-		rel := "devboard/" + e.Path
-		if seen[rel] {
-			continue
-		}
-		if e.Class != census.Canon {
-			continue
-		}
-		if orphan[filepath.ToSlash(e.Path)] {
-			changes = append(changes, Change{rel, OpOrphan})
-			continue
-		}
-		changes = append(changes, Change{rel, OpDelete})
-	}
-
 	sort.Slice(changes, func(i, j int) bool {
 		if changes[i].Op != changes[j].Op {
 			return changes[i].Op < changes[j].Op
@@ -155,10 +140,7 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 }
 
 // layoutPath resolves a render-map key to an absolute path, mirroring
-// projection.Layout's own split across the two roots.
+// projection.Layout's own resolution.
 func layoutPath(l projection.Layout, rel string) string {
-	if len(rel) > len("devboard/") && rel[:len("devboard/")] == "devboard/" {
-		return filepath.Join(l.DevboardDir, filepath.FromSlash(rel[len("devboard/"):]))
-	}
 	return filepath.Join(l.WorklogDir, filepath.FromSlash(rel))
 }

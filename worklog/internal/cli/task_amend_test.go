@@ -2,17 +2,12 @@ package cli
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
-	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
 )
 
 // amendFixture builds a real worklog ticket "tkt", the same
@@ -24,8 +19,8 @@ import (
 // devboard-only content that only persists through the rendered YAML,
 // which only renders when BoardTracked, and some callers need the file
 // to already exist before their first mutation (before/after unchanged
-// checks). Returns the worklog root and the "tkt" devboard file's path.
-func amendFixture(t *testing.T, extra store.Ticket) (dir, path string) {
+// checks). Returns the worklog root and the ticket slug to read back.
+func amendFixture(t *testing.T, extra store.Ticket) (dir, slug string) {
 	t.Helper()
 	tk := extra
 	tk.Slug = "tkt"
@@ -45,73 +40,36 @@ func amendFixture(t *testing.T, extra store.Ticket) (dir, path string) {
 		tk.Repo = devboard.RepoName()
 	}
 	tk.BoardTracked = true
-	s := memstore.New()
-	if err := s.PutTicket(&tk); err != nil {
-		t.Fatal(err)
-	}
-	dir = t.TempDir()
-	if err := projection.RenderAll(s, dir); err != nil {
-		t.Fatal(err)
-	}
-	devDir := filepath.Join(dir, "devboard")
-	t.Setenv("DEVBOARD_DATA", devDir)
-	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
-	return dir, taskFilePath(dir)
+	return seedStore(t, &tk), "tkt"
 }
 
 // amendEpicChildFixture builds a real epic "epic" (BoardTracked) with two
 // children: "kid" (given complexity) and "sib" (no complexity) — for the
 // --child amend/scout path and its sibling-isolation check.
-func amendEpicChildFixture(t *testing.T, kidComplexity string) (dir, path string) {
+func amendEpicChildFixture(t *testing.T, kidComplexity string) (dir, slug string) {
 	t.Helper()
-	s := memstore.New()
 	epic := &store.Ticket{
-		Slug: "epic", Title: "E", Type: store.TypeEpic,
+		ID: store.NewID(), Slug: "epic", Title: "E", Type: store.TypeEpic,
 		State: store.StatePending, Section: store.SectionNext,
 		Repo: devboard.RepoName(), BoardTracked: true,
 	}
-	if err := s.PutTicket(epic); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.PutTicket(&store.Ticket{
+	kid := &store.Ticket{
 		Slug: "kid", Title: "K", Type: store.TypeTicket,
 		State: store.StateActive, ParentID: epic.ID, Complexity: kidComplexity,
-	}); err != nil {
-		t.Fatal(err)
 	}
-	if err := s.PutTicket(&store.Ticket{
+	sib := &store.Ticket{
 		Slug: "sib", Title: "S", Type: store.TypeTicket,
 		State: store.StateActive, ParentID: epic.ID,
-	}); err != nil {
-		t.Fatal(err)
 	}
-	dir = t.TempDir()
-	if err := projection.RenderAll(s, dir); err != nil {
-		t.Fatal(err)
-	}
-	devDir := filepath.Join(dir, "devboard")
-	t.Setenv("DEVBOARD_DATA", devDir)
-	t.Setenv("WORKLOG_DIR", dir)
-	if _, stderr := runCLI(t, "adopt", "--commit", "--dir", dir); strings.Contains(stderr, "error") {
-		t.Fatalf("migrate: %s", stderr)
-	}
-	return dir, filepath.Join(devDir, devboard.RepoName(), "epic.yaml")
+	dir = seedStore(t, epic, kid, sib)
+	return dir, "epic"
 }
 
-func loadAmendTask(t *testing.T, path string) devboard.Task {
+// loadAmendTask reads the ticket's board shape from the store. It read the
+// rendered YAML at `path` until that projection was retired.
+func loadAmendTask(t *testing.T, dir, slug string) devboard.Task {
 	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got devboard.Task
-	if err := yaml.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	return got
+	return boardOf(t, dir, slug)
 }
 
 // ---- criterion 1 ----
@@ -143,11 +101,8 @@ func TestTaskAmendRequiresComplexity(t *testing.T) {
 // ---- criterion 2 ----
 
 func TestTaskAmendRejectionLeavesFileUnchanged(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{Complexity: "low"})
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	dir, slug := amendFixture(t, store.Ticket{Complexity: "low"})
+	before := loadAmendTask(t, dir, slug)
 	for _, args := range [][]string{
 		{"amend", "x", "--why", "w", "--id", "tkt"},                          // no --complexity
 		{"amend", "x", "--why", "w", "--complexity", "bogus", "--id", "tkt"}, // bad value
@@ -155,12 +110,8 @@ func TestTaskAmendRejectionLeavesFileUnchanged(t *testing.T) {
 		if _, _, err := runTask(t, args...); err == nil {
 			t.Fatalf("%v: expected refusal", args)
 		}
-		after, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(after) != string(before) {
-			t.Errorf("%v changed the file:\n%s", args, after)
+		if after := loadAmendTask(t, dir, slug); !reflect.DeepEqual(after, before) {
+			t.Errorf("%v changed the ticket:\n%+v", args, after)
 		}
 	}
 }
@@ -168,14 +119,14 @@ func TestTaskAmendRejectionLeavesFileUnchanged(t *testing.T) {
 // ---- criterion 3 ----
 
 func TestTaskAmendRecordsEntry(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{Complexity: "low"})
+	dir, slug := amendFixture(t, store.Ticket{Complexity: "low"})
 
 	if _, _, err := runTask(t, "amend", "retargeted to a generic link",
 		"--why", "the storage layer had already generalised",
 		"--complexity", "high", "--id", "tkt"); err != nil {
 		t.Fatalf("amend: %v", err)
 	}
-	got := loadAmendTask(t, path)
+	got := loadAmendTask(t, dir, slug)
 	if len(got.Decision) != 1 {
 		t.Fatalf("decisions = %d, want 1", len(got.Decision))
 	}
@@ -198,13 +149,13 @@ func TestTaskAmendRecordsEntry(t *testing.T) {
 // ---- criterion 4 ----
 
 func TestTaskAmendUpdatesRating(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{Complexity: "low"})
+	dir, slug := amendFixture(t, store.Ticket{Complexity: "low"})
 
 	if _, _, err := runTask(t, "amend", "scope doubled", "--why", "w",
 		"--complexity", "high", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	got := loadAmendTask(t, path)
+	got := loadAmendTask(t, dir, slug)
 	if got.Complexity != "high" {
 		t.Errorf("complexity = %q, want high", got.Complexity)
 	}
@@ -216,26 +167,19 @@ func TestTaskAmendUpdatesRating(t *testing.T) {
 // ---- criterion 5 ----
 
 func TestTaskAmendUnchangedNeverPersisted(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{Complexity: "medium"})
+	dir, slug := amendFixture(t, store.Ticket{Complexity: "medium"})
 
 	if _, _, err := runTask(t, "amend", "wording only", "--why", "w",
 		"--complexity", "unchanged", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	got := loadAmendTask(t, path)
+	got := loadAmendTask(t, dir, slug)
 	if got.Complexity != "medium" {
 		t.Errorf("complexity = %q, want medium preserved", got.Complexity)
 	}
 	// The sentinel must never reach the field that gates the risk scout.
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "complexity:") &&
-			strings.Contains(line, "unchanged") && !strings.Contains(line, "(unchanged)") {
-			t.Errorf("sentinel leaked into a complexity field: %q", line)
-		}
+	if got.Complexity == "unchanged" {
+		t.Error("the sentinel leaked into the complexity field")
 	}
 	if got.Decision[0].Complexity != "medium (unchanged)" {
 		t.Errorf("transition = %q", got.Decision[0].Complexity)
@@ -247,8 +191,8 @@ func TestTaskAmendUnchangedNeverPersisted(t *testing.T) {
 // Only 5 of 23 contracts carried a rating at all, so "unchanged from nothing"
 // is the common case and is exactly the skip this verb exists to prevent.
 func TestTaskAmendUnchangedWithoutPriorRating(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{})
-	before, _ := os.ReadFile(path)
+	dir, slug := amendFixture(t, store.Ticket{})
+	before := loadAmendTask(t, dir, slug)
 
 	_, _, err := runTask(t, "amend", "x", "--why", "w", "--complexity", "unchanged", "--id", "tkt")
 	ec, ok := err.(exitCoder)
@@ -258,9 +202,8 @@ func TestTaskAmendUnchangedWithoutPriorRating(t *testing.T) {
 	if !strings.Contains(err.Error(), "low|medium|high") {
 		t.Errorf("error should say what to state instead: %v", err)
 	}
-	after, _ := os.ReadFile(path)
-	if string(after) != string(before) {
-		t.Errorf("refusal changed the file:\n%s", after)
+	if after := loadAmendTask(t, dir, slug); !reflect.DeepEqual(after, before) {
+		t.Errorf("refusal changed the ticket:\n%+v", after)
 	}
 }
 
@@ -297,7 +240,7 @@ func TestTaskAmendChecklistNamesNotesLineForChild(t *testing.T) {
 // ---- criterion 8 ----
 
 func TestTaskAmendChildPathPersists(t *testing.T) {
-	_, path := amendEpicChildFixture(t, "low")
+	dir, slug := amendEpicChildFixture(t, "low")
 
 	if _, _, err := runTask(t, "amend", "child scope grew", "--why", "w",
 		"--complexity", "high", "--id", "epic", "--child", "kid"); err != nil {
@@ -306,7 +249,7 @@ func TestTaskAmendChildPathPersists(t *testing.T) {
 
 	child := func() devboard.ChildEntry {
 		t.Helper()
-		for _, c := range loadAmendTask(t, path).Children {
+		for _, c := range loadAmendTask(t, dir, slug).Children {
 			if c.ID == "kid" {
 				return c
 			}
@@ -370,7 +313,7 @@ func TestTaskComplexityRejectsUnchanged(t *testing.T) {
 // so a cleared attestation looked exactly like a lost write — one session
 // filed a data-loss bug over it and a later one nearly did.
 func TestAmendSaysItClearedTheScout(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{
+	dir, slug := amendFixture(t, store.Ticket{
 		Complexity: "high",
 		Scout:      &store.Scout{Mode: "ran", Why: "four lenses", When: "2026-09-08"},
 	})
@@ -383,7 +326,7 @@ func TestAmendSaysItClearedTheScout(t *testing.T) {
 	if !strings.Contains(stdout+stderr, "discarded the risk-scout attestation") {
 		t.Errorf("amend did not say it cleared the attestation; got %q / %q", stdout, stderr)
 	}
-	if got := loadAmendTask(t, path); got.Scout != nil {
+	if got := loadAmendTask(t, dir, slug); got.Scout != nil {
 		t.Errorf("attestation survived a high-complexity amendment: %+v", got.Scout)
 	}
 }
@@ -392,7 +335,7 @@ func TestAmendSaysItClearedTheScout(t *testing.T) {
 // and high, so a low-complexity amendment has no attestation to invalidate
 // and must not claim it cleared one.
 func TestAmendKeepsALowComplexityScoutSilently(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{
+	dir, slug := amendFixture(t, store.Ticket{
 		Complexity: "low",
 		Scout:      &store.Scout{Mode: "skipped", Why: "rated low", When: "2026-09-08"},
 	})
@@ -405,7 +348,7 @@ func TestAmendKeepsALowComplexityScoutSilently(t *testing.T) {
 	if strings.Contains(stdout+stderr, "discarded the risk-scout attestation") {
 		t.Errorf("a low-complexity amendment claimed to clear an attestation: %q / %q", stdout, stderr)
 	}
-	got := loadAmendTask(t, path)
+	got := loadAmendTask(t, dir, slug)
 	if got.Scout == nil || got.Scout.Mode != "skipped" {
 		t.Errorf("low-complexity amendment cleared the attestation: %+v", got.Scout)
 	}

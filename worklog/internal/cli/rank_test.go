@@ -102,21 +102,15 @@ func TestAddKeepsInsertionOrderAcrossAdds(t *testing.T) {
 // added through the CLI tied the epic's first child at 0 and was ordered
 // against it by slug. "aaa-kid" sorts before the fixture's "kid-live".
 func TestAddChildRanksToEndOfRoster(t *testing.T) {
-	live, board, _ := storeWriteFixture(t)
+	live, _, _ := storeWriteFixture(t)
 
 	if _, stderr := runCLI(t, "add", "--dir", live,
 		"--parent", "an-epic", "--id", "aaa-kid", "--title", "Newest child"); strings.Contains(stderr, "error") {
 		t.Fatalf("add --parent: %s", stderr)
 	}
 
-	matches, err := filepath.Glob(filepath.Join(board, "*", "an-epic.yaml"))
-	if err != nil || len(matches) != 1 {
-		t.Fatalf("locating the epic's board file: %v (matches %v)", err, matches)
-	}
-	repo := filepath.Base(filepath.Dir(matches[0]))
-
 	var got []string
-	for _, c := range readBoard(t, board, repo, "an-epic").Children {
+	for _, c := range boardOf(t, live, "an-epic").Children {
 		got = append(got, c.ID)
 	}
 	if len(got) == 0 || got[len(got)-1] != "aaa-kid" {

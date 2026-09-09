@@ -216,78 +216,6 @@ func CloseWaitingOn(t *Task, when string) {
 	t.WaitingOn = nil
 }
 
-// DataDir returns the devboard data directory: $DEVBOARD_DATA, defaulting
-// to ~/.local/share/devboard.
-func DataDir() string {
-	if d := os.Getenv("DEVBOARD_DATA"); d != "" {
-		return d
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".local", "share", "devboard")
-}
-
-// Enabled reports whether the data dir exists. Callers must treat a false
-// result as "do nothing, succeed" — devboard is opt-in by dir presence.
-func Enabled() bool {
-	d := DataDir()
-	if d == "" {
-		return false
-	}
-	fi, err := os.Stat(d)
-	return err == nil && fi.IsDir()
-}
-
-// Find locates an existing task file <data>/<repo>/<slug>.{yaml,yml} across
-// all repo groups. Returns "" (no error) when absent.
-func Find(slug string) (string, error) {
-	root := DataDir()
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return "", err
-	}
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		for _, ext := range []string{".yaml", ".yml"} {
-			p := filepath.Join(root, e.Name(), slug+ext)
-			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-				return p, nil
-			}
-		}
-	}
-	return "", nil
-}
-
-// List returns every task file path grouped under the data dir.
-func List() ([]string, error) {
-	root := DataDir()
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		files, err := os.ReadDir(filepath.Join(root, e.Name()))
-		if err != nil {
-			continue
-		}
-		for _, f := range files {
-			name := strings.ToLower(f.Name())
-			if f.Type().IsRegular() && (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
-				out = append(out, filepath.Join(root, e.Name(), f.Name()))
-			}
-		}
-	}
-	return out, nil
-}
-
 // RepoName derives the grouping directory for new task files: the basename
 // of the repository, falling back to the cwd basename outside a repo.
 //
@@ -337,28 +265,6 @@ func repoNameFromCommonDir() string {
 	}
 	// Bare repo: the common dir *is* the repository (e.g. …/foo.git).
 	return strings.TrimSuffix(filepath.Base(dir), ".git")
-}
-
-// PendingNewGroup returns the repo group name when devboard is enabled and
-// that group has no directory yet — i.e. the next task file written will
-// create it. Empty otherwise.
-//
-// A brand-new group is usually just the first ticket in a new repo, but it is
-// also exactly what a misresolved repo name looks like. The two are
-// indistinguishable here, so this reports rather than decides: callers surface
-// it and let the human notice a name that isn't their repo.
-func PendingNewGroup() string {
-	if !Enabled() {
-		return ""
-	}
-	repo := RepoName()
-	if repo == "" {
-		return ""
-	}
-	if fi, err := os.Stat(filepath.Join(DataDir(), repo)); err == nil && fi.IsDir() {
-		return ""
-	}
-	return repo
 }
 
 // RepoRoot resolves the repository's working-tree root through the same git

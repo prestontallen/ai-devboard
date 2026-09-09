@@ -35,7 +35,7 @@ func corpus(t *testing.T, files map[string]string) (live, board string) {
 
 func constructs(t *testing.T, live, board string) map[string]Finding {
 	t.Helper()
-	found, err := Scan(live, board)
+	found, err := Scan(live)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
@@ -127,81 +127,4 @@ func TestFeedbackUnknownField(t *testing.T) {
 		"FEEDBACK.md": "# Worklog Feedback Log\n\n## 1 — tui-error\n**Trigger**: x\n**Severity**: high\n",
 	})
 	mustFire(t, constructs(t, live, board), "feedback-unknown-field")
-}
-
-func TestDevboardConstructs(t *testing.T) {
-	base := map[string]string{"WORK.md": cleanWork}
-
-	t.Run("comment", func(t *testing.T) {
-		f := map[string]string{"devboard/r/solo.yaml": "schema: 1\nworklog: solo\n# a note to self\nphase: done\n"}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		mustFire(t, constructs(t, live, board), "yaml-comment")
-	})
-
-	t.Run("anchor", func(t *testing.T) {
-		f := map[string]string{"devboard/r/solo.yaml": "schema: 1\nworklog: solo\nbranch: &b main\nsession: *b\n"}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		mustFire(t, constructs(t, live, board), "yaml-anchor")
-	})
-
-	t.Run("duplicate key", func(t *testing.T) {
-		f := map[string]string{"devboard/r/solo.yaml": "schema: 1\nworklog: solo\nphase: done\nphase: implementing\n"}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		mustFire(t, constructs(t, live, board), "yaml-duplicate-key")
-	})
-
-	t.Run("title mismatch", func(t *testing.T) {
-		f := map[string]string{"devboard/r/solo.yaml": "schema: 1\nworklog: solo\ntitle: Something else entirely\n"}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		mustFire(t, constructs(t, live, board), "devboard-title-mismatch")
-	})
-
-	t.Run("matching title is clean", func(t *testing.T) {
-		f := map[string]string{"devboard/r/solo.yaml": "schema: 1\nworklog: solo\ntitle: A ticket\n"}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		if got := constructs(t, live, board); len(got) != 0 {
-			t.Errorf("a title agreeing with the ticket is clean; got %v", got)
-		}
-	})
-
-	// Unquoted scalars carrying apostrophes are what a text-scanning first
-	// cut got wrong, reporting mismatches on the live corpus that were
-	// artefacts of guessing at quoting.
-	t.Run("apostrophes are not a mismatch", func(t *testing.T) {
-		f := map[string]string{
-			"WORK.md":              "<!-- g -->\n# Worklog — active\n\n## Next\n\n- [ ] **SOLO** — the CLI only accepts 'implementing'\n  - **ID**: solo\n",
-			"devboard/r/solo.yaml": "schema: 1\nworklog: solo\ntitle: the CLI only accepts 'implementing'\n",
-		}
-		live, board := corpus(t, f)
-		if got := constructs(t, live, board); len(got) != 0 {
-			t.Errorf("apostrophes in an unquoted scalar are not a mismatch; got %v", got)
-		}
-	})
-
-	t.Run("duplicate join", func(t *testing.T) {
-		f := map[string]string{
-			"devboard/r/solo.yaml":   "schema: 1\nworklog: solo\n",
-			"devboard/r2/other.yaml": "schema: 1\nworklog: solo\n",
-		}
-		for k, v := range base {
-			f[k] = v
-		}
-		live, board := corpus(t, f)
-		mustFire(t, constructs(t, live, board), "devboard-duplicate-join")
-	})
 }

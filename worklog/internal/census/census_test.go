@@ -30,16 +30,14 @@ func classOf(t *testing.T, entries []Entry, rel string) Class {
 
 // TestCensusClassifiesTheCorpus covers the paths the converter reads.
 func TestCensusClassifiesTheCorpus(t *testing.T) {
-	live, board := t.TempDir(), t.TempDir()
+	live := t.TempDir()
 	write(t, live, "WORK.md")
 	write(t, live, "FEEDBACK.md")
 	write(t, live, "INDEX.md")
 	write(t, live, "archive/2026-09.md")
 	write(t, live, "notes/a-slug.md")
-	write(t, board, "ai-devboard/a-slug.yaml")
-	write(t, board, "ai-devboard/_archive/old.yaml")
 
-	r, err := Walk(live, board)
+	r, err := Walk(live)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,14 +52,6 @@ func TestCensusClassifiesTheCorpus(t *testing.T) {
 			t.Errorf("%s = %s, want %s", rel, got, want)
 		}
 	}
-	for rel, want := range map[string]Class{
-		"ai-devboard/a-slug.yaml":       Canon,
-		"ai-devboard/_archive/old.yaml": Canon,
-	} {
-		if got := classOf(t, r.Devboard, rel); got != want {
-			t.Errorf("devboard/%s = %s, want %s", rel, got, want)
-		}
-	}
 	if u := r.Unclassified(); len(u) != 0 {
 		t.Errorf("clean corpus reported unclassified %v", u)
 	}
@@ -71,17 +61,14 @@ func TestCensusClassifiesTheCorpus(t *testing.T) {
 // these is a file convert.ReadCorpusDir silently does not read, so it would
 // vanish from a conversion that then claims to be complete.
 func TestCensusRefusesWhatTheReadersSkip(t *testing.T) {
-	live, board := t.TempDir(), t.TempDir()
+	live := t.TempDir()
 	write(t, live, "WORK.md")
 	write(t, live, "notes/stale.md.bak")   // not *.md
 	write(t, live, "archive/2026-08.MD")   // case-sensitive suffix
 	write(t, live, "notes/deep/nested.md") // ReadCorpusDir is not recursive
 	write(t, live, "stray.md")             // unknown top-level file
-	write(t, board, "ai-devboard/notes.txt")
-	write(t, board, "ai-devboard/a/b/deep.yaml") // deeper than <repo>/_archive/
-	write(t, board, ".hidden/x.yaml")            // dot-prefixed group dir
 
-	r, err := Walk(live, board)
+	r, err := Walk(live)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,9 +81,6 @@ func TestCensusRefusesWhatTheReadersSkip(t *testing.T) {
 		"archive/2026-08.MD",
 		"notes/deep/nested.md",
 		"stray.md",
-		"devboard/ai-devboard/notes.txt",
-		"devboard/ai-devboard/a/b/deep.yaml",
-		"devboard/.hidden/x.yaml",
 	} {
 		if !got[want] {
 			t.Errorf("census did not refuse %q; the converter skips it silently", want)
@@ -115,7 +99,7 @@ func TestCensusRefusesNonRegularFiles(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	r, err := Walk(live, "")
+	r, err := Walk(live)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,26 +122,12 @@ func TestCensusAllowsTransient(t *testing.T) {
 	write(t, live, ".freeze")
 	write(t, live, "worklog.db.bak.20260903T205543Z")
 
-	r, err := Walk(live, "")
+	r, err := Walk(live)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if u := r.Unclassified(); len(u) != 0 {
 		t.Errorf("transient scratch reported as unclassified: %v", u)
-	}
-}
-
-// TestCensusMissingRootsAreEmpty: devboard is opt-in by directory presence,
-// and a corpus with no archive or notes is legitimate.
-func TestCensusHandlesAbsentDevboard(t *testing.T) {
-	live := t.TempDir()
-	write(t, live, "WORK.md")
-	r, err := Walk(live, "")
-	if err != nil {
-		t.Fatalf("absent devboard should not error: %v", err)
-	}
-	if len(r.Devboard) != 0 {
-		t.Errorf("Devboard = %v, want empty", r.Devboard)
 	}
 }
 
@@ -170,12 +140,12 @@ func TestCensusAgainstSnapshot(t *testing.T) {
 	if live == "" {
 		t.Skip("set WORKLOG_SNAPSHOT to run the census against a real corpus")
 	}
-	r, err := Walk(live, os.Getenv("DEVBOARD_SNAPSHOT"))
+	r, err := Walk(live)
 	if err != nil {
 		t.Fatalf("census: %v", err)
 	}
 	counts := map[Class]int{}
-	for _, e := range append(append([]Entry{}, r.Worklog...), r.Devboard...) {
+	for _, e := range r.Worklog {
 		counts[e.Class]++
 	}
 	t.Logf("canon=%d derived=%d transient=%d unclassified=%d",

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/boardmap"
@@ -28,33 +27,48 @@ import (
 // write-through renders synchronously before returning, a hook that
 // re-reads that file sees the mutation rather than a stale copy — the
 // staleness the design panel flagged on the legacy path.
-func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (path, worklogID string, err error) {
+// boardWarn is what a mutateTask warning hook sees. Both hooks used to
+// re-read the rendered YAML the mutation had just written, which made the
+// board directory a second reader of state the command already held; this
+// carries that state instead (adb-retire-devboard-dir-2).
+//
+// Task is the MUTATED TARGET, so with --child it is the child's own board
+// shape rather than the epic's. That is why neither hook searches a
+// children list any more: the search existed only because the file they
+// read was always the epic's.
+type boardWarn struct {
+	Task     *devboard.Task
+	Repo     string // the top ticket's group, for the cwd check
+	RepoPath string // the top ticket's checkout, "" when unrecorded
+}
+
+func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (path string, warn *boardWarn, worklogID string, err error) {
 	wd, err := resolveWorkdir()
 	if err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 	dbPath, err := requireStore(wd)
 	if err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 	s, _, err := openStore(storeExisting, dbPath)
 	if err != nil {
-		return "", "", fmt.Errorf("task: opening store: %w", err)
+		return "", nil, "", fmt.Errorf("task: opening store: %w", err)
 	}
 	defer s.Close()
 
-	layout := projection.Layout{WorklogDir: wd.Root, DevboardDir: devboard.DataDir()}
+	layout := projection.Layout{WorklogDir: wd.Root}
 
 	warnHandEdits(s, layout)
 
 	target, worklogID, top, err := resolveStoreTarget(s, id, child)
 	if err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 
 	task := boardmap.BoardTask(target, nil)
 	if err := fn(task); err != nil {
-		return "", "", err
+		return "", nil, "", err
 	}
 	boardmap.ApplyBoardTask(target, task)
 	// A task subcommand is what puts a ticket on the board in the first
@@ -65,25 +79,21 @@ func storeMutateTaskOrChild(id, child string, fn func(*devboard.Task) error) (pa
 	top.BoardTracked = true
 
 	if err := s.PutTicket(target); err != nil {
-		return "", "", fmt.Errorf("task: %w", err)
+		return "", nil, "", fmt.Errorf("task: %w", err)
 	}
 	if top.ID != target.ID {
 		if err := s.PutTicket(top); err != nil {
-			return "", "", fmt.Errorf("task: %w", err)
+			return "", nil, "", fmt.Errorf("task: %w", err)
 		}
 	}
 	if err := projection.RenderTo(s, layout); err != nil {
-		return "", "", fmt.Errorf("task: rendering projections: %w", err)
+		return "", nil, "", fmt.Errorf("task: rendering projections: %w", err)
 	}
-	// Repo attribution heals here rather than following cwd, so the
-	// misfiled-group guard and its --force escape hatch have nothing left
-	// to guard (adb-cutover M4 heals the 29 existing strays). Always
-	// keyed off top: a child's mutation still lands in the epic's file.
-	repo := top.Repo
-	if repo == "" {
-		repo = "unknown"
-	}
-	return filepath.Join(devboard.DataDir(), repo, top.Slug+".yaml"), worklogID, nil
+	// Keyed off top: a child's mutation is recorded against the epic that
+	// carries it. This returned a rendered file path until that projection
+	// was retired (adb-retire-devboard-dir-2); the slug is what identifies
+	// the write now.
+	return top.Slug, &boardWarn{Task: task, Repo: top.Repo, RepoPath: top.RepoPath}, worklogID, nil
 }
 
 // resolveStoreTarget applies the same --id/--child rules mutateTaskOrChild

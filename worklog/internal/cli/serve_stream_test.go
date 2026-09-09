@@ -72,11 +72,14 @@ func TestFingerprintMovesOnARealChange(t *testing.T) {
 	}
 }
 
-// A write that sets a field to what it already held changes nothing the
-// board draws, so it must not fire. The file watcher got this for free:
-// an identical render was skipped and the mtime never moved. It is the
-// obligation that travelled through three tickets without ever landing as
-// a criterion, so it is pinned here.
+// A write that changes nothing does not reach the board, because it does
+// not happen: PutTicket recognises an unchanged aggregate and skips it, so
+// updated_at never moves and the fingerprint holds still.
+//
+// This is the obligation that travelled through three tickets without ever
+// landing as a criterion. The file watcher got it for free, because an
+// identical render was skipped and the mtime never moved; it is a guard in
+// the store now rather than a property of the projection.
 func TestFingerprintHoldsStillOnANoOpWrite(t *testing.T) {
 	fp, write := streamFixture(t)
 	before, err := fp()
@@ -292,8 +295,9 @@ func TestSSEClientSeesACLIWrite(t *testing.T) {
 		t.Fatal("a phase change never reached the SSE client")
 	}
 
-	// And a write that changes nothing stays silent. Generous window: the
-	// claim is that no event arrives, so waiting longer only strengthens it.
+	// And a write that changes nothing stays silent, because it does not
+	// happen. Generous window: the claim is that no event arrives, so
+	// waiting longer only strengthens it.
 	write(func(tk *store.Ticket) { tk.Phase = "verify" })
 	if got, ok := next(500 * time.Millisecond); ok {
 		t.Errorf("a no-op write produced an event: %s", got)

@@ -3,7 +3,6 @@ package devboard
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -24,17 +23,4 @@ func seed(t *testing.T, dir, repo, slug, content string) string {
 		t.Fatal(err)
 	}
 	return p
-}
-
-func TestFindAcrossRepos(t *testing.T) {
-	dir := withDataDir(t)
-	seed(t, dir, "repo-b", "tkt-6", "schema: 1\n")
-	p, err := Find("tkt-6")
-	if err != nil || !strings.HasSuffix(p, filepath.Join("repo-b", "tkt-6.yaml")) {
-		t.Fatalf("Find = %q, %v", p, err)
-	}
-	p, err = Find("absent")
-	if err != nil || p != "" {
-		t.Fatalf("Find(absent) = %q, %v", p, err)
-	}
 }

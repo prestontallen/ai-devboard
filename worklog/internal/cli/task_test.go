@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
@@ -63,44 +61,21 @@ func taskStoreFixture(t *testing.T, tracked bool) (dir string) {
 	return dir
 }
 
-// taskFilePath is where taskStoreFixture's "tkt" ticket's devboard file
-// lands, whether or not it exists yet.
-func taskFilePath(dir string) string {
-	return filepath.Join(dir, "devboard", devboard.RepoName(), "tkt.yaml")
-}
-
-func loadTask(t *testing.T, p string) devboard.Task {
+// loadTask reads taskStoreFixture's "tkt" ticket's board shape. It read
+// the rendered devboard YAML until that projection was retired
+// (adb-retire-devboard-dir-2).
+func loadTask(t *testing.T, dir string) devboard.Task {
 	t.Helper()
-	var task devboard.Task
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := yaml.Unmarshal(raw, &task); err != nil {
-		t.Fatal(err)
-	}
-	return task
-}
-
-func TestTaskNoopWhenDisabled(t *testing.T) {
-	t.Setenv("DEVBOARD_DATA", filepath.Join(t.TempDir(), "absent"))
-	_, stderr, err := runTask(t, "phase", "verify", "--id", "x")
-	if err != nil {
-		t.Fatalf("expected exit 0 no-op, got %v", err)
-	}
-	if !strings.Contains(stderr, "no-op") {
-		t.Fatalf("expected stderr notice, got %q", stderr)
-	}
+	return boardOf(t, dir, "tkt")
 }
 
 func TestTaskPhaseSetAndValidate(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "verify", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadTask(t, p).Phase; got != "verify" {
+	if got := loadTask(t, dir).Phase; got != "verify" {
 		t.Fatalf("phase = %q", got)
 	}
 	_, _, err := runTask(t, "phase", "bogus", "--id", "tkt")
@@ -111,7 +86,6 @@ func TestTaskPhaseSetAndValidate(t *testing.T) {
 
 func TestTaskPlanLifecycle(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	for _, item := range []string{"first step", "second step"} {
 		if _, _, err := runTask(t, "plan", "add", item, "--id", "tkt"); err != nil {
@@ -124,7 +98,7 @@ func TestTaskPlanLifecycle(t *testing.T) {
 	if _, _, err := runTask(t, "plan", "done", "1", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	task := loadTask(t, p)
+	task := loadTask(t, dir)
 	if len(task.Plan) != 2 || task.Plan[0].State != "done" || task.Plan[1].State != "pending" {
 		t.Fatalf("plan = %+v", task.Plan)
 	}
@@ -138,7 +112,6 @@ func TestTaskPlanLifecycle(t *testing.T) {
 
 func TestTaskScorecardAndDecisionAndCode(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	mustRun := func(args ...string) {
 		t.Helper()
@@ -151,7 +124,7 @@ func TestTaskScorecardAndDecisionAndCode(t *testing.T) {
 	mustRun("decision", "chose flock", "--why", "atomic rename alone races")
 	mustRun("code", "internal/devboard/devboard.go", "--lines", "1-20", "--lang", "go", "--note", "core")
 
-	task := loadTask(t, p)
+	task := loadTask(t, dir)
 	if task.Score[0].Status != "pass" || task.Score[0].Verify != "go test ./..." {
 		t.Fatalf("scorecard = %+v", task.Score)
 	}
@@ -169,28 +142,10 @@ func TestTaskJSONOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stdout, `"action"`) || !strings.Contains(stdout, "tkt.yaml") {
+	// `file` is the ticket slug. It named the rendered devboard YAML until
+	// that projection was retired (adb-retire-devboard-dir-2).
+	if !strings.Contains(stdout, `"action"`) || !strings.Contains(stdout, `"file": "tkt"`) {
 		t.Fatalf("json = %q", stdout)
-	}
-}
-
-func TestTaskUntrackRemovesOnlyTaskFile(t *testing.T) {
-	dir := taskStoreFixture(t, true)
-	p := taskFilePath(dir)
-	os.WriteFile(p+".lock", nil, 0o644)
-
-	if _, _, err := runTask(t, "untrack", "--id", "tkt"); err != nil {
-		t.Fatal(err)
-	}
-	for _, gone := range []string{p, p + ".lock"} {
-		if _, err := os.Stat(gone); !os.IsNotExist(err) {
-			t.Fatalf("%s still exists", gone)
-		}
-	}
-	// untracking again: clear error, exit 1
-	_, _, err := runTask(t, "untrack", "--id", "tkt")
-	if err == nil || !strings.Contains(err.Error(), "no task file") {
-		t.Fatalf("expected no-task-file error, got %v", err)
 	}
 }
 
@@ -218,45 +173,15 @@ func otherRepoTaskFile(t *testing.T, dir, id string) string {
 	return p
 }
 
-// TestTaskCrossRepoIDCollisionRefused, TestTaskCrossRepoIDCollisionJSONShape,
-// TestTaskForceBypassesCrossRepoCollision, TestTaskSameRepoReEntryNeedsNoForce,
-// and TestTaskMalformedFileFailsCleanly are deliberately gone (adb-cutover
-// M4 legacy retirement). All five drove an ordinary mutation (phase, not
-// untrack) against a bare devboard file with no backing worklog ticket,
-// to pin resolveTaskPath's filesystem-scan behavior: cross-repo-group
-// collision detection (with its --force escape hatch) and a malformed-YAML
-// parse error. Ordinary task<sub> mutations no longer resolve through
-// resolveTaskPath at all — they resolve against the store
-// (resolveStoreTarget, task_store.go), which has no repo-group concept
-// ("Repo attribution heals here rather than following cwd") and no file to
-// parse in the first place; a bare id with no matching ticket is just "no
-// ticket found". untrack is the one command that still resolves via
-// resolveTaskPath, and keeps its own cross-repo coverage in
-// TestTaskUntrackRefusesCrossRepoID below.
-func TestTaskUntrackRefusesCrossRepoID(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("DEVBOARD_DATA", dir)
-	otherPath := otherRepoTaskFile(t, dir, "shared-id") // allowCreate=false path
-
-	_, _, err := runTask(t, "untrack", "--id", "shared-id")
-	if err == nil || !strings.Contains(err.Error(), "different repo") {
-		t.Fatalf("expected cross-repo refusal on untrack (allowCreate=false), got %v", err)
-	}
-	if _, statErr := os.Stat(otherPath); statErr != nil {
-		t.Fatalf("other repo's file must survive a refused untrack: %v", statErr)
-	}
-}
-
 // research joins the phase enum between clarify and contract; the error
 // message is derived from the same list, so it can never go stale.
 func TestTaskPhaseResearch(t *testing.T) {
 	dir := taskStoreFixture(t, false)
-	p := taskFilePath(dir)
 
 	if _, _, err := runTask(t, "phase", "research", "--id", "tkt"); err != nil {
 		t.Fatalf("phase research: %v", err)
 	}
-	if got := loadTask(t, p).Phase; got != "research" {
+	if got := loadTask(t, dir).Phase; got != "research" {
 		t.Fatalf("phase = %q, want research", got)
 	}
 

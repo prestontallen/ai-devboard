@@ -2,8 +2,8 @@ package cli
 
 import (
 	"encoding/json"
-	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,13 +14,13 @@ import (
 // ---- criterion 1 ----
 
 func TestTaskScoutRecordsAttestation(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{Complexity: "high"})
+	dir, slug := amendFixture(t, store.Ticket{Complexity: "high"})
 
 	if _, _, err := runTask(t, "scout", "inline",
 		"--why", "subagents unavailable; walked the lenses single-pass", "--id", "tkt"); err != nil {
 		t.Fatalf("scout: %v", err)
 	}
-	got := loadAmendTask(t, path)
+	got := loadAmendTask(t, dir, slug)
 	if got.Scout == nil {
 		t.Fatal("no attestation recorded")
 	}
@@ -31,7 +31,7 @@ func TestTaskScoutRecordsAttestation(t *testing.T) {
 		t.Errorf("when = %q, want yyyy-mm-dd", got.Scout.When)
 	}
 
-	before, _ := os.ReadFile(path)
+	before := loadAmendTask(t, dir, slug)
 	for _, args := range [][]string{
 		{"scout", "bogus", "--why", "w", "--id", "tkt"},
 		{"scout", "ran", "--id", "tkt"}, // missing --why
@@ -41,9 +41,8 @@ func TestTaskScoutRecordsAttestation(t *testing.T) {
 		if !ok || ec.ExitCode() != 64 {
 			t.Errorf("%v exit = %v, want 64", args, ec)
 		}
-		after, _ := os.ReadFile(path)
-		if string(after) != string(before) {
-			t.Errorf("%v changed the file", args)
+		if after := loadAmendTask(t, dir, slug); !reflect.DeepEqual(after, before) {
+			t.Errorf("%v changed the ticket", args)
 		}
 	}
 }
@@ -51,7 +50,7 @@ func TestTaskScoutRecordsAttestation(t *testing.T) {
 // ---- criterion 2 ----
 
 func TestTaskScoutChildPathPersists(t *testing.T) {
-	_, path := amendEpicChildFixture(t, "high")
+	dir, slug := amendEpicChildFixture(t, "high")
 
 	if _, _, err := runTask(t, "scout", "ran", "--why", "4 lenses",
 		"--id", "epic", "--child", "kid"); err != nil {
@@ -59,7 +58,7 @@ func TestTaskScoutChildPathPersists(t *testing.T) {
 	}
 	kid := func() devboard.ChildEntry {
 		t.Helper()
-		for _, c := range loadAmendTask(t, path).Children {
+		for _, c := range loadAmendTask(t, dir, slug).Children {
 			if c.ID == "kid" {
 				return c
 			}
@@ -176,7 +175,7 @@ func TestScoutGateWarnsOnLateRating(t *testing.T) {
 // ---- criterion 7 ----
 
 func TestTaskAmendClearsAttestation(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{
+	dir, slug := amendFixture(t, store.Ticket{
 		Complexity: "medium", Phase: "implementing",
 		Scout: &store.Scout{Mode: "ran", Why: "against the old scope"},
 	})
@@ -186,7 +185,7 @@ func TestTaskAmendClearsAttestation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loadAmendTask(t, path); got.Scout != nil {
+	if got := loadAmendTask(t, dir, slug); got.Scout != nil {
 		t.Errorf("amend to high left the stale attestation: %+v", got.Scout)
 	}
 	if !strings.Contains(out, "worklog task scout") {
@@ -199,7 +198,7 @@ func TestTaskAmendClearsAttestation(t *testing.T) {
 }
 
 func TestTaskAmendKeepsAttestationWhenResultIsLow(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{
+	dir, slug := amendFixture(t, store.Ticket{
 		Complexity: "medium",
 		Scout:      &store.Scout{Mode: "ran", Why: "did it"},
 	})
@@ -208,7 +207,7 @@ func TestTaskAmendKeepsAttestationWhenResultIsLow(t *testing.T) {
 		"--complexity", "low", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadAmendTask(t, path); got.Scout == nil {
+	if got := loadAmendTask(t, dir, slug); got.Scout == nil {
 		t.Error("a low outcome needs no scout, so the record should stand")
 	}
 }
@@ -219,7 +218,7 @@ func TestTaskAmendKeepsAttestationWhenResultIsLow(t *testing.T) {
 // the requirement. It is replaced rather than deleted so the unknown-key
 // invariant it guarded is not lost with it.
 func TestTaskAmendClearsScoutAndKeepsOtherUnknownKeys(t *testing.T) {
-	_, path := amendFixture(t, store.Ticket{
+	dir, slug := amendFixture(t, store.Ticket{
 		Complexity: "low",
 		Scout:      &store.Scout{Mode: "ran", Why: "because"},
 		Extra:      map[string]any{"custom_field": "keep me"},
@@ -229,15 +228,12 @@ func TestTaskAmendClearsScoutAndKeepsOtherUnknownKeys(t *testing.T) {
 		"--complexity", "medium", "--id", "tkt"); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	got := loadAmendTask(t, dir, slug)
+	if got.Scout != nil {
+		t.Errorf("amend to medium must clear the attestation: %+v", got.Scout)
 	}
-	if strings.Contains(string(raw), "scout:") {
-		t.Errorf("amend to medium must clear the attestation:\n%s", raw)
-	}
-	if !strings.Contains(string(raw), "custom_field") {
-		t.Errorf("amend dropped an unrelated unknown key:\n%s", raw)
+	if _, ok := got.Extra["custom_field"]; !ok {
+		t.Errorf("amend dropped an unrelated unknown key: %+v", got.Extra)
 	}
 }
 
