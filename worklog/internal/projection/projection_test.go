@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/fs"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +15,6 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/model"
 	"github.com/prestontallen/ai-devboard/worklog/internal/parse"
 	"github.com/prestontallen/ai-devboard/worklog/internal/reindex"
-	"github.com/prestontallen/ai-devboard/worklog/internal/serve"
 	"github.com/prestontallen/ai-devboard/worklog/internal/standup"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store"
 	"github.com/prestontallen/ai-devboard/worklog/internal/store/memstore"
@@ -277,54 +274,6 @@ func TestOracles(t *testing.T) {
 		}
 	})
 
-	t.Run("serve payload", func(t *testing.T) {
-		srv := serve.New(serve.Config{
-			DataDir:    filepath.Join(dir, "devboard"),
-			WorklogDir: dir,
-		})
-		ts := httptest.NewServer(srv.Handler())
-		defer ts.Close()
-		resp, err := http.Get(ts.URL + "/api/tasks")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		var payload struct {
-			Repos []struct {
-				Repo  string `json:"repo"`
-				Tasks []struct {
-					ID    string         `json:"id"`
-					Notes string         `json:"notes"`
-					Task  map[string]any `json:"task"`
-				} `json:"tasks"`
-			} `json:"repos"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			t.Fatal(err)
-		}
-		if len(payload.Repos) != 1 || payload.Repos[0].Repo != "ai-devboard" {
-			t.Fatalf("groups: %+v", payload.Repos)
-		}
-		task := payload.Repos[0].Tasks[0]
-		if task.ID != "an-epic" || task.Task["custom_top"] != "survives" {
-			t.Errorf("unknown-key passthrough failed: %+v", task.Task)
-		}
-		if !strings.Contains(task.Notes, "scaffold comment stays verbatim") {
-			t.Error("notes join missing from payload")
-		}
-		kids, _ := task.Task["children"].([]any)
-		if len(kids) != 2 {
-			t.Fatalf("children: %v", task.Task["children"])
-		}
-		kid := kids[0].(map[string]any)
-		if kid["phase"] != "implementing" {
-			t.Errorf("child phase: %v", kid["phase"])
-		}
-		plan := kid["plan"].([]any)[0].(map[string]any)
-		if plan["surprise_key"] != "kept" {
-			t.Errorf("per-item unknown key lost in feed: %v", plan)
-		}
-	})
 }
 
 // TestBannerOnMarkdownSurfaces: the generated-file marker lands on the

@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http/httptest"
@@ -11,141 +12,172 @@ import (
 	"testing"
 )
 
-// The move handler used to rename the file and then tell the store, throwing
-// the store's error away. A failed sync therefore answered 200 with an empty
-// log and left disk and store disagreeing, which made every later CLI write
-// refuse (adb-archive-store-desync). These pin the three paths it now has.
+// Archiving is a pure store write. The handler used to rename the file and
+// then tell the store, throwing the store's error away: a failed sync
+// answered 200 with an empty log and left disk and store disagreeing,
+// after which every later CLI write refused (adb-archive-store-desync).
+// It then told the store first and renamed only what the store disowned.
+// Now it only tells the store, because the store owns where a board task
+// renders and the re-render is what places the file.
 
-func livePath(dir, repo, id string) string { return filepath.Join(dir, repo, id+".yaml") }
-func arcPath(dir, repo, id string) string  { return filepath.Join(dir, repo, "_archive", id+".yaml") }
-func gone(t *testing.T, p string) bool     { t.Helper(); _, err := os.Stat(p); return os.IsNotExist(err) }
-func present(t *testing.T, p string) bool  { t.Helper(); _, err := os.Stat(p); return err == nil }
-
-// TestMoveStoreOwnedDoesNotRename: when the store owns the task, the handler
-// must not touch the file. The re-render inside the hook is what moves it, so
-// a rename here would be a second writer racing the projection — the fault
-// this ticket exists to remove.
-func TestMoveStoreOwnedDoesNotRename(t *testing.T) {
-	s, dir := writeTestServer(t)
+// moveServer wires a stub hook and records what it was asked to do. The
+// data dir is a path that does not exist: nothing in this handler may read
+// one any more.
+func moveServer(t *testing.T, hook func(repo, id string, archived bool) (bool, error)) (*Server, *[]string) {
+	t.Helper()
 	var calls []string
+	s := New(Config{
+		WorklogDir: t.TempDir(),
+	})
 	s.MutateBoard = func(repo, id string, archived bool) (bool, error) {
-		calls = append(calls, id)
-		// Stand in for the projection: the store places the file.
-		os.MkdirAll(filepath.Dir(arcPath(dir, repo, id)), 0o755)
-		body, _ := os.ReadFile(livePath(dir, repo, id))
-		os.WriteFile(arcPath(dir, repo, id), body, 0o644)
-		os.Remove(livePath(dir, repo, id))
-		return true, nil
+		verb := "unarchive"
+		if archived {
+			verb = "archive"
+		}
+		calls = append(calls, verb+" "+repo+"/"+id)
+		return hook(repo, id, archived)
 	}
+	return s, &calls
+}
+
+func moveResp(t *testing.T, s *Server, path, body string) (int, string) {
+	t.Helper()
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
-
-	resp := post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`)
+	resp := post(t, ts.URL+path, "application/json", body)
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("got %d want 200", resp.StatusCode)
-	}
-	if len(calls) != 1 {
-		t.Fatalf("store hook called %d times, want 1", len(calls))
-	}
-	if !present(t, arcPath(dir, "alpha", "live")) || !gone(t, livePath(dir, "alpha", "live")) {
-		t.Error("the task did not end up archived exactly once")
+	var buf bytes.Buffer
+	buf.ReadFrom(resp.Body)
+	return resp.StatusCode, buf.String()
+}
+
+// The happy path in both directions: the store is told exactly once, with
+// the right direction, and the version bumps synchronously so an open
+// board redraws without waiting out the scan interval.
+func TestArchiveAndUnarchiveAreStoreWrites(t *testing.T) {
+	for _, c := range []struct{ path, want string }{
+		{"/api/archive", "archive alpha/live"},
+		{"/api/unarchive", "unarchive alpha/live"},
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			s, calls := moveServer(t, func(string, string, bool) (bool, error) { return true, nil })
+			before := s.currentVersion()
+			code, body := moveResp(t, s, c.path, `{"repo":"alpha","id":"live"}`)
+			if code != 200 {
+				t.Fatalf("status %d: %s", code, body)
+			}
+			var got map[string]string
+			json.Unmarshal([]byte(body), &got)
+			status := "archived"
+			if c.path == "/api/unarchive" {
+				status = "restored"
+			}
+			if got["status"] != status || got["repo"] != "alpha" || got["id"] != "live" {
+				t.Errorf("body = %v", got)
+			}
+			if len(*calls) != 1 || (*calls)[0] != c.want {
+				t.Errorf("store calls = %v, want one %q", *calls, c.want)
+			}
+			if s.currentVersion() != before+1 {
+				t.Error("a move must bump the version synchronously")
+			}
+		})
 	}
 }
 
-// TestMoveUnownedStillRenames: a hand-dropped producer file has no ticket, so
-// the projection will never place it. Renaming is the only archive mechanism
-// it has, and devboard/README.md calls those files supported.
-func TestMoveUnownedStillRenames(t *testing.T) {
-	s, dir := writeTestServer(t)
-	s.MutateBoard = func(string, string, bool) (bool, error) { return false, nil }
-	ts := httptest.NewServer(s.Handler())
-	defer ts.Close()
-
-	resp := post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("got %d want 200", resp.StatusCode)
+// An id the store has no board-tracked ticket for is a 404. Two shapes
+// reach it: no ticket at all, and a ticket that exists but is not
+// board-tracked. The second is the subtler one — it resolves, so setting a
+// field on it would look like success while no card ever existed to move.
+// Both answer the same, because from the board's side neither has a card.
+func TestUnownedIdIsNotFound(t *testing.T) {
+	s, calls := moveServer(t, func(string, string, bool) (bool, error) { return false, nil })
+	code, body := moveResp(t, s, "/api/archive", `{"repo":"alpha","id":"ghost"}`)
+	if code != 404 {
+		t.Fatalf("status %d, want 404: %s", code, body)
 	}
-	if !present(t, arcPath(dir, "alpha", "live")) || !gone(t, livePath(dir, "alpha", "live")) {
-		t.Error("an unowned file must still be moved by the handler")
+	if !strings.Contains(body, "task not found") {
+		t.Errorf("body = %s", body)
+	}
+	if len(*calls) != 1 {
+		t.Errorf("the store should still have been asked once, got %v", *calls)
 	}
 }
 
-// TestMoveSurfacesStoreFailure is the heart of it: a failing store write must
-// not produce a half-applied move, and must not be answered with 200.
-func TestMoveSurfacesStoreFailure(t *testing.T) {
-	s, dir := writeTestServer(t)
-	s.MutateBoard = func(string, string, bool) (bool, error) {
+// A failing store write is a failure: no 200, the cause in the body and in
+// the log, and nothing changed.
+func TestStoreFailureIsSurfaced(t *testing.T) {
+	s, _ := moveServer(t, func(string, string, bool) (bool, error) {
 		return false, errors.New("store is sad")
-	}
-	ts := httptest.NewServer(s.Handler())
-	defer ts.Close()
-
+	})
 	var logged bytes.Buffer
 	log.SetOutput(&logged)
 	defer log.SetOutput(os.Stderr)
 
-	resp := post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`)
-	defer resp.Body.Close()
-	body := new(bytes.Buffer)
-	body.ReadFrom(resp.Body)
-
-	if resp.StatusCode < 400 {
-		t.Errorf("got %d, want a failure status — a silent 200 is the bug", resp.StatusCode)
+	code, body := moveResp(t, s, "/api/archive", `{"repo":"alpha","id":"live"}`)
+	if code != 500 {
+		t.Errorf("status %d, want 500 — a silent 200 is the bug this replaced", code)
 	}
-	if !strings.Contains(body.String(), "store is sad") {
-		t.Errorf("the response hid the cause: %s", body.String())
+	if !strings.Contains(body, "store is sad") {
+		t.Errorf("the response hid the cause: %s", body)
 	}
 	if !strings.Contains(logged.String(), "store is sad") {
 		t.Errorf("the failure was not logged: %q", logged.String())
 	}
-	// The file must be exactly where it started.
-	if !present(t, livePath(dir, "alpha", "live")) {
-		t.Error("the file moved despite the failure — a half-applied move")
-	}
-	if present(t, arcPath(dir, "alpha", "live")) {
-		t.Error("a copy was left in _archive/ after a failed move")
-	}
 }
 
-// With no hook wired at all (a bare server, as the tests elsewhere build),
-// the handler keeps its original rename behaviour.
-func TestMoveWithoutAHookRenames(t *testing.T) {
-	s, dir := writeTestServer(t)
-	ts := httptest.NewServer(s.Handler())
-	defer ts.Close()
-
-	resp := post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 || !present(t, arcPath(dir, "alpha", "live")) {
-		t.Errorf("status %d; archived=%v", resp.StatusCode, present(t, arcPath(dir, "alpha", "live")))
-	}
-}
-
-// The unarchive direction takes the same three paths; this pins the store-owned
-// one, since it is the direction that has to clear _archive/.
-func TestUnarchiveStoreOwned(t *testing.T) {
-	s, dir := writeTestServer(t)
-	s.MutateBoard = func(repo, id string, archived bool) (bool, error) {
-		if archived {
-			t.Errorf("expected an unarchive, got archived=true")
-		}
-		os.MkdirAll(filepath.Dir(livePath(dir, repo, id)), 0o755)
-		body, _ := os.ReadFile(arcPath(dir, repo, id))
-		os.WriteFile(livePath(dir, repo, id), body, 0o644)
-		os.Remove(arcPath(dir, repo, id))
+// While the corpus is frozen for adoption, a dashboard click must not write
+// through the conversion. serve is freeze-exempt as a process — the
+// sentinel is checked once at CLI start and this handler runs per request,
+// long after — so it checks for itself. Adoption on live data has had to
+// stop the service by hand until now.
+func TestFrozenCorpusRefusesTheWrite(t *testing.T) {
+	s, calls := moveServer(t, func(string, string, bool) (bool, error) {
+		t.Error("the store was written while the corpus was frozen")
 		return true, nil
+	})
+	if err := os.WriteFile(filepath.Join(s.cfg.WorklogDir, ".freeze"),
+		[]byte(`{"pid":1,"reason":"adopt"}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	ts := httptest.NewServer(s.Handler())
-	defer ts.Close()
+	code, body := moveResp(t, s, "/api/archive", `{"repo":"alpha","id":"live"}`)
+	if code != 503 {
+		t.Fatalf("status %d, want 503: %s", code, body)
+	}
+	if !strings.Contains(body, "frozen") {
+		t.Errorf("body = %s", body)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the store was asked anyway: %v", *calls)
+	}
+}
 
-	resp := post(t, ts.URL+"/api/unarchive", "application/json", `{"repo":"alpha","id":"old"}`)
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Fatalf("got %d want 200", resp.StatusCode)
+// A corrupt or unreadable sentinel fails safe as frozen rather than as
+// open, matching freeze.Check's own rule.
+func TestUnreadableFreezeSentinelRefusesTheWrite(t *testing.T) {
+	s, calls := moveServer(t, func(string, string, bool) (bool, error) { return true, nil })
+	if err := os.WriteFile(filepath.Join(s.cfg.WorklogDir, ".freeze"),
+		[]byte("not json at all"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !present(t, livePath(dir, "alpha", "old")) || !gone(t, arcPath(dir, "alpha", "old")) {
-		t.Error("un-archiving left the file in the wrong place, or in both")
+	if code, _ := moveResp(t, s, "/api/archive", `{"repo":"alpha","id":"live"}`); code != 503 {
+		t.Errorf("status %d, want 503 — a sentinel that cannot be read must not read as open", code)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the store was asked anyway: %v", *calls)
+	}
+}
+
+// A server built with no hook cannot write. That is a wiring fault, not a
+// client error, so it is a 500 and it says so rather than answering 200
+// having done nothing.
+func TestMissingHookIsAServerError(t *testing.T) {
+	s := New(Config{WorklogDir: t.TempDir()})
+	code, body := moveResp(t, s, "/api/archive", `{"repo":"alpha","id":"live"}`)
+	if code != 500 {
+		t.Fatalf("status %d, want 500: %s", code, body)
+	}
+	if !strings.Contains(body, "not wired") {
+		t.Errorf("body = %s", body)
 	}
 }

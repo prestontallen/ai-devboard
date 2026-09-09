@@ -1,6 +1,0 @@
-title: Unknown keys ride through
-type: chore
-custom_top_level: hello
-another_unknown:
-  nested: true
-  list: [1, 2, 3]

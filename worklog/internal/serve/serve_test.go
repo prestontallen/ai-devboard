@@ -4,185 +4,46 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
 	"github.com/prestontallen/ai-devboard/worklog/internal/yamlx"
 )
 
-func corpusServer(t *testing.T) *Server {
+// fixtureServer is a server with a small store-fed board behind it, for
+// tests whose subject is routing, assets or transport rather than payload
+// content. It reads nothing from disk: the payload comes from the
+// injected snapshot, and the data dir exists only for the change watcher.
+func fixtureServer(t *testing.T) *Server {
 	t.Helper()
-	return New(Config{
-		DataDir:      "testdata/corpus/data",
-		WorklogDir:   "testdata/corpus/worklog",
+	srv := New(Config{
+		WorklogDir:   t.TempDir(),
 		ScanInterval: time.Second,
 	})
+	srv.LoadStoreSnapshot = func() (*StoreSnapshot, error) {
+		return &StoreSnapshot{Tasks: []StoreTask{task("demo", "a-card", false, 0)}}, nil
+	}
+	return srv
 }
 
-// normalize applies the golden capture's normalizations: version/generated
-// and per-task mtime zeroed, error text (unfrozen) collapsed to "<any>".
-func normalize(payload map[string]any) {
-	payload["version"] = float64(0)
-	payload["generated"] = float64(0)
-	// server.py had no backlog key and capture_golden.py cannot produce one,
-	// so folding it into the golden would turn a capture into a part-authored
-	// fixture. Dropping it here keeps the golden's claim exact — everything
-	// server.py produced is unchanged — and the key is covered by
-	// TestBacklogPayload and friends instead (adb-lens-backlog).
-	delete(payload, "backlog")
-	repos, _ := payload["repos"].([]any)
-	for _, r := range repos {
-		repo, _ := r.(map[string]any)
-		tasks, _ := repo["tasks"].([]any)
-		for _, tv := range tasks {
-			task, _ := tv.(map[string]any)
-			if _, ok := task["mtime"]; ok {
-				task["mtime"] = float64(0)
-			}
-			if _, ok := task["error"]; ok {
-				task["error"] = "<any>"
-			}
-		}
-	}
-}
-
-// TestGoldenTasks: the port's /api/tasks is structurally identical to the
-// response server.py produced over the same corpus (golden_tasks.json,
-// captured via testdata/capture_golden.py).
-func TestGoldenTasks(t *testing.T) {
-	raw, err := os.ReadFile("testdata/golden_tasks.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var want map[string]any
-	if err := json.Unmarshal(raw, &want); err != nil {
-		t.Fatal(err)
-	}
-
-	body, err := json.Marshal(corpusServer(t).allTasks())
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(body, &got); err != nil {
-		t.Fatal(err)
-	}
-	normalize(got)
-
-	if !reflect.DeepEqual(got, want) {
-		gj, _ := json.MarshalIndent(got, "", " ")
-		wj, _ := json.MarshalIndent(want, "", " ")
-		t.Errorf("payload diverges from server.py golden\ngot:\n%s\nwant:\n%s", gj, wj)
-	}
-}
-
-// TestUnknownKeys: keys the schema structs don't know must reach the JSON
-// verbatim — the frontend renders them in its "Other" table.
-func TestUnknownKeys(t *testing.T) {
-	body, _ := json.Marshal(corpusServer(t).allTasks())
-	for _, needle := range []string{`"custom_top_level":"hello"`, `"another_unknown"`, `"nested":true`} {
-		if !bytes.Contains(body, []byte(needle)) {
-			t.Errorf("unknown-key passthrough missing %s", needle)
-		}
-	}
-}
-
-// TestLayout: missing and empty data dirs serve an empty board; feedback and
-// repos are [] (never null) so the frontend's iteration doesn't crash.
-func TestLayout(t *testing.T) {
-	for _, dir := range []string{filepath.Join(t.TempDir(), "missing"), t.TempDir()} {
-		s := New(Config{DataDir: dir, WorklogDir: filepath.Join(dir, "nope")})
-		body, err := json.Marshal(s.allTasks())
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, needle := range []string{`"repos":[]`, `"feedback":[]`} {
-			if !bytes.Contains(body, []byte(needle)) {
-				t.Errorf("dir %s: want %s in %s", dir, needle, body)
-			}
-		}
-	}
-}
-
-// TestErrorCard: an unparseable file degrades to an error card with no task
-// or mtime, and NaN/Inf scalars are sanitized so encoding never fails.
-func TestErrorCard(t *testing.T) {
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "r")
-	os.MkdirAll(repo, 0o755)
-	os.WriteFile(filepath.Join(repo, "bad.yaml"), []byte("a: [unclosed\n"), 0o644)
-	os.WriteFile(filepath.Join(repo, "nan.yaml"), []byte("title: n\nf: .nan\ng: .inf\n"), 0o644)
-	os.WriteFile(filepath.Join(repo, "scalar.yaml"), []byte("just a string\n"), 0o644)
-
-	s := New(Config{DataDir: dir, WorklogDir: dir})
-	body, err := json.Marshal(s.allTasks())
-	if err != nil {
-		t.Fatalf("NaN/Inf must not break encoding: %v", err)
-	}
-	var got map[string]any
-	json.Unmarshal(body, &got)
-	tasks := got["repos"].([]any)[0].(map[string]any)["tasks"].([]any)
-	byID := map[string]map[string]any{}
-	for _, tv := range tasks {
-		task := tv.(map[string]any)
-		byID[task["id"].(string)] = task
-	}
-	for _, id := range []string{"bad", "scalar"} {
-		card := byID[id]
-		if card["error"] == nil {
-			t.Errorf("%s: want error card, got %v", id, card)
-		}
-		if _, ok := card["task"]; ok {
-			t.Errorf("%s: error card must not carry task", id)
-		}
-		if _, ok := card["mtime"]; ok {
-			t.Errorf("%s: error card must not carry mtime", id)
-		}
-	}
-	nan := byID["nan"]["task"].(map[string]any)
-	if nan["f"] != ".nan" || nan["g"] != ".inf" {
-		t.Errorf("NaN/Inf must sanitize to raw text, got f=%v g=%v", nan["f"], nan["g"])
-	}
-}
-
-func writeTestServer(t *testing.T) (*Server, string) {
-	t.Helper()
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "alpha")
-	os.MkdirAll(filepath.Join(repo, archiveDir), 0o755)
-	os.WriteFile(filepath.Join(repo, "live.yaml"), []byte("title: live\n"), 0o644)
-	os.WriteFile(filepath.Join(repo, archiveDir, "old.yaml"), []byte("title: old\n"), 0o644)
-	return New(Config{DataDir: dir, WorklogDir: dir}), dir
-}
-
-func post(t *testing.T, url, ctype, body string) *http.Response {
-	t.Helper()
-	resp, err := http.Post(url, ctype, strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { resp.Body.Close() })
-	return resp
-}
-
-// TestWriteEndpoints: the full status-code surface of the archive endpoints,
-// as frozen in devboard/API.md.
+// TestWriteEndpoints: the request-shape half of the archive endpoints, as
+// frozen in devboard/API.md. What the store does with a well-formed
+// request is move_owner_test.go's subject; this is everything decided
+// before the store is asked.
 func TestWriteEndpoints(t *testing.T) {
-	s, dir := writeTestServer(t)
+	s, _ := moveServer(t, func(string, string, bool) (bool, error) { return true, nil })
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
 
-	cases := []struct {
+	for _, c := range []struct {
 		name, path, ctype, body string
 		want                    int
 	}{
@@ -191,10 +52,9 @@ func TestWriteEndpoints(t *testing.T) {
 		{"traversal id", "/api/archive", "application/json", `{"repo":"alpha","id":"../x"}`, 400},
 		{"empty repo", "/api/archive", "application/json", `{"id":"live"}`, 400},
 		{"dot repo", "/api/archive", "application/json", `{"repo":".hidden","id":"live"}`, 400},
-		{"missing task", "/api/archive", "application/json", `{"repo":"alpha","id":"ghost"}`, 404},
 		{"unknown post", "/api/nope", "application/json", `{}`, 404},
-	}
-	for _, c := range cases {
+		{"well formed", "/api/archive", "application/json", `{"repo":"alpha","id":"live"}`, 200},
+	} {
 		if resp := post(t, ts.URL+c.path, c.ctype, c.body); resp.StatusCode != c.want {
 			t.Errorf("%s: got %d want %d", c.name, resp.StatusCode, c.want)
 		}
@@ -209,87 +69,22 @@ func TestWriteEndpoints(t *testing.T) {
 	if resp.StatusCode != 405 || resp.Header.Get("Content-Type") != "application/json" {
 		t.Errorf("GET archive: got %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
-
-	// 409: destination already exists.
-	os.WriteFile(filepath.Join(dir, "alpha", archiveDir, "live.yaml"), []byte("title: clash\n"), 0o644)
-	if resp := post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`); resp.StatusCode != 409 {
-		t.Errorf("conflict: got %d want 409", resp.StatusCode)
-	}
-	os.Remove(filepath.Join(dir, "alpha", archiveDir, "live.yaml"))
-
-	// Happy path: archive moves the file, bumps the version, returns the body.
-	before := s.currentVersion()
-	resp = post(t, ts.URL+"/api/archive", "application/json", `{"repo":"alpha","id":"live"}`)
-	if resp.StatusCode != 200 {
-		t.Fatalf("archive: got %d", resp.StatusCode)
-	}
-	var moved map[string]string
-	json.NewDecoder(resp.Body).Decode(&moved)
-	want := map[string]string{"status": "archived", "repo": "alpha", "id": "live"}
-	if !reflect.DeepEqual(moved, want) {
-		t.Errorf("archive body: got %v want %v", moved, want)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "alpha", archiveDir, "live.yaml")); err != nil {
-		t.Error("file not moved to archive")
-	}
-	if s.currentVersion() != before+1 {
-		t.Error("archive must bump the version synchronously")
-	}
-
-	// And back.
-	resp = post(t, ts.URL+"/api/unarchive", "application/json", `{"repo":"alpha","id":"live"}`)
-	if resp.StatusCode != 200 {
-		t.Fatalf("unarchive: got %d", resp.StatusCode)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "alpha", "live.yaml")); err != nil {
-		t.Error("file not restored")
-	}
 }
 
-// TestArchiveLock: a second move blocks on the same .lock file the first
-// one holds, so two concurrent archive/unarchive requests can't race
-// each other's rename.
-func TestArchiveLock(t *testing.T) {
-	s, dir := writeTestServer(t)
-	ts := httptest.NewServer(s.Handler())
-	defer ts.Close()
-
-	release, err := lockfile.Acquire(filepath.Join(dir, "alpha", "live.yaml.lock"))
+func post(t *testing.T, url, ctype, body string) *http.Response {
+	t.Helper()
+	resp, err := http.Post(url, ctype, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan int, 1)
-	go func() {
-		resp, err := http.Post(ts.URL+"/api/archive", "application/json",
-			strings.NewReader(`{"repo":"alpha","id":"live"}`))
-		if err != nil {
-			done <- -1
-			return
-		}
-		defer resp.Body.Close()
-		done <- resp.StatusCode
-	}()
-	select {
-	case code := <-done:
-		release()
-		t.Fatalf("move completed (%d) while the lock was held", code)
-	case <-time.After(150 * time.Millisecond):
-	}
-	release()
-	select {
-	case code := <-done:
-		if code != 200 {
-			t.Fatalf("post-release move: got %d", code)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("move never completed after lock release")
-	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
 }
 
 // TestSSE: immediate version event on connect, an event per bump, and a
 // keepalive comment on idle.
 func TestSSE(t *testing.T) {
-	s := corpusServer(t)
+	s := fixtureServer(t)
 	s.keepalive = 200 * time.Millisecond
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
@@ -336,34 +131,75 @@ func TestSSE(t *testing.T) {
 	}
 }
 
-// TestWatcher: a task-file edit bumps the version within the scan interval.
-func TestWatcher(t *testing.T) {
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "r")
-	os.MkdirAll(repo, 0o755)
-	target := filepath.Join(repo, "t.yaml")
-	os.WriteFile(target, []byte("title: a\n"), 0o644)
-
-	s := New(Config{DataDir: dir, WorklogDir: dir, ScanInterval: 20 * time.Millisecond})
+// The change stream follows the store now, not a file tree. A fingerprint
+// that moves is an event; one that does not is silence, which is the whole
+// point — a write that changes nothing used to produce no event because an
+// identical render left the file's mtime alone, and that behavior has to
+// survive the move to the store.
+func TestWatcherFollowsTheStoreFingerprint(t *testing.T) {
+	var fp string
+	s := New(Config{ScanInterval: 5 * time.Millisecond})
+	s.StoreFingerprint = func() (string, error) { return fp, nil }
 	stop := make(chan struct{})
 	defer close(stop)
 	go s.Watch(stop)
 
-	time.Sleep(60 * time.Millisecond)
-	os.WriteFile(target, []byte("title: changed longer\n"), 0o644)
+	settle := func() { time.Sleep(60 * time.Millisecond) }
+	settle()
+	if v := s.currentVersion(); v != 0 {
+		t.Fatalf("an unchanged fingerprint bumped the version to %d", v)
+	}
+
+	fp = "changed"
 	deadline := time.Now().Add(2 * time.Second)
 	for s.currentVersion() == 0 {
 		if time.Now().After(deadline) {
-			t.Fatal("watcher never noticed the edit")
+			t.Fatal("the watcher never noticed the change")
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+	}
+	at := s.currentVersion()
+
+	// Holding still must not keep firing.
+	settle()
+	if s.currentVersion() != at {
+		t.Errorf("the version kept moving with a steady fingerprint: %d -> %d", at, s.currentVersion())
+	}
+}
+
+// A read failure is not a change. Reporting one would make every open
+// board refetch whenever the database was briefly busy.
+func TestWatcherTreatsAReadFailureAsNoChange(t *testing.T) {
+	s := New(Config{ScanInterval: 5 * time.Millisecond})
+	s.StoreFingerprint = func() (string, error) { return "", errors.New("database is busy") }
+	stop := make(chan struct{})
+	defer close(stop)
+	go s.Watch(stop)
+	time.Sleep(60 * time.Millisecond)
+	if v := s.currentVersion(); v != 0 {
+		t.Errorf("a failing fingerprint bumped the version to %d", v)
+	}
+}
+
+// With no hook wired the watcher exits rather than spinning; the board
+// still serves and a dashboard write still bumps directly.
+func TestWatcherWithoutAHookStops(t *testing.T) {
+	s := New(Config{ScanInterval: time.Millisecond})
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { s.Watch(stop); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(stop)
+		t.Fatal("Watch did not return with no fingerprint hook")
 	}
 }
 
 // TestIndexAndRoutes: / and /index.html serve the embedded page; nothing
 // else serves content. Since adb-lens-cutover that page is the Lens Board.
 func TestIndexAndRoutes(t *testing.T) {
-	ts := httptest.NewServer(corpusServer(t).Handler())
+	ts := httptest.NewServer(fixtureServer(t).Handler())
 	defer ts.Close()
 
 	disk, err := os.ReadFile("static/app.html")
@@ -424,7 +260,7 @@ func TestIndexAndRoutes(t *testing.T) {
 // because the target carries none, which is not something the server can
 // do for it.
 func TestNextRedirects(t *testing.T) {
-	ts := httptest.NewServer(corpusServer(t).Handler())
+	ts := httptest.NewServer(fixtureServer(t).Handler())
 	defer ts.Close()
 
 	// The default client follows redirects, which would hide the status.
@@ -459,7 +295,7 @@ func TestNextRedirects(t *testing.T) {
 // shell that lost the map would fail to boot in the browser while every Go
 // test stayed green.
 func TestAppShell(t *testing.T) {
-	ts := httptest.NewServer(corpusServer(t).Handler())
+	ts := httptest.NewServer(fixtureServer(t).Handler())
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/")
@@ -502,7 +338,7 @@ func TestAppShell(t *testing.T) {
 // TestAssetServing: every vendored file is reachable, typed, and identical
 // to what is committed on disk.
 func TestAssetServing(t *testing.T) {
-	ts := httptest.NewServer(corpusServer(t).Handler())
+	ts := httptest.NewServer(fixtureServer(t).Handler())
 	defer ts.Close()
 
 	cases := []struct{ url, disk, ctype string }{
@@ -548,7 +384,7 @@ func TestAssetServing(t *testing.T) {
 // "/assets/../x" before it ever leaves the process, so going through one
 // would test the client rather than the server.
 func TestAssetTraversal(t *testing.T) {
-	h := corpusServer(t).Handler()
+	h := fixtureServer(t).Handler()
 	for _, path := range []string{
 		"/assets/../server.go",
 		"/assets/../../go.mod",
@@ -582,7 +418,7 @@ func TestAssetTraversal(t *testing.T) {
 // redirects" over a route that must redirect would have meant deleting the
 // invariant instead of narrowing it.
 func TestMethodInvariants(t *testing.T) {
-	h := corpusServer(t).Handler()
+	h := fixtureServer(t).Handler()
 	for _, path := range []string{"/next", "/assets/vendor/htm.module.js", "/assets/"} {
 		for _, method := range []string{http.MethodHead, http.MethodPut, http.MethodDelete} {
 			req := httptest.NewRequest(method, path, nil)
@@ -720,54 +556,26 @@ func TestVendorChecksums(t *testing.T) {
 
 // TestConfig: env overrides and native defaults.
 func TestConfig(t *testing.T) {
-	for _, v := range []string{"DEVBOARD_DATA", "DEVBOARD_WORKLOG", "DEVBOARD_PORT", "DEVBOARD_SCAN_INTERVAL"} {
+	for _, v := range []string{"DEVBOARD_WORKLOG", "DEVBOARD_PORT", "DEVBOARD_SCAN_INTERVAL"} {
 		t.Setenv(v, "")
 		os.Unsetenv(v)
 	}
 	cfg := ConfigFromEnv()
-	home, _ := os.UserHomeDir()
 	if cfg.Port != 8484 || cfg.Addr != "0.0.0.0" || cfg.ScanInterval != time.Second {
 		t.Errorf("defaults: %+v", cfg)
-	}
-	if cfg.DataDir != filepath.Join(home, ".local", "share", "devboard") {
-		t.Errorf("data default: %s", cfg.DataDir)
 	}
 	if !strings.HasSuffix(cfg.WorklogDir, filepath.Join(".local", "share", "worklog")) &&
 		os.Getenv("XDG_DATA_HOME") == "" {
 		t.Errorf("worklog default: %s", cfg.WorklogDir)
 	}
 
-	t.Setenv("DEVBOARD_DATA", "/tmp/x")
 	t.Setenv("DEVBOARD_WORKLOG", "/tmp/y")
 	t.Setenv("DEVBOARD_PORT", "9090")
 	t.Setenv("DEVBOARD_SCAN_INTERVAL", "0.5")
 	cfg = ConfigFromEnv()
-	if cfg.DataDir != "/tmp/x" || cfg.WorklogDir != "/tmp/y" || cfg.Port != 9090 ||
+	if cfg.WorklogDir != "/tmp/y" || cfg.Port != 9090 ||
 		cfg.ScanInterval != 500*time.Millisecond {
 		t.Errorf("env overrides: %+v", cfg)
-	}
-}
-
-// TestFeedbackParity: the payload's feedback entries keep the shape the old
-// server sent — `resolved` present even when 0 (Entry's omitempty must not
-// leak through), and the migrated test_server.py payload pins hold.
-func TestFeedbackParity(t *testing.T) {
-	body, _ := json.Marshal(corpusServer(t).allTasks())
-	var got map[string]any
-	json.Unmarshal(body, &got)
-	fb := got["feedback"].([]any)
-	if len(fb) != 2 {
-		t.Fatalf("feedback entries: %d", len(fb))
-	}
-	first := fb[0].(map[string]any)
-	if v, ok := first["resolved"]; !ok || v != float64(0) {
-		t.Errorf("resolved must be present-with-zero on unresolved entries, got %v (present=%v)", v, ok)
-	}
-	if first["signal"] != "missing-feature" {
-		t.Errorf("signal: %v", first["signal"])
-	}
-	if strings.Contains(first["excerpt"].(string), "after an unknown field") {
-		t.Error("unknown ** field leaked following lines into the excerpt")
 	}
 }
 
@@ -813,122 +621,6 @@ func TestYAML12Bools(t *testing.T) {
 	}
 }
 
-// TestNotesEmbedding: task.worklog pulls the notes file in; unsafe values
-// don't escape the notes dir.
-func TestNotesEmbedding(t *testing.T) {
-	body, _ := json.Marshal(corpusServer(t).allTasks())
-	if !bytes.Contains(body, []byte("Body of the note.")) {
-		t.Error("notes content missing from payload")
-	}
-
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "r")
-	os.MkdirAll(repo, 0o755)
-	os.WriteFile(filepath.Join(repo, "evil.yaml"), []byte("worklog: ../secret\n"), 0o644)
-	os.MkdirAll(filepath.Join(dir, "notes"), 0o755)
-	os.WriteFile(filepath.Join(dir, "secret.md"), []byte("TOPSECRET"), 0o644)
-	s := New(Config{DataDir: dir, WorklogDir: dir})
-	body, _ = json.Marshal(s.allTasks())
-	if bytes.Contains(body, []byte("TOPSECRET")) {
-		t.Error("worklog traversal read outside notes/")
-	}
-}
-
-// epicWithChildren writes one epic file whose children carry the given ids,
-// alongside a notes dir, and returns a server over both.
-func epicWithChildren(t *testing.T, ids ...string) *Server {
-	t.Helper()
-	dir := t.TempDir()
-	repo := filepath.Join(dir, "r")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var b strings.Builder
-	b.WriteString("title: An epic\ntype: epic\nchildren:\n")
-	for _, id := range ids {
-		fmt.Fprintf(&b, "  - id: %q\n    title: A child\n    state: active\n", id)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "epic.yaml"), []byte(b.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(dir, "notes"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return New(Config{DataDir: dir, WorklogDir: dir})
-}
-
-// childEntries pulls the epic's children out of a marshalled payload.
-func childEntries(t *testing.T, body []byte) []map[string]any {
-	t.Helper()
-	var payload struct {
-		Repos []struct {
-			Tasks []struct {
-				Task struct {
-					Children []map[string]any `json:"children"`
-				} `json:"task"`
-			} `json:"tasks"`
-		} `json:"repos"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	var out []map[string]any
-	for _, r := range payload.Repos {
-		for _, task := range r.Tasks {
-			out = append(out, task.Task.Children...)
-		}
-	}
-	return out
-}
-
-// TestChildNotesEmbedding: a child of an epic has no task file and so no
-// top-level `worklog` key, but it is a worklog ticket in its own right and its
-// id is the notes filename (schema.md, "Epic files"). adb-lens-epic-detail.
-func TestChildNotesEmbedding(t *testing.T) {
-	s := epicWithChildren(t, "kid-1", "kid-2")
-	notes := filepath.Join(s.cfg.WorklogDir, "notes")
-	os.WriteFile(filepath.Join(notes, "kid-1.md"), []byte("Body of the child note."), 0o644)
-
-	body, _ := json.Marshal(s.allTasks())
-	if !bytes.Contains(body, []byte("Body of the child note.")) {
-		t.Error("child notes missing from payload")
-	}
-	// A child with no notes file gets no key at all — an empty string would
-	// render as a notes fold with nothing in it.
-	for _, c := range childEntries(t, body) {
-		if c["id"] == "kid-2" {
-			if _, ok := c["notes"]; ok {
-				t.Error("a child with no notes file was given a notes key")
-			}
-		}
-	}
-}
-
-// backlogOf pulls the backlog sections out of a payload, keyed by name.
-func backlogOf(t *testing.T, s *Server) map[string][]map[string]any {
-	t.Helper()
-	body, err := json.Marshal(s.allTasks())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload struct {
-		Backlog []struct {
-			Name  string           `json:"name"`
-			Items []map[string]any `json:"items"`
-		} `json:"backlog"`
-		Repos    []any `json:"repos"`
-		Feedback []any `json:"feedback"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	out := map[string][]map[string]any{}
-	for _, s := range payload.Backlog {
-		out[s.Name] = s.Items
-	}
-	return out
-}
-
 const backlogWorkMD = `# Worklog — active
 
 ## Now
@@ -955,114 +647,3 @@ const backlogWorkMD = `# Worklog — active
 - [ ] **LATER** — Something for later
   - **ID**: later
 `
-
-// backlogServer serves a corpus whose WORK.md is the fixture above.
-func backlogServer(t *testing.T, workMD string) *Server {
-	t.Helper()
-	dir := t.TempDir()
-	if workMD != "" {
-		if err := os.WriteFile(filepath.Join(dir, "WORK.md"), []byte(workMD), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return New(Config{DataDir: filepath.Join(dir, "data"), WorklogDir: dir})
-}
-
-// TestBacklogPayload: WORK.md's not-yet-started sections reach /api/tasks,
-// which is the half the backlog chip could not exist without. adb-lens-backlog.
-func TestBacklogPayload(t *testing.T) {
-	got := backlogOf(t, backlogServer(t, backlogWorkMD))
-
-	if len(got["Next"]) != 2 {
-		t.Fatalf("Next carried %d items, want 2: %+v", len(got["Next"]), got["Next"])
-	}
-	first := got["Next"][0]
-	for field, want := range map[string]any{
-		"id":         "nole-docker-net",
-		"title":      "Fix Docker container internet access",
-		"repo":       "prestontallen/nole",
-		"acceptance": "ollama pull succeeds inside the container",
-	} {
-		if first[field] != want {
-			t.Errorf("Next[0].%s = %v, want %v", field, first[field], want)
-		}
-	}
-	if tags, _ := first["tags"].([]any); len(tags) != 2 {
-		t.Errorf("Next[0].tags = %v, want two", first["tags"])
-	}
-	if got["Next"][1]["type"] != "epic" {
-		t.Errorf("an epic lost its type: %v", got["Next"][1]["type"])
-	}
-	if len(got["Someday"]) != 1 {
-		t.Errorf("Someday carried %d items, want 1", len(got["Someday"]))
-	}
-	// Now and Waiting are absent by construction: started work already
-	// reaches the board as task files, and counting it twice would double it
-	// against the Board chip.
-	if _, ok := got["Now"]; ok {
-		t.Error("Now reached the backlog; started work is already on the board")
-	}
-}
-
-// TestBacklogDegrades: the backlog is one lens of seven, so a missing or
-// unreadable WORK.md must cost the backlog and nothing else.
-func TestBacklogDegrades(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		workMD string
-	}{
-		{"absent", ""},
-		{"unparseable", "\x00\x00 not a work file at all\n## \n- [ ] **"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := backlogServer(t, tc.workMD)
-			got := backlogOf(t, s)
-			for _, section := range []string{"Next", "Someday"} {
-				items, ok := got[section]
-				if !ok {
-					t.Fatalf("%s section missing entirely; want present and empty", section)
-				}
-				if len(items) != 0 {
-					t.Errorf("%s = %+v, want empty", section, items)
-				}
-			}
-			// The rest of the payload has to survive intact.
-			body, _ := json.Marshal(s.allTasks())
-			var whole map[string]any
-			if err := json.Unmarshal(body, &whole); err != nil {
-				t.Fatal(err)
-			}
-			for _, key := range []string{"repos", "feedback", "version", "generated"} {
-				if _, ok := whole[key]; !ok {
-					t.Errorf("%q vanished from the payload", key)
-				}
-			}
-		})
-	}
-}
-
-// TestBacklogSectionsAlwaysPresent: the lens draws a group per section, so an
-// empty section is rendered as empty rather than being absent — otherwise the
-// two cases are indistinguishable to the front end.
-func TestBacklogSectionsAlwaysPresent(t *testing.T) {
-	got := backlogOf(t, backlogServer(t, "# Worklog — active\n\n## Next\n\n## Someday\n"))
-	for _, section := range []string{"Next", "Someday"} {
-		if items, ok := got[section]; !ok || items == nil {
-			t.Errorf("%s = %v, want present and empty", section, got[section])
-		}
-	}
-}
-
-// TestChildNotesTraversal: a child id reaches a filesystem path, out of a file
-// anyone can hand-edit, so it takes the same guard the worklog key does.
-func TestChildNotesTraversal(t *testing.T) {
-	for _, id := range []string{"../secret", "..", "a/b", `a\b`} {
-		s := epicWithChildren(t, id)
-		os.WriteFile(filepath.Join(s.cfg.WorklogDir, "secret.md"), []byte("TOPSECRET"), 0o644)
-		os.WriteFile(filepath.Join(s.cfg.WorklogDir, "notes", "secret.md"), []byte("TOPSECRET"), 0o644)
-		body, _ := json.Marshal(s.allTasks())
-		if bytes.Contains(body, []byte("TOPSECRET")) {
-			t.Errorf("child id %q read a file it should not reach", id)
-		}
-	}
-}

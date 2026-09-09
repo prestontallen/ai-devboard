@@ -52,13 +52,6 @@ writes under it; the data dir is written for exactly one operation:
 archiving (see below). The response shape is frozen as the frontend
 contract — see [API.md](API.md).
 
-Fallback: a Docker deployment (multi-stage build of the same binary) for
-setups that prefer container supervision:
-
-```sh
-docker compose -f devboard/compose.yaml up --build -d   # from the repo root
-```
-
 ## Directory layout
 
 ```
@@ -69,12 +62,7 @@ docker compose -f devboard/compose.yaml up --build -d   # from the repo root
       <task-slug>.yaml
 ```
 
-See [schema.md](schema.md) for the task file format (`schema: 1`), and
-[examples/](examples/) for ready-made files — try it out with:
-
-```sh
-cp -r examples/* ~/.local/share/devboard/
-```
+See [schema.md](schema.md) for the task file format (`schema: 1`).
 
 ## Archive / un-archive
 

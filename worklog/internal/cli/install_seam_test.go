@@ -35,7 +35,7 @@ func TestNoRealSystemCommandsUnderTest(t *testing.T) {
 		t.Fatal("devboardRunning did not go through the seam — it is shelling out directly")
 	}
 	for _, c := range saw {
-		if !strings.HasPrefix(c, "systemctl") && !strings.HasPrefix(c, "docker") {
+		if !strings.HasPrefix(c, "systemctl") {
 			t.Errorf("unexpected command through the seam: %q", c)
 		}
 	}
@@ -60,7 +60,7 @@ func TestUnitFileDoesNotNameTheTestBinary(t *testing.T) {
 // TestSeamCoversEveryServiceCall walks the source for direct exec.Command
 // calls naming a service manager, which would bypass the seam entirely.
 func TestSeamCoversEveryServiceCall(t *testing.T) {
-	out, err := exec.Command("grep", "-n", `exec\.Command("systemctl"\|exec\.Command("docker"`, "install.go").CombinedOutput()
+	out, err := exec.Command("grep", "-n", `exec\.Command("systemctl"`, "install.go").CombinedOutput()
 	if err == nil && len(out) > 0 {
 		t.Errorf("direct service calls bypass runCommand:\n%s", out)
 	}

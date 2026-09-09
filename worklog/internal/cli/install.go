@@ -609,9 +609,12 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 	}
 }
 
-// devboardRunning reports whether something already serves the board: the
-// systemd user unit, or a container (the compose fallback, or the retired
-// Python deployment still supervising itself).
+// devboardRunning reports whether something already serves the board.
+//
+// Only the systemd user unit now. The compose fallback was deleted with
+// the store-direct read path: it mounted the devboard dir and the worklog
+// dir but never the store beside them, so a container would have served an
+// empty board the moment the payload came from tickets.
 // runCommand is the seam for shelling out to the machine's service manager.
 //
 // It exists because the devboard paths call real systemctl and real docker,
@@ -637,12 +640,6 @@ func devboardRunning() bool {
 	if state, err := runCommand("systemctl", "--user", "is-active", "devboard.service"); err == nil &&
 		strings.TrimSpace(string(state)) == "active" {
 		return true
-	}
-	if _, err := exec.LookPath("docker"); err == nil {
-		ps, _ := runCommand("docker", "ps", "--format", "{{.Names}}")
-		if strings.Contains(string(ps), "devboard") {
-			return true
-		}
 	}
 	return false
 }

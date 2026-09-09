@@ -10,12 +10,11 @@ The point of the freeze: the storage layer under this server will change
 (adb-worklog-rewrite). The JSON below is the boundary — storage swaps must
 be invisible on this surface.
 
-That change is underway. With `DEVBOARD_STORE_SHADOW=1`, every
-`/api/tasks` request also builds the payload from the store's own
-rendering and logs where the two disagree (`worklog/internal/serve/shadow.go`,
-adb-store-serve-shadow). Shadow mode is invisible on this surface: the
-response is always the file-built payload, byte for byte, flag set or not
-— a shadow failure is contained to a log line, never a 500.
+That change has landed for reads. The payload is built from the worklog
+store's tickets, not by walking rendered files
+(`worklog/internal/serve/store_tasks.go`, adb-serve-store-direct). The
+shape below did not move: it is pinned by a fixture captured from the
+file-walking builder before it was deleted.
 
 ## Surface
 
@@ -29,7 +28,7 @@ every directory path under `/assets/`, which never lists its contents.
 | `/assets/<path>` | GET | one embedded front-end module, typed by extension |
 | `/api/tasks` | GET | full payload, see below |
 | `/events` | GET | SSE change stream |
-| `/api/archive`, `/api/unarchive` | POST | move a task file into/out of `<repo>/_archive/` |
+| `/api/archive`, `/api/unarchive` | POST | archive or restore a ticket |
 
 All responses carry `Cache-Control: no-store`, `/assets/*` included. GET on
 the POST endpoints is 405 `{"error": "POST only"}`. Any other method is 501
@@ -91,45 +90,48 @@ and 404s, as `/static/index.html` always has.
 }
 ```
 
-- Repo grouping is the directory name under the data dir, sorted; hidden
-  dirs skipped; repos with zero task files omitted.
-- Task files: `*.yaml|*.yml|*.json`, sorted by filename, live files first,
-  then `_archive/` files (each with `"archived": true`).
+- Repo grouping is the ticket's own repo attribution, sorted. A ticket
+  with no repo groups under `unknown`. A group with no tickets is omitted.
+- Entries within a group: live first, then archived (each with
+  `"archived": true`), sorted by ticket id inside each half.
+- Only board-tracked tickets appear, and a child of an epic never appears
+  on its own — it is carried inside its epic's `children`.
 
 Task entry:
 
 ```
 {
-  "file":     "<path relative to data dir>",
-  "id":       "<filename without extension>",
+  "file":     "<repo>/[_archive/]<id>.yaml",
+  "id":       "<ticket id>",
   "archived": true,            // archived entries only
-  "task":     { ...raw parsed file... },
+  "task":     { ...the ticket's board shape... },
   "mtime":    <float, unix seconds>,
-  "notes":    "<full notes file text>",   // when task.worklog names one
-  "error":    "<message>"      // parse failure: no task/mtime, entry stays
+  "notes":    "<full notes text>"         // when the ticket has notes
 }
 ```
 
-- **`task` is the raw parsed file, passed through generically.** Unknown
-  keys at any level reach the frontend verbatim (the detail view renders
-  unrecognized top-level keys in its "Other" table). The server never
-  decodes into the schema structs. **Additive policy:** new keys may appear
-  at any time; consumers must ignore what they don't know. This is how
-  schema growth (new phases, new fields) ships without a contract rev.
-- `notes` appears when `task.worklog` is a plain name (no separator, no
-  `..`) and `<worklog>/notes/<name>.md` is readable.
-- **`task.children[].notes`** appears on the same terms, keyed by the child's
-  `id` instead: a child of an epic has no task file and so no `worklog` key of
-  its own, but it is a worklog ticket whose id IS the notes filename (see
-  `schema.md`, "Epic files"). The id runs through the same plain-name guard,
-  because it comes out of the same hand-editable file. A child with no
-  readable notes file carries no `notes` key at all, never an empty string.
-- A file that fails to parse yields an error card: `error` present,
-  `task`/`mtime` absent, the board renders it as a card — never a 500.
+- **`task` is the ticket's board shape, passed through generically.**
+  Unknown keys at any level reach the frontend verbatim (the detail view
+  renders unrecognized top-level keys in its "Other" table). The server
+  never decodes into the schema structs. **Additive policy:** new keys may
+  appear at any time; consumers must ignore what they don't know. This is
+  how schema growth (new phases, new fields) ships without a contract rev.
+- `file` is composed from the ticket's repo, archived state and id. It
+  names no file the server reads; the frontend uses it as a card-title
+  fallback and it is kept because the shape is frozen.
+- `mtime` is when the ticket's board shape last changed, which is the
+  instant the rendered file's mtime used to report.
+- `notes` appears when the ticket has a notes file. **`task.children[].notes`**
+  appears on the same terms, keyed by the child's id: a child of an epic
+  has no entry of its own but is a worklog ticket with its own notes. A
+  ticket or child with no notes carries no `notes` key at all, never an
+  empty string.
+- There is no `error` entry. Error cards existed because a hand-dropped
+  file could fail to parse; a ticket cannot, so the key is gone. A store
+  that cannot be read is a `500`, not a card.
 
-Backlog section (parsed from `<worklog>/WORK.md` by the same package the
-CLI parses it with) — the not-yet-started work the task files cannot carry,
-since a task file exists only once a ticket is started:
+Backlog section — the not-yet-started work the board's cards cannot carry,
+since a ticket reaches the board only once it is started:
 
 ```
 { "name": "Next", "items": [ { ...model.Block... } ] }
@@ -144,13 +146,13 @@ since a task file exists only once a ticket is started:
   distinguishable.
 - An item is a `model.Block`: `id`, `title`, `type`, `repo`, `tags`,
   `acceptance`, `parent`, `links` and the rest of the WORK.md metadata.
-- A missing, unreadable or malformed `WORK.md` yields empty sections, never
-  an error — the backlog is one lens of seven and must not take the payload
-  down. Unstarted children of an epic never appear, because `WORK.md`
-  carries only an epic's *active* children.
+- Items come from the tickets in each section, in the human's own order,
+  through the one ticket-to-block correspondence `internal/blockmap` holds.
+  An empty section yields an empty list, never an error — the backlog is
+  one lens of seven and must not take the payload down. Unstarted children
+  of an epic never appear; only an epic's *active* children do.
 
-Feedback entry (parsed from `<worklog>/FEEDBACK.md` by the same package
-the CLI writes it with):
+Feedback entry (read with the same parser the CLI writes it with):
 
 ```
 { "timestamp": <int>, "signal": "<slug>", "trigger": "...",
@@ -175,10 +177,16 @@ is a side panel and must never take down the page.
 ## /events (SSE)
 
 - Unnamed `message` events, body `data: {"version": N}`.
-- One event immediately on connect; one whenever watched files change
-  (task files live+archived, worklog `notes/*.md`, `FEEDBACK.md` —
-  polled at `DEVBOARD_SCAN_INTERVAL`, default 1s); one synchronously
+- One event immediately on connect; one whenever the store changes
+  (polled at `DEVBOARD_SCAN_INTERVAL`, default 1s); one synchronously
   after a successful archive/unarchive POST.
+- **A write that changes nothing produces no event.** The signal is a
+  content fingerprint of what the board draws, not a timestamp: setting a
+  field to the value it already held rewrites rows and moves the database
+  file, and neither is a change here. Notes and friction entries are part
+  of that content, so appending either does fire.
+- A read failure is not a change, so a briefly busy database does not make
+  every open board refetch.
 - `: keepalive` comment after 15s idle. No `retry:`/`id:` fields;
   clients rely on EventSource auto-reconnect.
 
@@ -193,31 +201,32 @@ JSON forces a preflight this server never answers).
 | 415 | Content-Type not application/json | `{"error": "Content-Type must be application/json"}` |
 | 400 | invalid JSON | `{"error": "invalid JSON body"}` |
 | 400 | repo/id empty, dot-prefixed, containing `..`, `/` or `\` | `{"error": "invalid repo or id"}` |
-| 404 | no matching task file on the source side | `{"error": "task not found"}` |
-| 409 | destination file already exists (rename path only) | `{"error": "destination already exists"}` |
-| 500 | the move failed, and nothing was moved | `{"error": "move failed: ..."}` |
-| 200 | moved | `{"status": "archived"\|"restored", "repo": ..., "id": ...}` |
+| 404 | the store board-tracks no ticket under that id | `{"error": "task not found"}` |
+| 503 | the worklog is frozen for adoption | `{"error": "the worklog is frozen for adoption; try again when it finishes"}` |
+| 500 | the store write failed, or no store hook is wired | `{"error": "move failed: ..."}` |
+| 200 | recorded | `{"status": "archived"\|"restored", "repo": ..., "id": ...}` |
 
-The move runs under `<repo>/<file>.lock` — the same flock
-`devboard.Mutate` takes — so a concurrent CLI mutation cannot race it.
+**The write is a store write and nothing else.** Archiving sets a field on
+the ticket; the re-render is what places the file. The endpoint reads no
+directory, takes no lock and renames nothing. It used to rename and then
+tell the store, and a failed sync answered `200` with an empty log and
+left disk and store disagreeing, after which every store-backed CLI write
+refused (`adb-archive-store-desync`). Two writers deciding where one file
+lives is the fault; there is now one.
 
-**Who moves the file.** For a task the worklog store board-tracks, the
-store does: archiving sets a field, and re-rendering writes the YAML at
-the archived path and clears the live one. The endpoint never renames
-those, because two writers deciding where one file lives is what made a
-failed sync leave disk and store disagreeing — after which every
-store-backed CLI write refused (`adb-archive-store-desync`).
+**`404` covers two shapes**: an id with no ticket at all, and a ticket that
+exists but is not board-tracked. The second resolves, so setting a field on
+it would look like success while no card ever existed to move. From the
+board's side neither has a card, so both answer the same.
 
-A file the store does not board-track is renamed by the endpoint instead.
-That path is unreachable on a live corpus since adb-retire-devboard-dir:
-every board file is store-derived, so nothing lands in it. The `409` it
-can answer is likewise unreachable. It is removed with the store-direct
-read path (`adb-serve-store-direct`).
+**`503` is the adoption freeze.** `worklog adopt --commit` takes a sentinel
+that CLI processes check at start-up. The server is exempt as a process and
+this handler runs per request, long after, so it checks for itself — until
+this landed, adopting on live data meant stopping the service by hand. A
+sentinel that cannot be read counts as frozen.
 
-**A failed move is a failure.** If the store write fails the response is
-`500`, the cause is logged, and the file has not moved. There is no
-partial outcome: either the task is archived in both places or in
-neither.
+**A failed write is a failure.** The response is `500`, the cause is logged,
+and nothing changed. There is no partial outcome.
 
 ## Configuration
 
@@ -225,10 +234,12 @@ Env vars, unchanged from the Python server, with native defaults:
 
 | Var | Default |
 |---|---|
-| `DEVBOARD_DATA` | `~/.local/share/devboard` |
 | `DEVBOARD_WORKLOG` | `~/.local/share/worklog` (honors `XDG_DATA_HOME`) |
 | `DEVBOARD_PORT` | `8484` |
 | `DEVBOARD_SCAN_INTERVAL` | `1.0` (seconds) |
 
-Binds `0.0.0.0` — the board is used over LAN. The server reads the
-worklog dir and never writes under it.
+`DEVBOARD_DATA` is gone: the server has no data directory to point at.
+
+Binds `0.0.0.0` — the board is used over LAN. The store beside the worklog
+dir is the only thing the server reads, and archiving is the only thing it
+writes.

@@ -1,13 +1,13 @@
 // Package serve is the devboard dashboard server: the Go port of the retired
 // devboard/server.py, behavior-frozen against the /api/tasks contract
-// (devboard/API.md). Layout: <DataDir>/<repo>/<task>.{yaml,yml,json}, with
-// <repo>/_archive/ for archived tasks. The two POST endpoints are the only
-// writes, and both are a single validated rename under a .lock file — the
-// server never writes under the worklog dir. adb-cutover retired
-// devboard.Mutate, the CLI-side writer that used to share this .lock
-// convention; store-backed writes (internal/cli) now serialize through
-// SQLite instead, so this .lock only ever coordinates concurrent server
-// requests with each other, not with the CLI.
+// (devboard/API.md).
+//
+// It reads and writes the worklog store, through three hooks the CLI layer
+// injects, and touches no file of its own: the payload is built from
+// tickets, the change stream is a store fingerprint, and the two POST
+// endpoints record an archive on a ticket. The rendered YAML tree it used
+// to walk is now output nothing here consumes
+// (adb-serve-store-direct).
 package serve
 
 import (
@@ -25,8 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prestontallen/ai-devboard/worklog/internal/devboard"
-	"github.com/prestontallen/ai-devboard/worklog/internal/lockfile"
+	"github.com/prestontallen/ai-devboard/worklog/internal/freeze"
 )
 
 // staticFS carries every front-end byte the binary serves. The plain
@@ -68,29 +67,20 @@ func mustSub(dir string) fs.FS {
 // DEVBOARD_* env vars the Python server honored, with native defaults
 // replacing the container paths.
 type Config struct {
-	DataDir      string
 	WorklogDir   string
 	Addr         string
 	Port         int
 	ScanInterval time.Duration
-
-	// StoreShadow mirrors DEVBOARD_STORE_SHADOW=1: on every /api/tasks
-	// request, additionally build the payload from the store's own
-	// rendering (LoadStoreSnapshot) and log where the two disagree. The
-	// response is always the file-built payload — shadow mode is invisible
-	// on the wire (devboard/API.md). Resolved once here rather than read
-	// from the env per request, so embedded Servers built with an explicit
-	// Config (verify, the projection tests) are immune to the process
-	// environment (adb-store-serve-shadow).
-	StoreShadow bool
 }
 
-// ConfigFromEnv resolves DEVBOARD_DATA, DEVBOARD_WORKLOG, DEVBOARD_PORT and
-// DEVBOARD_SCAN_INTERVAL, defaulting to the native data dirs and 0.0.0.0:8484
-// (the board is used over LAN).
+// ConfigFromEnv resolves DEVBOARD_WORKLOG, DEVBOARD_PORT and
+// DEVBOARD_SCAN_INTERVAL, defaulting to the native worklog dir and
+// 0.0.0.0:8484 (the board is used over LAN).
+//
+// DEVBOARD_DATA is gone: the server no longer has a data directory to
+// point at.
 func ConfigFromEnv() Config {
 	cfg := Config{
-		DataDir:      devboard.DataDir(),
 		WorklogDir:   defaultWorklogDir(),
 		Addr:         "0.0.0.0",
 		Port:         8484,
@@ -109,7 +99,6 @@ func ConfigFromEnv() Config {
 			cfg.ScanInterval = time.Duration(f * float64(time.Second))
 		}
 	}
-	cfg.StoreShadow = os.Getenv("DEVBOARD_STORE_SHADOW") == "1"
 	return cfg
 }
 
@@ -154,32 +143,31 @@ type Server struct {
 	// with the file untouched (adb-archive-store-desync).
 	MutateBoard func(repo, id string, archived bool) (owned bool, err error)
 
-	// LoadStoreSnapshot, if set and cfg.StoreShadow is on, is called once
-	// per /api/tasks request to fetch the store's own rendering of the
-	// projection surfaces. Injected by the CLI layer for the same cycle
-	// reason as MutateBoard. It must open and close the store within the
-	// call — a held handle breaks `worklog migrate`'s db swap — and a
-	// (nil, nil) return means "no store on this machine": the shadow is
-	// then a silent no-op, and the loader must never have created the
-	// database, because an empty store minted by a read makes every CLI
-	// write refuse from then on (adb-store-serve-shadow).
+	// StoreFingerprint is called once per scan interval and answers
+	// "has anything the board draws changed since last time". Injected by
+	// the CLI layer for the same reasons as the two hooks above.
+	//
+	// Cheap is the whole requirement: this runs every second forever. The
+	// CLI's implementation stats the database files as a gate and only
+	// reads and hashes when that moves, because a full read of the live
+	// store measured 80ms and a stat measures nothing. The gate alone will
+	// not do, since a write that changes no value still rewrites rows and
+	// moves the file.
+	StoreFingerprint func() (string, error)
+
+	// LoadStoreSnapshot is called once per /api/tasks request for
+	// everything the payload needs. Injected by the CLI layer for the same
+	// cycle reason as MutateBoard, and because the composition root is the
+	// one place that constructs a store (adb-store-boundary).
+	//
+	// Two obligations outlive the shadow that introduced them. It must
+	// open and close the store within the call: a held handle stops the
+	// WAL checkpointing, and `store relocate` then refuses forever. And a
+	// (nil, nil) return means "no store on this machine", which must be
+	// answered without having created the database — sqlitestore.Open
+	// creates and migrates, and an empty store minted by a board read
+	// makes every CLI write refuse from then on.
 	LoadStoreSnapshot func() (*StoreSnapshot, error)
-
-	// shadowLastErr and shadowLastReport dedupe shadow logging: a
-	// persistent failure or an unchanged disagreement logs once, not once
-	// per poll of a board that refetches on every change event.
-	shadowLastErr    string
-	shadowLastReport string
-}
-
-// StoreSnapshot is the store's own rendering of every projection surface,
-// as projection.RenderSnapshot returns it: Files maps slash-separated
-// relative path (WORK.md, notes/<slug>.md, devboard/<repo>/<slug>.yaml,
-// FEEDBACK.md) to content, and BoardMTimes maps each board file to the
-// BoardRenderedAt stamp of the ticket it renders, unix nanoseconds.
-type StoreSnapshot struct {
-	Files       map[string][]byte
-	BoardMTimes map[string]int64
 }
 
 func New(cfg Config) *Server {
@@ -207,60 +195,23 @@ func (s *Server) versionAndNotify() (int64, chan struct{}) {
 	return s.ver, s.notify
 }
 
-type fileSig struct {
-	mtimeNS int64
-	size    int64
-}
-
-// snapshot maps watched-file path -> (mtime, size): task files (live and
-// archived), worklog notes and FEEDBACK.md, so note edits and friction
-// changes hot-reload too.
-func (s *Server) snapshot() map[string]fileSig {
-	snap := make(map[string]fileSig)
-	addDir := func(dir string) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return
-		}
-		for _, e := range entries {
-			if !e.Type().IsRegular() || !hasTaskExt(e.Name()) {
-				continue
-			}
-			if info, err := e.Info(); err == nil {
-				snap[filepath.Join(dir, e.Name())] = fileSig{info.ModTime().UnixNano(), info.Size()}
-			}
-		}
-	}
-	if repos, err := os.ReadDir(s.cfg.DataDir); err == nil {
-		for _, repo := range repos {
-			if !repo.IsDir() || strings.HasPrefix(repo.Name(), ".") {
-				continue
-			}
-			addDir(filepath.Join(s.cfg.DataDir, repo.Name()))
-			addDir(filepath.Join(s.cfg.DataDir, repo.Name(), archiveDir))
-		}
-	}
-	fpath := filepath.Join(s.cfg.WorklogDir, "FEEDBACK.md")
-	if info, err := os.Stat(fpath); err == nil {
-		snap[fpath] = fileSig{info.ModTime().UnixNano(), info.Size()}
-	}
-	if notes, err := os.ReadDir(filepath.Join(s.cfg.WorklogDir, "notes")); err == nil {
-		for _, e := range notes {
-			if !e.Type().IsRegular() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
-				continue
-			}
-			if info, err := e.Info(); err == nil {
-				p := filepath.Join(s.cfg.WorklogDir, "notes", e.Name())
-				snap[p] = fileSig{info.ModTime().UnixNano(), info.Size()}
-			}
-		}
-	}
-	return snap
-}
-
 // Watch polls for changes until stop is closed. Run it in a goroutine.
+//
+// The signal is the store's, not the file tree's. It used to be a stat of
+// every rendered board file plus notes/ and FEEDBACK.md, which worked only
+// because every CLI write rendered those files; the store is the source
+// now, and the projection is disposable output that a later ticket deletes
+// outright.
+//
+// StoreFingerprint answers "has anything the board draws changed", and the
+// contract it has to meet is that a write which changes nothing produces
+// no event. The file watcher got that for free, because an identical
+// render was skipped and the mtime never moved.
 func (s *Server) Watch(stop <-chan struct{}) {
-	prev := s.snapshot()
+	if s.StoreFingerprint == nil {
+		return // nothing to watch; the board still serves and still bumps on writes
+	}
+	prev, _ := s.StoreFingerprint()
 	ticker := time.NewTicker(s.cfg.ScanInterval)
 	defer ticker.Stop()
 	for {
@@ -268,25 +219,18 @@ func (s *Server) Watch(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			cur := s.snapshot()
-			if !sigsEqual(prev, cur) {
+			cur, err := s.StoreFingerprint()
+			if err != nil {
+				// A transient read failure is not a change. Reporting one
+				// would make every client refetch on a busy database.
+				continue
+			}
+			if cur != prev {
 				prev = cur
 				s.bump()
 			}
 		}
 	}
-}
-
-func sigsEqual(a, b map[string]fileSig) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if bv, ok := b[k]; !ok || bv != v {
-			return false
-		}
-	}
-	return true
 }
 
 // Handler returns the full route surface: /, /index.html, /next,
@@ -310,12 +254,12 @@ func (s *Server) Handler() http.Handler {
 			case "/next", "/next/":
 				http.Redirect(w, r, "/", http.StatusPermanentRedirect)
 			case "/api/tasks":
-				payload := s.allTasks()
-				// Shadow mode is invisible on the wire: it runs after the
-				// real payload is built, never modifies it, and its own
-				// failures are contained (devboard/API.md stays frozen).
-				if s.cfg.StoreShadow && s.LoadStoreSnapshot != nil {
-					s.runShadow(payload)
+				payload, err := s.tasksPayload()
+				if err != nil {
+					log.Printf("devboard: reading the store failed: %v", err)
+					s.send(w, http.StatusInternalServerError,
+						[]byte(`{"error": "store read failed"}`), "application/json")
+					return
 				}
 				body, err := json.Marshal(payload)
 				if err != nil {
@@ -413,15 +357,21 @@ func assetType(name string) string {
 	}
 }
 
-// move renames a task file into or out of <repo>/_archive/ — the server's
-// only write. The strict application/json requirement doubles as the CSRF
-// guard: cross-origin JSON needs a preflight this server never answers.
-// The rename runs under the live task path's .lock. That no longer
-// coordinates with the CLI (adb-cutover moved store-backed writes onto
-// SQLite's own locking, retiring devboard.Mutate's file lock as their
-// side of this), so a concurrent CLI mutation re-rendering the same file
-// is a real, uncoordinated race — pre-existing since the M3 flip, not
-// something this cleanup pass introduced or fixed.
+// move records an archive or unarchive in the store — the server's only
+// write, and now a pure one: it moves no file, takes no lock, and reads
+// no directory.
+//
+// The strict application/json requirement doubles as the CSRF guard:
+// cross-origin JSON needs a preflight this server never answers.
+//
+// The store decides the outcome, because it owns where a board task
+// renders: setting the flag IS the move, and the re-render places the
+// file. The rename this handler used to perform was a second writer
+// racing that projection, which is what left disk and store disagreeing
+// and made every later CLI write refuse (adb-archive-store-desync). The
+// `.lock` it took coordinated only server requests with each other, never
+// with the CLI, which moved onto SQLite's own locking at cutover; the
+// store's write gate now serializes both.
 func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 	ctype := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
 	if ctype != "application/json" {
@@ -437,6 +387,9 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 		s.send(w, http.StatusBadRequest, []byte(`{"error": "invalid JSON body"}`), "application/json")
 		return
 	}
+	// Neither value reaches a filesystem path any more. The shape check
+	// stays because it is frozen wire behavior and because a slug that
+	// looks like a path is a malformed request whichever way it is used.
 	for _, part := range []string{body.Repo, body.ID} {
 		if part == "" || strings.HasPrefix(part, ".") || strings.Contains(part, "..") ||
 			strings.ContainsAny(part, `/\`) {
@@ -444,70 +397,37 @@ func (s *Server) move(w http.ResponseWriter, r *http.Request, toArchive bool) {
 			return
 		}
 	}
-	repoDir := filepath.Join(s.cfg.DataDir, body.Repo)
-	arcDir := filepath.Join(repoDir, archiveDir)
-	srcDir, dstDir := repoDir, arcDir
-	if !toArchive {
-		srcDir, dstDir = arcDir, repoDir
-	}
-	var fname string
-	for _, f := range sortedTaskFiles(srcDir) {
-		if strings.TrimSuffix(f, filepath.Ext(f)) == body.ID {
-			fname = f
-			break
-		}
-	}
-	if fname == "" {
-		s.send(w, http.StatusNotFound, []byte(`{"error": "task not found"}`), "application/json")
+
+	// Adoption's freeze stops CLI writes by a sentinel checked once at
+	// process start. serve is exempt as a process and this handler runs
+	// per request, long afterwards — so a dashboard click could write
+	// straight through a conversion that was mid-flight. It checks for
+	// itself instead. An unreadable sentinel fails safe as frozen.
+	if frozen, _, err := freeze.Check(s.cfg.WorklogDir); frozen || err != nil {
+		s.send(w, http.StatusServiceUnavailable,
+			[]byte(`{"error": "the worklog is frozen for adoption; try again when it finishes"}`),
+			"application/json")
 		return
 	}
 
-	unlock, err := lockfile.Acquire(filepath.Join(repoDir, fname) + ".lock")
+	if s.MutateBoard == nil {
+		log.Print("devboard: a board write arrived with no store hook wired")
+		s.send(w, http.StatusInternalServerError,
+			[]byte(`{"error": "board writes are not wired"}`), "application/json")
+		return
+	}
+	owned, err := s.MutateBoard(body.Repo, body.ID, toArchive)
 	if err != nil {
+		log.Printf("devboard: recording %s of %s/%s failed, nothing changed: %v",
+			moveVerb(toArchive), body.Repo, body.ID, err)
 		s.sendMoveErr(w, err)
 		return
 	}
-	defer unlock()
-
-	src, dst := filepath.Join(srcDir, fname), filepath.Join(dstDir, fname)
-	// Re-check under the lock: a concurrent mutation may have moved either side.
-	if _, err := os.Stat(src); err != nil {
+	// Not owned means the store has no board-tracked ticket under that id.
+	// From the board's side that is the same as not existing: it has no
+	// card, so there is nothing to archive.
+	if !owned {
 		s.send(w, http.StatusNotFound, []byte(`{"error": "task not found"}`), "application/json")
-		return
-	}
-
-	// The store first, and before anything on disk moves. When it owns the
-	// task the re-render performs the move, so there is nothing left to
-	// rename; when it does not, or when it fails, the file has not been
-	// touched and the request is answered honestly.
-	if s.MutateBoard != nil {
-		owned, err := s.MutateBoard(body.Repo, body.ID, toArchive)
-		if err != nil {
-			log.Printf("devboard: recording %s of %s/%s failed, file left in place: %v",
-				moveVerb(toArchive), body.Repo, body.ID, err)
-			s.sendMoveErr(w, err)
-			return
-		}
-		if owned {
-			s.bump()
-			s.sendMoveOK(w, body.Repo, body.ID, toArchive)
-			return
-		}
-	}
-
-	// No store ticket board-tracks this file, so the projection will never
-	// place it. Renaming is the only archive mechanism a hand-dropped
-	// producer file has, and it is supported input (devboard/README.md).
-	if _, err := os.Stat(dst); err == nil {
-		s.send(w, http.StatusConflict, []byte(`{"error": "destination already exists"}`), "application/json")
-		return
-	}
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
-		s.sendMoveErr(w, err)
-		return
-	}
-	if err := os.Rename(src, dst); err != nil {
-		s.sendMoveErr(w, err)
 		return
 	}
 	s.bump() // wake SSE clients now; don't wait out the scan interval
@@ -585,6 +505,6 @@ func (s *Server) ListenAndServe() error {
 	defer close(stop)
 	go s.Watch(stop)
 	addr := fmt.Sprintf("%s:%d", s.cfg.Addr, s.cfg.Port)
-	fmt.Printf("devboard: serving %s on http://%s\n", s.cfg.DataDir, addr)
+	fmt.Printf("devboard: serving the worklog at %s on http://%s\n", s.cfg.WorklogDir, addr)
 	return http.ListenAndServe(addr, s.Handler())
 }
