@@ -1,0 +1,63 @@
+schema: 1
+complexity: medium
+phase: done
+plan:
+    - text: Create worktree .claude/worktrees/adb-skill-deploy-path on worktree-adb-skill-deploy-path from 26474fd
+      state: done
+    - text: Migrate FindRepoRoot + its two tests from internal/sync into internal/installer
+      state: done
+    - text: Migrate resolveRepoRoot out of cli/sync.go into install.go
+      state: done
+    - text: Delete cli/sync.go, drop newSyncCmd from root.go, delete installer.RunWorklogSkill
+      state: done
+    - text: Delete internal/sync package and worklog/scripts/sync.sh
+      state: done
+    - text: Confirm installer_test covers multi-target deploy; extend if not
+      state: done
+    - text: 'Rewrite docs: worklog/README.md (7 passages), README.md:11, skill/SKILL.md:68, skill/claude/command.md:60'
+      state: done
+    - text: Verify criteria 1-7 in the worktree; build, vet, gofmt, full test suite
+      state: done
+    - text: Present review, then merge and redeploy from the main checkout to verify criterion 8
+      state: done
+scorecard:
+    - text: worklog sync reports an unknown command and exits nonzero
+      verify: worklog sync; echo $?
+      status: pass
+    - text: install --check still reports everything current on this machine
+      verify: worklog install --repo ~/ai-devboard --check
+      status: pass
+    - text: clean temp HOME with no config still plans a deploy of all four skills plus the command file
+      verify: HOME=$tmp worklog install --repo <root> --dry-run
+      status: pass
+    - text: FindRepoRoot still walks up to go.mod and still errors at the filesystem root
+      verify: migrated TestFindRepoRoot, TestFindRepoRootMissing in internal/installer
+      status: pass
+    - text: a repo missing a skillDirs source still refuses to deploy rather than deleting the installed copy
+      verify: TestVerifyRepoRefusesMissingSource
+      status: pass
+    - text: no .md in the repo references worklog sync or scripts/sync.sh
+      verify: grep -rn 'worklog sync|scripts/sync.sh' --include=*.md .
+      status: pass
+    - text: worklog/scripts/sync.sh does not exist
+      verify: test ! -e worklog/scripts/sync.sh
+      status: pass
+    - text: deployed skill copies match the repo after the doc edits
+      verify: worklog install --check from the main checkout, post-merge
+      status: pass
+    - text: build, vet and full test suite clean
+      verify: go build ./... && go vet ./... && go test ./... && gofmt -l .
+      status: pass
+    - text: installed binary no longer has sync, on the release track
+      verify: worklog --version; worklog sync
+      status: pass
+decisions:
+    - what: Left the pre-existing gofmt nit in installer/deploy.go unfixed
+      why: It predates this branch at 26474fd and is the only gofmt-dirty file in the tree; folding a reformat in would add unrelated churn while another agent is working the same repo
+      when: "2026-09-01"
+    - what: Verified install --check behavior by diffing old vs new binary on identical repo state
+      why: The main checkout gained unrelated drift mid-task from another agent editing the same two skill files, so a plain before/after check would have been misread as a regression
+      when: "2026-09-01"
+    - what: Cut v0.6.0 rather than local go build
+      why: A local build stamps -dev, which install.sh then keeps on the build path permanently; a release keeps the machine on the release track and fixes the docs/binary skew for good
+      when: "2026-09-01"

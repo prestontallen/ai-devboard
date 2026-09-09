@@ -92,19 +92,40 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 	// children may introduce fragments of their own only if the child is
 	// already known from WORK.md/notes/archive (otherwise the board is
 	// claiming a ticket that doesn't exist — refuse).
+	merged := map[string]string{} // slug -> the file that already claimed it
 	for _, in := range c.Board {
 		bf, err := DevboardYAML(in.Name, in.Data, in.Archived)
 		if err != nil {
 			return nil, err
 		}
 		if bf.Join == "" {
-			rep.Skipped = append(rep.Skipped, in.Repo+"/"+in.Name)
+			bf.Join = absorbSlug(in.Name, frags)
+		}
+		if bf.Join == "" {
+			// The true relative path, _archive/ included. It used to report
+			// <repo>/<name> regardless, so every archived file was reported at
+			// an address it did not occupy and callers had to re-key around it.
+			rel := in.Repo + "/" + in.Name
+			if in.Archived {
+				rel = in.Repo + "/_archive/" + in.Name
+			}
+			rep.Skipped = append(rep.Skipped, rel)
 			continue
 		}
+		bf.Fragment.Slug = bf.Join
 		target, ok := frags[bf.Join]
 		if !ok {
 			return nil, fmt.Errorf("%s/%s: worklog join %q matches no ticket", in.Repo, in.Name, bf.Join)
 		}
+		// mergeBoard replaces plan/scorecard/decisions wholesale rather than
+		// merging, so a second file claiming the same ticket silently wins on
+		// read order. That was unreachable while the join had to be written
+		// in the file; deriving one from the filename makes it reachable.
+		if first, dup := merged[bf.Join]; dup {
+			return nil, fmt.Errorf("%s/%s and %s both claim ticket %q; "+
+				"remove one before adopting", in.Repo, in.Name, first, bf.Join)
+		}
+		merged[bf.Join] = in.Repo + "/" + in.Name
 		mergeBoard(target, bf.Fragment)
 		for _, kid := range bf.Children {
 			kt, ok := frags[kid.Slug]
@@ -285,6 +306,28 @@ func Load(s store.Store, c Corpus) (*Report, error) {
 		}
 	}
 	return rep, nil
+}
+
+// absorbSlug derives a join for a devboard file that carries no `worklog:`
+// key, from the filename it is stored under. The renderer writes every board
+// file to <repo>/<slug>.yaml, so a file sitting at that address whose stem
+// names a ticket in this corpus is that ticket's detail — saved before the
+// join key existed, or hand-dropped at the address the store already owns.
+//
+// The match is exact against the corpus, never through the store's slug
+// aliases: absorbing a file named for a ticket's OLD slug would silently
+// attach one ticket's history to another. Returns "" when nothing matches,
+// which leaves the file skipped for the caller to refuse over.
+func absorbSlug(name string, frags map[string]*store.Ticket) string {
+	stem := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
+	if stem == "" || stem == name {
+		return ""
+	}
+	cand := store.NormalizeSlug(stem)
+	if _, ok := frags[cand]; !ok {
+		return ""
+	}
+	return cand
 }
 
 // mergeBoard copies devboard in-flight fields onto the ticket fragment.

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/census"
 	"github.com/prestontallen/ai-devboard/worklog/internal/projection"
@@ -17,12 +16,12 @@ import (
 type Op string
 
 const (
-	OpCreate  Op = "create"   // the store renders it; disk has no such file
-	OpRewrite Op = "rewrite"  // on disk, but not what the store renders
-	OpKeep    Op = "keep"     // already byte-identical to the render
-	OpDelete  Op = "delete"   // on disk, canon-shaped, and the store does not own it
-	OpProduce Op = "producer" // a bare devboard file with no worklog join: never touched
-	OpDerived Op = "derived"  // INDEX.md: rebuilt by reindex, not rendered from the store
+	OpCreate  Op = "create"  // the store renders it; disk has no such file
+	OpRewrite Op = "rewrite" // on disk, but not what the store renders
+	OpKeep    Op = "keep"    // already byte-identical to the render
+	OpDelete  Op = "delete"  // on disk, canon-shaped, and the store does not own it
+	OpOrphan  Op = "orphan"  // a devboard file with no worklog join and no ticket of its name: adoption refuses
+	OpDerived Op = "derived" // INDEX.md: rebuilt by reindex, not rendered from the store
 )
 
 // Change is one planned file operation. Path is slash-relative, devboard
@@ -47,6 +46,17 @@ func (p *Plan) Counts() map[Op]int {
 }
 
 // Writes reports whether the plan would change anything on disk.
+// Paths returns the relative paths carrying op, in plan order.
+func (p *Plan) Paths(op Op) []string {
+	var out []string
+	for _, c := range p.Changes {
+		if c.Op == op {
+			out = append(out, c.Path)
+		}
+	}
+	return out
+}
+
 func (p *Plan) Writes() bool {
 	for _, c := range p.Changes {
 		if c.Op == OpCreate || c.Op == OpRewrite || c.Op == OpDelete {
@@ -68,9 +78,11 @@ func (c Change) String() string { return string(c.Op) + " " + c.Path }
 // makes adoption converge instead of accumulate.
 //
 // skipped is convert.Load's Report.Skipped: devboard files with no
-// `worklog:` join key. They are producer-owned, not store-owned, and are
-// reported as OpProduce so it is visible that they were considered and
-// deliberately left alone.
+// `worklog:` join key AND no ticket sharing their filename, so absorption
+// could not place them. They are reported as OpOrphan, which Run refuses
+// over. Deleting them instead would be silent data loss, and that is what
+// the retired producer class actually existed to prevent — bare files were
+// never a path anyone published to.
 func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 	rendered, err := projection.Render(s)
 	if err != nil {
@@ -78,18 +90,9 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 	}
 
 	layout := projection.Layout{WorklogDir: r.Worklog, DevboardDir: r.Devboard}
-	// convert.Load reports a skipped file as <repo>/<slug>.yaml whether or
-	// not it actually lives under <repo>/_archive/, so matching on the full
-	// relative path silently misses every archived producer file. Keying on
-	// repo plus basename is what the two sides genuinely agree on.
-	//
-	// Found by previewing a plan against the real pre-cutover corpus: the
-	// path-keyed version planned to DELETE nole/_archive/embed-retry.yaml
-	// and workflow-skills/_archive/canonize-scripts.yaml, two of the three
-	// bare producer files adb-cutover's criterion 8 promises to keep.
-	producer := map[string]bool{}
+	orphan := map[string]bool{}
 	for _, p := range skipped {
-		producer[producerKey(filepath.ToSlash(p))] = true
+		orphan[filepath.ToSlash(p)] = true
 	}
 
 	seen := map[string]bool{}
@@ -135,8 +138,8 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 		if e.Class != census.Canon {
 			continue
 		}
-		if producer[producerKey(e.Path)] {
-			changes = append(changes, Change{rel, OpProduce})
+		if orphan[filepath.ToSlash(e.Path)] {
+			changes = append(changes, Change{rel, OpOrphan})
 			continue
 		}
 		changes = append(changes, Change{rel, OpDelete})
@@ -149,17 +152,6 @@ func BuildPlan(s store.Store, r Roots, skipped []string) (*Plan, error) {
 		return changes[i].Path < changes[j].Path
 	})
 	return &Plan{Changes: changes}, nil
-}
-
-// producerKey reduces a devboard-relative path to the identity both
-// convert.Load's Skipped list and an on-disk walk agree on: the repo group
-// and the file name, with any _archive/ segment dropped.
-func producerKey(rel string) string {
-	parts := strings.Split(rel, "/")
-	if len(parts) == 0 {
-		return rel
-	}
-	return parts[0] + "/" + parts[len(parts)-1]
 }
 
 // layoutPath resolves a render-map key to an absolute path, mirroring

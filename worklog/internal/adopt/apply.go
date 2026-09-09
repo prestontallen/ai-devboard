@@ -125,6 +125,17 @@ func Run(s store.Store, o Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 6. Orphans. A devboard file with no `worklog:` key and no ticket of its
+	// name cannot be placed, and the delete class would unlink it. Refuse
+	// like an unclassified file rather than destroying content nothing else
+	// holds — this is the protection the retired producer class provided.
+	if orph := plan.Paths(OpOrphan); len(orph) > 0 {
+		return nil, fmt.Errorf("%w: %d devboard file(s) have no `worklog:` key and no ticket of that name, "+
+			"so adoption cannot place them:\n  %s\n"+
+			"give each one a `worklog:` key, rename it to match its ticket, or remove it",
+			ErrRefused, len(orph), strings.Join(orph, "\n  "))
+	}
+
 	res := &Result{Plan: plan}
 	if !o.Apply {
 		return res, nil

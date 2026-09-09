@@ -51,7 +51,7 @@ func TestPlanOnACanonicalCorpusIsAllKeep(t *testing.T) {
 	}
 	if p.Writes() {
 		for _, c := range p.Changes {
-			if c.Op != OpKeep && c.Op != OpProduce && c.Op != OpDerived {
+			if c.Op != OpKeep && c.Op != OpDerived {
 				t.Errorf("unexpected %s", c)
 			}
 		}
@@ -87,7 +87,7 @@ func TestPlanDeletesAnOrphanBoardFile(t *testing.T) {
 // TestPlanKeepsBareProducerFiles: a devboard file with no worklog join is
 // producer-owned. adb-cutover's criterion 8 made keeping it an explicit
 // promise, so it must be reported as considered, not silently deleted.
-func TestPlanKeepsBareProducerFiles(t *testing.T) {
+func TestPlanReportsUnplaceableBareFile(t *testing.T) {
 	s, r, _ := canonical(t)
 	bare := filepath.Join(r.Devboard, "some-repo", "producer.yaml")
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
@@ -101,8 +101,8 @@ func TestPlanKeepsBareProducerFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ops(p)["devboard/some-repo/producer.yaml"]; got != OpProduce {
-		t.Errorf("bare producer file = %q, want %q", got, OpProduce)
+	if got := ops(p)["devboard/some-repo/producer.yaml"]; got != OpOrphan {
+		t.Errorf("unplaceable bare file = %q, want %q", got, OpOrphan)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestPlanAgainstSnapshot(t *testing.T) {
 	}
 	t.Logf("plan: %v", p.Counts())
 	for _, ch := range p.Changes {
-		if ch.Op == OpDelete || ch.Op == OpCreate || ch.Op == OpProduce {
+		if ch.Op == OpDelete || ch.Op == OpCreate || ch.Op == OpOrphan {
 			t.Logf("%s", ch)
 		}
 	}
@@ -197,7 +197,7 @@ func TestPlanAgainstSnapshot(t *testing.T) {
 // when it lives under <repo>/_archive/, so matching on the full relative
 // path missed every archived producer and planned to DELETE it. Two of the
 // three bare producer files on the real corpus were archived.
-func TestPlanKeepsArchivedProducerFiles(t *testing.T) {
+func TestPlanReportsArchivedUnplaceableFile(t *testing.T) {
 	s, r, _ := canonical(t)
 	bare := filepath.Join(r.Devboard, "nole", "_archive", "embed-retry.yaml")
 	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
@@ -207,12 +207,14 @@ func TestPlanKeepsArchivedProducerFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Skipped carries no _archive/ segment, exactly as convert.Load reports it.
-	p, err := BuildPlan(s, r, []string{"nole/embed-retry.yaml"})
+	// convert.Load now reports the true relative path, _archive/ included. It
+	// used to flatten every skipped file to <repo>/<name>, so an archived one
+	// was reported at an address it did not occupy and the plan deleted it.
+	p, err := BuildPlan(s, r, []string{"nole/_archive/embed-retry.yaml"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ops(p)["devboard/nole/_archive/embed-retry.yaml"]; got != OpProduce {
-		t.Errorf("archived bare producer = %q, want %q (criterion 8 promises it is kept)", got, OpProduce)
+	if got := ops(p)["devboard/nole/_archive/embed-retry.yaml"]; got != OpOrphan {
+		t.Errorf("archived unplaceable file = %q, want %q; it must never fall to delete", got, OpOrphan)
 	}
 }

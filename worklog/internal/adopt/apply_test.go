@@ -82,7 +82,7 @@ func TestApplyCanonicalises(t *testing.T) {
 	}
 	if res2.Plan.Writes() {
 		for _, c := range res2.Plan.Changes {
-			if c.Op != OpKeep && c.Op != OpProduce && c.Op != OpDerived {
+			if c.Op != OpKeep && c.Op != OpDerived {
 				t.Errorf("second run still plans %s", c)
 			}
 		}
@@ -188,4 +188,67 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// TestRefusesUnplaceableBareFile: a devboard file with no `worklog:` key and
+// no ticket of its name cannot be placed. The delete class would unlink it,
+// so adoption refuses instead and names it. This is the protection the
+// retired producer class actually provided.
+func TestRefusesUnplaceableBareFile(t *testing.T) {
+	r, dest := preCutover(t)
+	stray := filepath.Join(r.Devboard, "some-repo", "not-a-ticket.yaml")
+	if err := os.MkdirAll(filepath.Dir(stray), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("schema: 1\nphase: implementing\n")
+	if err := os.WriteFile(stray, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, beforeBoard := fingerprint(t, r.Worklog), fingerprint(t, r.Devboard)
+
+	_, err := Run(memstore.New(), opts(r, dest, true))
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("want ErrRefused, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "not-a-ticket.yaml") {
+		t.Errorf("refusal must name the file, got: %v", err)
+	}
+	got, err2 := os.ReadFile(stray)
+	if err2 != nil || string(got) != string(body) {
+		t.Errorf("the refused file must be untouched: %v / %q", err2, got)
+	}
+	equalTrees(t, before, fingerprint(t, r.Worklog), "worklog after a refusal")
+	equalTrees(t, beforeBoard, fingerprint(t, r.Devboard), "devboard after a refusal")
+}
+
+// TestAbsorbsBareFileNamedForATicket: the same unplaceable file, renamed to
+// match a ticket in the corpus, is absorbed rather than refused, and its
+// detail lands on that ticket.
+func TestAbsorbsBareFileNamedForATicket(t *testing.T) {
+	r, dest := preCutover(t)
+	// "solo" is a ticket in the fixture corpus; the file carries no
+	// `worklog:` key, so only its name can place it.
+	bare := filepath.Join(r.Devboard, "some-repo", "solo.yaml")
+	if err := os.MkdirAll(filepath.Dir(bare), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("schema: 1\nphase: verify\nplan:\n  - text: absorbed step\n    state: done\n")
+	if err := os.WriteFile(bare, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := memstore.New()
+	if _, err := Run(s, opts(r, dest, true)); err != nil {
+		t.Fatalf("absorb should not refuse: %v", err)
+	}
+	tk, err := s.TicketBySlug("solo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.Phase != "verify" {
+		t.Errorf("phase not absorbed: %q", tk.Phase)
+	}
+	if len(tk.PlanSteps) != 1 || tk.PlanSteps[0].Text != "absorbed step" {
+		t.Errorf("plan not absorbed: %+v", tk.PlanSteps)
+	}
 }

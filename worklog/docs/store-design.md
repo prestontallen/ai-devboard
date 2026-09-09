@@ -51,9 +51,12 @@ Notable modeling decisions:
   per task and per child; `Phase` stays the authoritative current value.
   The converter does not fabricate history; it accrues from cutover
   (csk-devboard-timestamps' data half).
-- **Bare devboard files are not canon** (ratified D7): producer-owned
-  files with no `worklog:` join stay on disk untouched; renderers write
-  only files derived from canon.
+- **Every devboard file is derived from canon.** D7 and D8 ratified the
+  opposite — bare files with no `worklog:` join were producer-owned and
+  left untouched — and adb-retire-devboard-dir overturned both. The one
+  real orphan was absorbed into its ticket by filename; the other two were
+  demo fixtures and were deleted. Adoption now absorbs a keyless file
+  whose name matches a ticket, and refuses over one it cannot place.
 
 ## Identity
 
@@ -115,8 +118,9 @@ tickets, notes for unknown slugs, Active-children inconsistency. The
 converter reads a COPY; the live dir is never written.
 
 Verified conversions preserve the live corpus's oddities verbatim with a
-lint warning (the space-separated tag), skip the three bare producer
-files, and heal nothing silently.
+lint warning (the space-separated tag), and heal nothing silently. The
+three bare producer files they used to skip are gone: one absorbed, two
+deleted.
 
 ## Corpus snapshot policy
 

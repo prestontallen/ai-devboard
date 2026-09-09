@@ -18,8 +18,11 @@ carries `FEEDBACK.md`, rendered as the global Friction panel (see below).
 
 The intended writer is the `worklog` CLI (`start`/`done`/`pr` side
 effects plus the `worklog task` family, including `untrack` to stop
-tracking a task by deleting only its YAML) — but a hand-dropped
-schema-valid file is fully supported.
+tracking a task by deleting only its YAML). Every file here is derived
+from the store. A file with no `worklog:` key used to be a supported
+producer path; it is not any more (adb-retire-devboard-dir). Adoption
+absorbs one whose filename names a ticket, and refuses over one it
+cannot place rather than deleting it.
 
 ## Run
 
@@ -83,8 +86,9 @@ the worklog dir is never touched.
 
 For a task the worklog store knows, the **store** performs the move: the
 endpoint records it and the re-render writes the file at its new path and
-clears the old one. For a hand-dropped file the store has no ticket for,
-the endpoint renames it directly. Either way the move is all-or-nothing —
+clears the old one. A file the store board-tracks is the only kind that
+exists now, so the store always performs the move. The move is
+all-or-nothing —
 a failure answers 500 with the file where it started, rather than leaving
 the file and the store disagreeing.
 

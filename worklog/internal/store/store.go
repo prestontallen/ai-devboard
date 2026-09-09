@@ -13,8 +13,9 @@
 //   - Absent and empty differ where today's files distinguish them; PR is
 //     the load-bearing case (a "**PR**: " line with no value is not the
 //     same as no line).
-//   - Bare devboard files (no worklog join) are NOT canon: they remain
-//     producer-owned sources on disk that renderers never touch.
+//   - Every devboard file is derived from canon. Bare files (no worklog
+//     join) were once producer-owned sources renderers never touched;
+//     adb-retire-devboard-dir overturned that (schema-design D7/D8).
 package store
 
 // ID is a ULID in its 26-char Crockford base32 form.

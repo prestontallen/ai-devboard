@@ -208,9 +208,11 @@ those, because two writers deciding where one file lives is what made a
 failed sync leave disk and store disagreeing — after which every
 store-backed CLI write refused (`adb-archive-store-desync`).
 
-A file the store does not board-track — a hand-dropped producer file has
-no ticket behind it — is renamed by the endpoint, which is the only
-archive mechanism it has.
+A file the store does not board-track is renamed by the endpoint instead.
+That path is unreachable on a live corpus since adb-retire-devboard-dir:
+every board file is store-derived, so nothing lands in it. The `409` it
+can answer is likewise unreachable. It is removed with the store-direct
+read path (`adb-serve-store-direct`).
 
 **A failed move is a failure.** If the store write fails the response is
 `500`, the cause is logged, and the file has not moved. There is no

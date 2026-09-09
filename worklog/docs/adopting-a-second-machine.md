@@ -78,7 +78,7 @@ read back as corpus and breaks every later conversion.
     worklog adopt
 
 This writes nothing. It either prints a plan (counts of
-create / rewrite / delete / keep / producer) or refuses.
+create / rewrite / delete / keep / orphan / derived) or refuses.
 
 **A refusal is the feature, not a failure.** `adopt` refuses on anything it
 cannot migrate faithfully, because the alternative is changing the data

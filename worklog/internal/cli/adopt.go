@@ -131,7 +131,7 @@ func runAdopt(cmd *cobra.Command, commit bool) error {
 	}
 
 	counts := res.Plan.Counts()
-	for _, op := range []adopt.Op{adopt.OpCreate, adopt.OpRewrite, adopt.OpDelete, adopt.OpKeep, adopt.OpProduce, adopt.OpDerived} {
+	for _, op := range []adopt.Op{adopt.OpCreate, adopt.OpRewrite, adopt.OpDelete, adopt.OpKeep, adopt.OpOrphan, adopt.OpDerived} {
 		if counts[op] > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "%8s %d\n", string(op), counts[op])
 		}

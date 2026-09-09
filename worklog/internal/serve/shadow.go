@@ -13,6 +13,11 @@ package serve
 // file-derived on BOTH sides and can never be reported as drift. The
 // equality claim is scoped to the store-owned subset; stating that here is
 // what makes the milestone satisfiable rather than false by construction.
+//
+// The bare-file half of that carve-out is now vacuous on live data.
+// adb-retire-devboard-dir absorbed the last orphan and deleted the two
+// fixtures, so zero bare files remain and only unparseable files still
+// exercise this path. TestShadowHybridPassthrough covers it by fixture.
 
 import (
 	"encoding/json"
@@ -130,8 +135,9 @@ func (s *Server) reportShadow(diffs []shadowDiff) {
 // allTasksStore builds the /api/tasks payload from the store's rendering —
 // the same shape allTasks builds from disk. Store-owned board files come
 // from the snapshot (content and mtime alike); anything on disk the store
-// does not render — bare producer files, unparseable files — passes
-// through parseTask, identically to the file side. A snapshot file with no
+// does not render — unparseable files, and bare files, of which the live
+// corpus now has none — passes through parseTask, identically to the file
+// side. A snapshot file with no
 // disk counterpart is included too: the file side will lack it, and that
 // missing entry is exactly the drift the shadow exists to catch.
 func (s *Server) allTasksStore(snap *StoreSnapshot) map[string]any {

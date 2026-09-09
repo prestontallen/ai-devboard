@@ -82,7 +82,7 @@ func TestAdoptRealPreCutoverCorpus(t *testing.T) {
 	}
 	if again.Plan.Writes() {
 		for _, c := range again.Plan.Changes {
-			if c.Op != OpKeep && c.Op != OpProduce && c.Op != OpDerived {
+			if c.Op != OpKeep && c.Op != OpDerived {
 				t.Errorf("adoption did not converge: still plans %s", c)
 			}
 		}

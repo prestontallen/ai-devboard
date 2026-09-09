@@ -8,11 +8,11 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/yamlx"
 )
 
-// BoardFile is one parsed devboard YAML: the ticket-side fragment (nil
-// for a bare producer file, which is NOT canon — D7), any epic children
-// fragments, and the worklog join slug.
+// BoardFile is one parsed devboard YAML: the ticket-side fragment, any
+// epic children fragments, and the worklog join slug. Join is "" when the
+// file carries no `worklog:` key; the fragment is parsed either way.
 type BoardFile struct {
-	Join     string // task's worklog slug; "" = bare producer file
+	Join     string // task's worklog slug; "" = no `worklog:` key in the file
 	Fragment *store.Ticket
 	Children []*store.Ticket
 }
@@ -33,17 +33,22 @@ func DevboardYAML(name string, data []byte, boardArchived bool) (*BoardFile, err
 	if !ok {
 		return nil, fmt.Errorf("%s: top level must be a mapping", name)
 	}
+	// A file with no `worklog:` key is still parsed. It used to short-circuit
+	// here, back when bare files were a sanctioned producer path that nothing
+	// was allowed to read (schema-design D7/D8, overturned by
+	// adb-retire-devboard-dir). The join is now the caller's decision: it can
+	// derive one from the filename and absorb the file into that ticket, so
+	// the content has to be available to decide on.
 	join, _ := raw["worklog"].(string)
-	if join == "" {
-		return &BoardFile{}, nil // bare producer file: stays on disk, untouched
-	}
 	frag, err := boardFragment(name, raw, boardArchived)
 	if err != nil {
 		return nil, err
 	}
-	frag.Slug = store.NormalizeSlug(join)
-
-	bf := &BoardFile{Join: frag.Slug, Fragment: frag}
+	bf := &BoardFile{Fragment: frag}
+	if join != "" {
+		frag.Slug = store.NormalizeSlug(join)
+		bf.Join = frag.Slug
+	}
 	if kids, ok := raw["children"].([]any); ok {
 		for i, kv := range kids {
 			km, ok := kv.(map[string]any)

@@ -221,9 +221,12 @@ legitimately live — live <-> _archive — or "" for anything that is not one.
 The narrowness is the whole safety argument. Render only removes the sibling
 of a path it just wrote, and it only writes files for board-tracked tickets
 in the store, so a file the store has no ticket for can never be named here.
-That is what keeps hand-dropped producer files — a supported input per
-devboard/README.md, and present in the live corpus — out of reach. The broad
-rule ("delete anything I did not render") would take every one of them.
+The narrowness outlived the case that motivated it. It existed to keep
+hand-dropped producer files out of reach, and those are gone: bare files
+stopped being a supported input in adb-retire-devboard-dir. It is kept
+because the argument does not depend on them — the broad rule ("delete
+anything I did not render") is unsafe against any file the store has no
+ticket for, however it got there.
 */
 func boardSibling(rel string) string {
 	if !strings.HasPrefix(rel, "devboard/") || !strings.HasSuffix(rel, ".yaml") {
@@ -254,9 +257,8 @@ func RenderAll(s store.Store, root string) error {
 // since the last write, whose content a re-render would destroy.
 //
 // It only inspects paths the store actually renders, so files it does not
-// own are never flagged: bare devboard producer files (which are not
-// canon), INDEX.md, and anything else living alongside. A rendered file
-// missing from disk counts as edited; it was deleted.
+// own are never flagged: INDEX.md and anything else living alongside. A
+// rendered file missing from disk counts as edited; it was deleted.
 func EditedFiles(s store.Store, root string) ([]string, error) {
 	return EditedIn(s, SingleRoot(root))
 }
