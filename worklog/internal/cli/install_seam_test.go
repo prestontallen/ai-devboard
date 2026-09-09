@@ -65,3 +65,23 @@ func TestSeamCoversEveryServiceCall(t *testing.T) {
 		t.Errorf("direct service calls bypass runCommand:\n%s", out)
 	}
 }
+
+// TestSandboxStubsTheRunner is milestone 1's own guard: the stub must be in
+// the SHARED sandbox, not just in the tests that think about it.
+//
+// The distinction is the whole point. Before this, the extras were
+// unreachable under test because they sit behind a TTY check and the suite
+// has none — an accident, not a design. This ticket adds a headless flag per
+// extra, which removes the accident. If the stub lives only in the tests that
+// remember it, the first test to pass a devboard flag reloads the developer's
+// real systemd units.
+func TestSandboxStubsTheRunner(t *testing.T) {
+	installSandbox(t)
+
+	if _, err := runCommand("systemctl", "--user", "is-active", "anything"); err == nil {
+		t.Fatal("installSandbox did not stub runCommand — a test could reach the real service manager")
+	}
+	if devboardRunning() {
+		t.Error("devboardRunning consulted something real")
+	}
+}

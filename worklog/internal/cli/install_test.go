@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,30 @@ func installSandbox(t *testing.T) (home, repo string) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("DEVBOARD_DATA", filepath.Join(home, ".local", "share", "devboard"))
 	t.Setenv("INSTALL_PROMPT_FORCE", "") // default: no prompts in tests
+
+	// Every test in this package gets the service-manager stub, not just the
+	// ones that go looking for it. Until now the extras were unreachable
+	// under test by ACCIDENT: they sit behind promptAllowed() and the suite
+	// has no TTY. This ticket adds a headless flag for each of them, which
+	// removes that accident — and the devboard extra shells to systemctl and
+	// docker. Without this line, `go test ./...` would start reloading the
+	// developer's real systemd units and inspecting their containers.
+	stubSystemCommands(t)
+
 	return home, repo
+}
+
+// stubSystemCommands makes shelling out to the machine impossible for the
+// duration of one test. Failing every command is deliberate: a test that
+// needs a particular answer should say so explicitly rather than inherit
+// whatever the developer's machine happens to be running.
+func stubSystemCommands(t *testing.T) {
+	t.Helper()
+	orig := runCommand
+	runCommand = func(name string, args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("test stub: refusing to run %q", name)
+	}
+	t.Cleanup(func() { runCommand = orig })
 }
 
 func TestInstallNonTTYNeverPrompts(t *testing.T) {

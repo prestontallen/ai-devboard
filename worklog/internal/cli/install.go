@@ -19,11 +19,19 @@ import (
 
 func newInstallCmd() *cobra.Command {
 	var (
-		flagRepo     string
-		flagRelate   string
-		flagCheck    bool
-		flagDryRun   bool
-		flagWithHook bool
+		flagRepo   string
+		flagRelate string
+		flagCheck  bool
+		flagDryRun bool
+		// One flag per extra, keyed by the same names the consent record
+		// uses. A map rather than adjacent bools: the previous single flag
+		// was threaded positionally through three call frames, and four of
+		// those at one call site is a defect waiting to happen.
+		flagWith = map[string]*bool{
+			installer.ExtraSessionHook:  new(bool),
+			installer.ExtraClaudeMD:     new(bool),
+			installer.ExtraDevboardUnit: new(bool),
+		}
 	)
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -55,8 +63,15 @@ prompt, never build.`,
 			if flagCheck && flagDryRun {
 				return errWithExit(64, "cannot combine --check and --dry-run")
 			}
-			if flagCheck && flagWithHook {
-				return errWithExit(64, "cannot combine --check and --with-session-hook (--check never writes)")
+			// One rule over the whole set, stated once. Previously this was
+			// a hand-written pairwise check covering exactly one of the
+			// combinations, and --dry-run accepted the same flag that
+			// --check rejected.
+			for _, extra := range installer.Extras() {
+				if flagCheck && *flagWith[extra] {
+					return errWithExit(64,
+						"cannot combine --check and %s (--check never writes)", extraFlag[extra])
+				}
 			}
 			mode := installer.ModeInstall
 			if flagCheck {
@@ -65,7 +80,7 @@ prompt, never build.`,
 			if flagDryRun {
 				mode = installer.ModeDryRun
 			}
-			return runInstall(cmd, flagRepo, mode, flagWithHook)
+			return runInstall(cmd, flagRepo, mode, chosenExtras(flagWith))
 		},
 	}
 	cmd.Flags().StringVar(&flagRelate, "relate", "",
@@ -73,8 +88,12 @@ prompt, never build.`,
 	cmd.Flags().StringVar(&flagRepo, "repo", "", "path to the ai-devboard checkout (persisted; usually passed by install.sh)")
 	cmd.Flags().BoolVar(&flagCheck, "check", false, "report drift; exit 1 if anything differs")
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "print what would happen; change nothing")
-	cmd.Flags().BoolVar(&flagWithHook, "with-session-hook", false,
-		"install the Claude Code SessionStart hook without prompting (the headless way to opt in)")
+	cmd.Flags().BoolVar(flagWith[installer.ExtraSessionHook], "with-session-hook", false,
+		"install the Claude Code SessionStart hook without prompting")
+	cmd.Flags().BoolVar(flagWith[installer.ExtraClaudeMD], "with-claude-md", false,
+		"write the dev-context directive into ~/.claude/CLAUDE.md without prompting")
+	cmd.Flags().BoolVar(flagWith[installer.ExtraDevboardUnit], "with-devboard-service", false,
+		"install and start the devboard systemd user unit without prompting")
 	return cmd
 }
 
@@ -97,7 +116,7 @@ func promptAllowed() bool {
 	return stdinIsTTY() || os.Getenv("INSTALL_PROMPT_FORCE") != ""
 }
 
-func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, withHook bool) error {
+func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with map[string]bool) error {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 	home, err := os.UserHomeDir()
@@ -225,7 +244,7 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, withHo
 		}
 	}
 
-	installExtras(cmd, home, repoRoot, mode, &rep, withHook)
+	installExtras(cmd, home, repoRoot, mode, &rep, with)
 
 	if mode == installer.ModeCheck {
 		if rep.Drift {
@@ -276,7 +295,7 @@ func promptForTargets(home string) ([]string, error) {
 }
 
 // installExtras: PATH warning, tone check, devboard dir, opt-in prompts.
-func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, withHook bool) {
+func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, with map[string]bool) {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 
@@ -312,33 +331,105 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 		}
 	}
 
-	reportHookState(cmd, home, mode, rep, withHook)
+	reportHookState(cmd, home, mode, rep, with[installer.ExtraSessionHook])
+	reportDirectiveState(cmd, home, repoRoot, mode, rep)
 
 	// Opt-in extras: interactive install mode only.
+	// Load what the human already said. A missing record is a machine that
+	// has never been asked, which is a third state — not a decline.
+	consentPath := installer.ConsentPath()
+	consent, _ := installer.LoadConsent(consentPath)
+	dirty := false
+
+	// Headless answers first: a flag is an explicit decision and must work
+	// without a terminal, which is the whole point of having flags. It is
+	// also the one form of consent that cannot be faked by an end-of-input
+	// prompt returning its default.
+	if mode == installer.ModeInstall {
+		if with[installer.ExtraClaudeMD] && !consent.Accepted(installer.ExtraClaudeMD) {
+			if err := writeDirective(claudeMDPath(home), repoRoot); err != nil {
+				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
+			} else {
+				fmt.Fprintln(out, "CLAUDE.md directive: written")
+				consent.Record(installer.ExtraClaudeMD, installer.Accepted)
+				dirty = true
+			}
+		}
+		if with[installer.ExtraDevboardUnit] && !consent.Accepted(installer.ExtraDevboardUnit) {
+			if err := installDevboardUnit(); err != nil {
+				fmt.Fprintln(errw, "devboard service:", err)
+			} else {
+				fmt.Fprintln(out, "devboard: running at http://localhost:8484")
+				consent.Record(installer.ExtraDevboardUnit, installer.Accepted)
+				dirty = true
+			}
+		}
+		if with[installer.ExtraSessionHook] && !consent.Asked(installer.ExtraSessionHook) {
+			// reportHookState already installed it above when the flag is
+			// set; record that so it is not asked again.
+			consent.Record(installer.ExtraSessionHook, installer.Accepted)
+			dirty = true
+		}
+		if dirty && consentPath != "" {
+			if err := installer.SaveConsent(consentPath, consent); err != nil {
+				fmt.Fprintln(errw, style.Warn.Render("WARN: could not record your answers: "+err.Error()))
+			}
+			dirty = false
+		}
+	}
+
+	// The hint names only what is genuinely outstanding. It used to print
+	// unconditionally, telling a fully configured machine to rerun
+	// interactively for three things it already had.
 	if mode != installer.ModeInstall || !promptAllowed() {
 		if mode == installer.ModeInstall {
-			fmt.Fprintln(out, style.Dim.Render("hint: rerun interactively to opt into the SessionStart hook / CLAUDE.md directive / devboard service"))
+			if pending := unansweredExtras(consent); len(pending) > 0 {
+				fmt.Fprintln(out, style.Dim.Render(
+					"hint: rerun interactively, or pass "+flagsFor(pending)+", to decide: "+strings.Join(pending, ", ")))
+			}
 		}
 		return
 	}
-	offerSessionStartHook(cmd, home)
-	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
-	if data, _ := os.ReadFile(claudeMD); !strings.Contains(string(data), "dev-context") {
+
+	if !consent.Asked(installer.ExtraSessionHook) {
+		// offerSessionStartHook does its own present/absent check; recording
+		// the answer is what stops it being asked again next run.
+		before := hookPresent(home)
+		offerSessionStartHook(cmd, home)
+		if hookPresent(home) != before {
+			consent.Record(installer.ExtraSessionHook, installer.Accepted)
+		} else {
+			consent.Record(installer.ExtraSessionHook, installer.Declined)
+		}
+		dirty = true
+	}
+
+	if !consent.Asked(installer.ExtraClaudeMD) {
 		var yes bool
+		// Value(&yes) leaves the default false on purpose. The form library
+		// returns its default at end-of-input without erroring, so a
+		// yes-defaulted confirm would silently consent to writing a file the
+		// human owns.
 		if huh.NewForm(huh.NewGroup(huh.NewConfirm().
 			Title("Append the dev-context directive to ~/.claude/CLAUDE.md?").
 			Value(&yes))).Run() == nil && yes {
-			if src, err := os.ReadFile(filepath.Join(repoRoot, "CLAUDE.md")); err == nil {
-				f, err := os.OpenFile(claudeMD, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-				if err == nil {
-					f.Write(src)
-					f.Close()
-					fmt.Fprintln(out, "CLAUDE.md directive: appended")
-				}
+			if err := writeDirective(claudeMDPath(home), repoRoot); err != nil {
+				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
+			} else {
+				fmt.Fprintln(out, "CLAUDE.md directive: written")
+				consent.Record(installer.ExtraClaudeMD, installer.Accepted)
+				dirty = true
 			}
+		} else {
+			consent.Record(installer.ExtraClaudeMD, installer.Declined)
+			dirty = true
 		}
 	}
-	if !devboardRunning() {
+
+	// The gate is the record, not a runtime probe. It used to ask whenever
+	// the service was not RUNNING, so stopping the unit made the installer
+	// offer to install one that was already there.
+	if !consent.Asked(installer.ExtraDevboardUnit) {
 		var yes bool
 		if huh.NewForm(huh.NewGroup(huh.NewConfirm().
 			Title("Install and start the devboard service (systemd user unit running `worklog serve`)?").
@@ -347,7 +438,18 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 				fmt.Fprintln(errw, "devboard service:", err)
 			} else {
 				fmt.Fprintln(out, "devboard: running at http://localhost:8484")
+				consent.Record(installer.ExtraDevboardUnit, installer.Accepted)
+				dirty = true
 			}
+		} else {
+			consent.Record(installer.ExtraDevboardUnit, installer.Declined)
+			dirty = true
+		}
+	}
+
+	if dirty && consentPath != "" {
+		if err := installer.SaveConsent(consentPath, consent); err != nil {
+			fmt.Fprintln(errw, style.Warn.Render("WARN: could not record your answers: "+err.Error()))
 		}
 	}
 }
@@ -440,6 +542,82 @@ func installDevboardUnit() error {
 // same act as answering the prompt, so it installs an absent hook without a
 // TTY. Without it, an absent hook is left to offerSessionStartHook, which
 // only runs interactively.
+
+// reportDirectiveState is why the deployed directive could go stale for weeks
+// without a word: until now the CLAUDE.md path lived entirely inside the
+// "install mode AND a terminal" early return, so `--check` never opened that
+// file at all and reported everything current while the instructions
+// governing every session were months behind.
+//
+// It follows reportHookState's shape deliberately: absence is a note (the
+// directive is opt-in and declining it is a supported end state), while a
+// block that IS ours and no longer matches the repo is drift.
+func reportDirectiveState(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report) {
+	out, errw := cmd.OutOrStdout(), cmd.ErrOrStderr()
+	path := claudeMDPath(home)
+
+	src, err := os.ReadFile(filepath.Join(repoRoot, "CLAUDE.md"))
+	if err != nil {
+		return // no directive to compare against
+	}
+	want := installer.MarkedDirective(src)
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return
+	}
+
+	switch installer.InspectDirective(existing, want, src) {
+	case installer.DirectiveCurrent:
+		return
+
+	case installer.DirectiveStale:
+		switch mode {
+		case installer.ModeCheck:
+			fmt.Fprintln(out, style.Bad.Render("drift: CLAUDE.md directive differs from the repo: "+path))
+			rep.Drift = true
+		case installer.ModeDryRun:
+			fmt.Fprintln(out, "would: refresh the CLAUDE.md directive in "+path)
+		case installer.ModeInstall:
+			// Inside the markers the repo wins — the same rule the rendered
+			// projections follow. The warning names the file because, unlike
+			// a projection, a hand-edited directive has no source to be
+			// regenerated from: this message is the only trace it existed.
+			fmt.Fprintln(errw, style.Warn.Render(
+				"WARN: replacing the managed block in "+path+" — it differed from the repo copy. "+
+					"A backup is at "+path+".bak"))
+			if err := writeDirective(path, repoRoot); err != nil {
+				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
+			} else {
+				fmt.Fprintln(out, "CLAUDE.md directive: refreshed")
+			}
+		}
+
+	case installer.DirectiveUnmarked:
+		// An exact match with the current repo body: adoptable in place, so
+		// a later run can manage it and an uninstall can find it.
+		switch mode {
+		case installer.ModeCheck:
+			fmt.Fprintln(out, "note: CLAUDE.md directive is present but unmarked; install will adopt it")
+		case installer.ModeDryRun:
+			fmt.Fprintln(out, "would: wrap the existing CLAUDE.md directive in markers (content unchanged)")
+		case installer.ModeInstall:
+			if next, ok := installer.AdoptDirective(existing, src, want); ok {
+				if err := installer.WriteFileWithBackup(path, next); err == nil {
+					fmt.Fprintln(out, "CLAUDE.md directive: adopted (markers added, content unchanged)")
+				}
+			}
+		}
+
+	case installer.DirectiveForeign:
+		// Reported, never rewritten. A stale unmarked block matches no known
+		// byte string and nothing recorded which revision was appended, so
+		// it cannot be told apart from the human's own prose.
+		fmt.Fprintln(out, style.Warn.Render(
+			"note: "+path+" carries a workflow section this installer cannot place. "+
+				"Left alone. Remove it by hand if you want the managed block instead."))
+	}
+}
+
 func reportHookState(cmd *cobra.Command, home string, mode installer.Mode, rep *installer.Report, withHook bool) {
 	out := cmd.OutOrStdout()
 	settings := installer.SettingsPath(home)
@@ -490,6 +668,90 @@ func reportHookState(cmd *cobra.Command, home string, mode installer.Mode, rep *
 // offerSessionStartHook prompts once, on an interactive install, before
 // writing to a file the human owns. Declining is remembered only in the
 // sense that nothing is written — re-running install asks again.
+
+// hookPresent reports whether the SessionStart hook entry exists, which is
+// how the caller tells an accepted prompt from a declined one.
+
+// chosenExtras collapses the flag set into the extras the caller asked for
+// without a prompt.
+
+// claudeMDPath is the human-owned instruction file the directive lives in.
+func claudeMDPath(home string) string { return filepath.Join(home, ".claude", "CLAUDE.md") }
+
+func chosenExtras(flags map[string]*bool) map[string]bool {
+	out := map[string]bool{}
+	for name, v := range flags {
+		if v != nil && *v {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+func hookPresent(home string) bool {
+	state, _, err := installer.InspectHook(
+		installer.SettingsPath(home), installer.HookCommand(installer.HookBinPath(home)))
+	return err == nil && state != installer.HookAbsent
+}
+
+// unansweredExtras lists the extras with no decision on record. It is what
+// makes the non-interactive hint honest: it used to name all three every
+// time, including on a machine that already had all three.
+func unansweredExtras(c installer.Consent) []string {
+	var out []string
+	for _, e := range installer.Extras() {
+		if !c.Asked(e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// extraFlag maps an extra to the flag that answers it without a prompt.
+var extraFlag = map[string]string{
+	installer.ExtraSessionHook:  "--with-session-hook",
+	installer.ExtraClaudeMD:     "--with-claude-md",
+	installer.ExtraDevboardUnit: "--with-devboard-service",
+}
+
+func flagsFor(extras []string) string {
+	var out []string
+	for _, e := range extras {
+		if f, ok := extraFlag[e]; ok {
+			out = append(out, f)
+		}
+	}
+	return strings.Join(out, " / ")
+}
+
+// writeDirective replaces the managed block in a CLAUDE.md, or appends one.
+//
+// Everything outside the markers is the human's and is copied through
+// untouched; everything inside is ours and is replaced. That split is the
+// whole design: the rendered-file rule (the repo is the source, so warn and
+// overwrite) applies INSIDE the markers, and the settings-file rule (never
+// touch a byte we did not write) applies outside them.
+//
+// It backs up and replaces atomically rather than appending in place, which
+// is what the hook writer already does and what the old append did not.
+func writeDirective(path, repoRoot string) error {
+	src, err := os.ReadFile(filepath.Join(repoRoot, "CLAUDE.md"))
+	if err != nil {
+		return err
+	}
+	block := installer.MarkedDirective(src)
+
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	next, err := installer.ReplaceDirective(existing, block)
+	if err != nil {
+		return err
+	}
+	return installer.WriteFileWithBackup(path, next)
+}
+
 func offerSessionStartHook(cmd *cobra.Command, home string) {
 	out := cmd.OutOrStdout()
 	settings := installer.SettingsPath(home)

@@ -33,13 +33,24 @@ BIN="$HOME/.local/bin/worklog"
 RELEASE_BASE="https://github.com/prestontallen/ai-devboard/releases/latest/download"
 
 mode="install"
-case "${1:-}" in
-  -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  --check)   mode="check" ;;
-  --dry-run) mode="dryrun" ;;
-  "")        ;;
-  *) echo "unknown arg: $1 (try --help)" >&2; exit 64 ;;
-esac
+# Anything this script does not itself act on is forwarded verbatim to
+# `worklog install`. That is what lets one command set up a fresh machine
+# headlessly (--with-session-hook, --with-claude-md, --with-devboard-service);
+# previously any such flag was rejected here with exit 64 and never reached
+# the binary that implements it. A genuine typo now surfaces as the binary's
+# own unknown-flag error rather than this script's, which is a fair trade for
+# not having to mirror the binary's flag set in bash.
+forward=()
+while (( $# )); do
+  case "$1" in
+    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --check)   mode="check" ;;
+    --dry-run) mode="dryrun" ;;
+    "")        ;;
+    *) forward+=("$1") ;;
+  esac
+  shift
+done
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
@@ -118,13 +129,13 @@ if [[ "$mode" != "install" ]]; then
       echo "$relation: worklog binary ($BIN): have '${have%% *}', release ${latest:-unknown}"
     fi
     if [[ -x "$BIN" ]]; then
-      "$BIN" install --repo "$REPO_ROOT" "$flag" || exit 1
+      "$BIN" install --repo "$REPO_ROOT" "$flag" "${forward[@]+"${forward[@]}"}" || exit 1
     else
       echo "note: binary absent; skill state unknown until installed (run ./install.sh)"
     fi
     exit 1
   fi
-  exec "$BIN" install --repo "$REPO_ROOT" "$flag"
+  exec "$BIN" install --repo "$REPO_ROOT" "$flag" "${forward[@]+"${forward[@]}"}"
 fi
 
 
@@ -197,4 +208,4 @@ if ! $current; then
   fi
 fi
 
-exec "$BIN" install --repo "$REPO_ROOT"
+exec "$BIN" install --repo "$REPO_ROOT" "${forward[@]+"${forward[@]}"}"
