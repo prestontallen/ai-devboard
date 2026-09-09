@@ -2,7 +2,7 @@ package cli
 
 import (
 	"errors"
-	"os/exec"
+	"os"
 	"strings"
 	"testing"
 )
@@ -59,10 +59,41 @@ func TestUnitFileDoesNotNameTheTestBinary(t *testing.T) {
 
 // TestSeamCoversEveryServiceCall walks the source for direct exec.Command
 // calls naming a service manager, which would bypass the seam entirely.
+//
+// It walks EVERY file in the package, not install.go alone. The single-file
+// version was written when install.go was the only file that shelled out, and
+// it would have passed unchanged while uninstall.go called systemctl directly
+// — the same rot the store-boundary guard was found to have, from the same
+// cause: a hardcoded list that nothing revisits. It also covers docker now,
+// which uninstall is the first and only caller of.
+//
+// The vacuity check matters as much as the search. A guard that inspects
+// nothing passes, and would keep passing after a rename.
 func TestSeamCoversEveryServiceCall(t *testing.T) {
-	out, err := exec.Command("grep", "-n", `exec\.Command("systemctl"`, "install.go").CombinedOutput()
-	if err == nil && len(out) > 0 {
-		t.Errorf("direct service calls bypass runCommand:\n%s", out)
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspected++
+		for _, tool := range []string{"systemctl", "docker"} {
+			if strings.Contains(string(src), `exec.Command("`+tool+`"`) {
+				t.Errorf("%s calls exec.Command(%q) directly, bypassing runCommand; "+
+					"a test would then reach the developer's real machine", name, tool)
+			}
+		}
+	}
+	if inspected == 0 {
+		t.Fatal("the guard inspected no files at all; it proves nothing")
 	}
 }
 

@@ -163,17 +163,24 @@ func readSettings(path string) (map[string]any, error) {
 // Round-tripping through map[string]any does not preserve key order; values
 // are preserved exactly, which is what matters for a config file.
 func writeSettings(path string, root map[string]any) error {
+	if original, err := os.ReadFile(path); err == nil {
+		if err := os.WriteFile(path+".bak", original, 0o644); err != nil {
+			return fmt.Errorf("could not back up %s: %v", path, err)
+		}
+	}
+	return writeSettingsNoBackup(path, root)
+}
+
+// writeSettingsNoBackup is the atomic write itself, with no backup policy of
+// its own. The two callers differ only in that policy: install always takes a
+// fresh backup, uninstall refuses to overwrite one that already exists.
+func writeSettingsNoBackup(path string, root map[string]any) error {
 	data, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
 
-	if original, err := os.ReadFile(path); err == nil {
-		if err := os.WriteFile(path+".bak", original, 0o644); err != nil {
-			return fmt.Errorf("could not back up %s: %v", path, err)
-		}
-	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -231,4 +238,89 @@ func groupHooks(group map[string]any) []map[string]any {
 		}
 	}
 	return out
+}
+
+// RemoveHook deletes our SessionStart entry and nothing else, returning
+// whether anything was removed.
+//
+// This is the inverse InstallHook never had, and "inverse" is doing real work
+// here. Removal is at HANDLER granularity, matched by the same hookMarker
+// install writes, because a human may legitimately have added their own
+// handler to the very matcher group we created — dropping the group wholesale
+// would take their hook with ours. A group is removed only once it is empty,
+// and the SessionStart and hooks keys only once THEY are empty, so an
+// uninstalled machine is left with no empty scaffolding to explain.
+//
+// It also refuses to clobber an existing backup. writeSettings takes one
+// unconditionally on every mutation, which means an uninstall using it would
+// overwrite the backup the last install left — replacing the human's only
+// record of their pre-install settings with a copy of their pre-uninstall
+// ones, at the exact moment they might want the older file.
+func RemoveHook(settingsPath string) (bool, error) {
+	root, err := readSettings(settingsPath)
+	if err != nil {
+		return false, err
+	}
+	hooks, ok := root["hooks"].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	rawGroups, ok := hooks["SessionStart"].([]any)
+	if !ok {
+		return false, nil
+	}
+
+	removed := false
+	keptGroups := make([]any, 0, len(rawGroups))
+	for _, g := range rawGroups {
+		group, ok := g.(map[string]any)
+		if !ok {
+			keptGroups = append(keptGroups, g) // not a shape we wrote; leave it
+			continue
+		}
+		rawHooks, _ := group["hooks"].([]any)
+		keptHooks := make([]any, 0, len(rawHooks))
+		for _, h := range rawHooks {
+			if m, ok := h.(map[string]any); ok {
+				if cmd, _ := m["command"].(string); strings.Contains(cmd, hookMarker) {
+					removed = true
+					continue
+				}
+			}
+			keptHooks = append(keptHooks, h)
+		}
+		// A group that still holds a foreign handler survives with that
+		// handler intact. Only a group we emptied goes.
+		if len(keptHooks) == 0 && len(rawHooks) > 0 {
+			continue
+		}
+		group["hooks"] = keptHooks
+		keptGroups = append(keptGroups, group)
+	}
+	if !removed {
+		return false, nil
+	}
+
+	if len(keptGroups) == 0 {
+		delete(hooks, "SessionStart")
+	} else {
+		hooks["SessionStart"] = keptGroups
+	}
+	if len(hooks) == 0 {
+		delete(root, "hooks")
+	}
+	return true, writeSettingsKeepingBackup(settingsPath, root)
+}
+
+// writeSettingsKeepingBackup writes atomically, taking a backup only when
+// there is not one already. See RemoveHook for why that condition matters.
+func writeSettingsKeepingBackup(path string, root map[string]any) error {
+	if _, err := os.Stat(path + ".bak"); os.IsNotExist(err) {
+		if original, err := os.ReadFile(path); err == nil {
+			if err := os.WriteFile(path+".bak", original, 0o644); err != nil {
+				return fmt.Errorf("could not back up %s: %v", path, err)
+			}
+		}
+	}
+	return writeSettingsNoBackup(path, root)
 }

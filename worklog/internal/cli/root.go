@@ -32,6 +32,12 @@ var freezeExemptCommands = map[string]bool{
 	// adopt acquires the freeze itself for its own write window, so it
 	// must not be blocked by the freeze it is about to take.
 	"adopt": true,
+	// uninstall removes the tool. A freeze is a hold on the DATA, and the
+	// data is exactly what uninstall preserves by default — so refusing to
+	// uninstall because a freeze is held would strand a machine on a
+	// sentinel file whose own release command is the thing being removed.
+	// It releases the freeze on the way out rather than honouring it.
+	"uninstall": true,
 }
 
 // topLevelName returns the name of cmd's ancestor that is a direct child of
@@ -133,6 +139,7 @@ scripts that handled validation and skill deployment.`,
 		"worklog data directory (default $WORKLOG_DIR or ~/.local/share/worklog)")
 
 	cmd.AddCommand(
+		newUninstallCmd(),
 		newValidateCmd(),
 		newStatusCmd(),
 		newStandupCmd(),

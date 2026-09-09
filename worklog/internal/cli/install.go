@@ -438,6 +438,7 @@ func promptForTargets(home string) ([]string, error) {
 
 // installExtras: PATH warning, tone check, devboard dir, opt-in prompts.
 func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, with, without map[string]bool) {
+	cfg, _, _ := installer.LoadConfig(installer.ConfPath())
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 
@@ -446,13 +447,41 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 		fmt.Fprintln(errw, style.Warn.Render("WARN: "+binDir+" is not on PATH — add it to your shell profile"))
 	}
 
-	toneGlob := filepath.Join(home, ".claude", "skills", "*tone*")
-	if m, _ := filepath.Glob(toneGlob); len(m) > 0 {
-		if mode == installer.ModeInstall {
-			fmt.Fprintln(out, style.Dim.Render("tone skill: "+filepath.Base(m[0])+" found"))
-		}
-	} else {
+	// The optional-skill probe walks every target the deployer knows, not a
+	// hardcoded ~/.claude/skills. A Cursor-only or Codex-only machine used
+	// to warn forever about a tone skill it actually had.
+	//
+	// A DANGLING symlink is drift, and that is the second half of the fix.
+	// The old glob could not tell a working skill from a link whose target
+	// had been moved or deleted: both are "present" to a glob, only one can
+	// be read, and the rotted one degraded the ship phase silently.
+	probeTargets := cfg.Targets
+	if len(probeTargets) == 0 {
+		probeTargets = installer.DetectTargets(home)
+	}
+	optional := installer.ProbeOptionalSkills(probeTargets, repoRoot)
+	switch {
+	case len(optional) == 0:
 		fmt.Fprintln(errw, style.Warn.Render("WARN: no personal *tone* skill installed — dev-context ship phase falls back to its default voice"))
+	default:
+		for _, o := range optional {
+			if o.Dangling {
+				msg := "optional skill " + filepath.Base(o.Path) + " is a broken symlink: " + o.Path
+				switch mode {
+				case installer.ModeCheck:
+					fmt.Fprintln(out, style.Bad.Render("drift: "+msg))
+					rep.Drift = true
+				case installer.ModeDryRun:
+					fmt.Fprintln(out, "would: report "+msg)
+				default:
+					fmt.Fprintln(errw, style.Warn.Render("WARN: "+msg))
+				}
+				continue
+			}
+			if mode == installer.ModeInstall {
+				fmt.Fprintln(out, style.Dim.Render("tone skill: "+filepath.Base(o.Path)+" found"))
+			}
+		}
 	}
 
 	reportHookState(cmd, home, mode, rep, with[installer.ExtraSessionHook])

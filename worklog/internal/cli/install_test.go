@@ -377,3 +377,59 @@ func TestCheckRejectsDeclineFlagsToo(t *testing.T) {
 		}
 	}
 }
+
+// TestToneProbeWalksTargets is adb-tone-glob-targets: the probe globbed
+// ~/.claude/skills alone, so a Cursor-only machine warned forever about a
+// tone skill it actually had.
+func TestToneProbeWalksTargets(t *testing.T) {
+	home, repo := installSandbox(t)
+	cursor := filepath.Join(home, ".cursor", "skills")
+	if err := os.MkdirAll(filepath.Join(cursor, "concise-tone"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A config naming ONLY the Cursor target. The old probe never looked here.
+	if err := os.MkdirAll(filepath.Join(home, ".config", "ai-devboard"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "ai-devboard", "targets"),
+		[]byte("repo "+repo+"\n"+cursor+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, err := runInstallCmd(t, "", "--repo", repo)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if strings.Contains(stderr, "no personal *tone* skill") {
+		t.Errorf("warned about a missing tone skill that is present in %s:\n%s", cursor, stderr)
+	}
+	if !strings.Contains(out, "concise-tone") {
+		t.Errorf("the tone skill in the Cursor target was never noticed:\n%s", out)
+	}
+}
+
+// TestDanglingOptionalSkillIsDrift is adb-tone-symlink-drift: a glob cannot
+// tell a working skill from a link whose target is gone.
+func TestDanglingOptionalSkillIsDrift(t *testing.T) {
+	home, repo := installSandbox(t)
+	skills := filepath.Join(home, ".claude", "skills")
+	if err := os.MkdirAll(skills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "gone-away"),
+		filepath.Join(skills, "concise-tone")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "ai-devboard"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "ai-devboard", "targets"),
+		[]byte("repo "+repo+"\n"+skills+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, _ := runInstallCmd(t, "", "--repo", repo, "--check")
+	if !strings.Contains(out, "drift") || !strings.Contains(out, "concise-tone") {
+		t.Errorf("a dangling optional skill was not reported as drift:\n%s", out)
+	}
+}

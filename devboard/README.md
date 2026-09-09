@@ -43,6 +43,9 @@ directly:
 systemctl --user status devboard   # the unit installed by `worklog install`
 ```
 
+`worklog uninstall` takes it back out, disabling the unit before removing
+its files so systemd is not left with a dangling enable symlink.
+
 Defaults: port `8484`, worklog dir `~/.local/share/worklog` (the store
 sits beside it). Override with the environment: `DEVBOARD_WORKLOG`,
 `DEVBOARD_PORT`, `DEVBOARD_SCAN_INTERVAL`. The store is the only thing the

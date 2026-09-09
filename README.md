@@ -75,6 +75,29 @@ and nothing to opt into. Schema and field-ownership rules:
 ./install.sh --dry-run  # show what would happen
 ```
 
+## Uninstall
+
+```sh
+worklog uninstall                 # print the plan; change nothing
+worklog uninstall --commit        # remove the artifacts, keep your data
+worklog uninstall --commit --purge-data    # remove the data too
+./install.sh --uninstall --commit          # same thing, via the bootstrap
+```
+
+A dry run is the default, as it is for `worklog adopt`. Your worklog
+corpus, store and contracts are preserved and listed unless you pass
+`--purge-data`; superseded pre-store layouts are reported separately and
+removed only with `--purge-legacy`.
+
+Removal is deliberately conservative where this tool's files sit beside
+yours. Only skills it deployed are removed, so a third-party skill in the
+same directory survives; only its own handler leaves `settings.json`, so
+your other hooks and settings stay; and only the marked block leaves
+`~/.claude/CLAUDE.md`, so your own text is kept. An unmarked directive is
+reported and left alone rather than guessed at. The binary is removed
+last, so a failure part-way through never leaves a session hook pointing
+at a file that is gone.
+
 Linux/macOS (Windows → WSL). Go is OPTIONAL: the bootstrap downloads the
 latest release binary for your platform (sha256-verified) and falls back
 to a local `go build` when the download isn't possible; dev machines with

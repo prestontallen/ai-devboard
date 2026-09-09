@@ -24,6 +24,12 @@
 # unreplaceable binary is REPORTED, and the rest of the check is delegated
 # only when a binary exists to delegate to.
 #
+# --uninstall hands straight over to `worklog uninstall` and returns. It is
+# matched BEFORE the preflight on purpose: everything below this point
+# exists to obtain a binary, and running it first would download or compile
+# one in order to delete it. Pass --commit through to actually remove;
+# without it the binary prints its plan and changes nothing.
+#
 # Exit codes: 0 ok/current · 1 preflight or drift · 64 usage
 
 set -euo pipefail
@@ -43,14 +49,27 @@ mode="install"
 forward=()
 while (( $# )); do
   case "$1" in
-    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --check)   mode="check" ;;
-    --dry-run) mode="dryrun" ;;
+    -h|--help) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --check)     mode="check" ;;
+    --dry-run)   mode="dryrun" ;;
+    --uninstall) mode="uninstall" ;;
     "")        ;;
     *) forward+=("$1") ;;
   esac
   shift
 done
+
+# Uninstall is a pure dispatch and deliberately reaches none of the machinery
+# below: no platform probe, no git requirement, no release lookup, no build.
+# The binary owns every decision, and it needs no checkout to make them — which
+# is the whole reason uninstall is a subcommand rather than a flag on install.
+if [[ "$mode" == "uninstall" ]]; then
+  if [[ ! -x "$BIN" ]]; then
+    echo "nothing to uninstall: no worklog binary at $BIN"
+    exit 0
+  fi
+  exec "$BIN" uninstall "${forward[@]+"${forward[@]}"}"
+fi
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)

@@ -153,3 +153,57 @@ func WriteFileWithBackup(path string, content []byte) error {
 	}
 	return os.Rename(tmp.Name(), path)
 }
+
+// HasManagedDirective reports whether a managed block is present, asking only
+// the file's own bytes.
+//
+// InspectDirective cannot answer this for uninstall: its signature takes the
+// block we WOULD write and the bare repo body, both of which are derived from
+// a checkout. Uninstall has no checkout by design — that is the whole point of
+// it being a binary subcommand — so the question has to be answerable from the
+// markers alone. It is, and that is exactly what the markers were introduced
+// for.
+func HasManagedDirective(existing []byte) bool {
+	begin := bytes.Index(existing, []byte(directiveBegin))
+	end := bytes.Index(existing, []byte(directiveEnd))
+	return begin >= 0 && end > begin
+}
+
+// RemoveDirective cuts the managed block out, returning the remaining bytes
+// and whether anything was removed.
+//
+// It removes ONLY what lies between and including the markers. Everything
+// outside them is the human's and is copied through untouched — the same split
+// install writes under, read in the other direction.
+//
+// An unmarked or foreign directive is deliberately NOT removed. A block with
+// no markers cannot be told apart from the human's own prose about this
+// workflow, nothing ever recorded which revision was appended, and guessing
+// would mean deleting text we cannot prove we wrote. Install has the same rule
+// and reports rather than rewriting; the asymmetry with an ADOPTED block is
+// the reason adoption exists at all.
+func RemoveDirective(existing []byte) ([]byte, bool) {
+	begin := bytes.Index(existing, []byte(directiveBegin))
+	end := bytes.Index(existing, []byte(directiveEnd))
+	if begin < 0 || end <= begin {
+		return existing, false
+	}
+	prefix := existing[:begin]
+	suffix := existing[end+len(directiveEnd):]
+
+	// Heal the seam. ReplaceDirective inserts a blank line before an
+	// appended block, so removing the block without removing that blank
+	// line would leave the file gaining whitespace on every install and
+	// uninstall cycle.
+	var b bytes.Buffer
+	b.Write(bytes.TrimRight(prefix, "\n\t "))
+	tail := bytes.TrimLeft(suffix, "\n")
+	if b.Len() > 0 {
+		b.WriteString("\n")
+		if len(tail) > 0 {
+			b.WriteString("\n")
+		}
+	}
+	b.Write(tail)
+	return b.Bytes(), true
+}

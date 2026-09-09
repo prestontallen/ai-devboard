@@ -266,10 +266,16 @@ an agent that isn't auto-detected just gets a line added.
 | The skill, once per configured target | `<target>/worklog/SKILL.md` |
 | The `/worklog` slash command (Claude Code only) | `~/.claude/commands/worklog.md` |
 | The SessionStart hook entry, opt-in (Claude Code only) | `~/.claude/settings.json` |
+| The workflow directive, opt-in, inside managed markers | `~/.claude/CLAUDE.md` |
+| Skill targets and what you answered about each extra | `~/.config/ai-devboard/targets`, `~/.config/ai-devboard/consent` |
+| The devboard service, opt-in | `~/.config/systemd/user/devboard.service` |
+
+`worklog uninstall` removes every row above, plus artifacts older versions
+left behind that nothing deploys today. It prints a plan and changes
+nothing until you pass `--commit`.
 
 Every other agent relies on skill auto-invocation instead of a slash
-command. There is no Cursor `.mdc` rule file today — `internal/sync` keeps
-the hook for one if reinforcement ever proves necessary.
+command. There is no Cursor `.mdc` rule file today.
 
 An interactive `worklog install` offers to register a `SessionStart` hook
 that runs `worklog hook session-start`, which injects a short orientation

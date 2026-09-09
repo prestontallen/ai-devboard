@@ -22,9 +22,14 @@ import (
 )
 
 // newServeCmd wires the devboard dashboard server. Configuration is
-// env-driven (DEVBOARD_DATA, DEVBOARD_WORKLOG, DEVBOARD_PORT,
-// DEVBOARD_SCAN_INTERVAL), matching the retired Python server, with native
-// defaults replacing the container paths.
+// env-driven (DEVBOARD_WORKLOG, DEVBOARD_PORT, DEVBOARD_SCAN_INTERVAL).
+//
+// DEVBOARD_DATA is NOT among them any more: the board is served from the
+// store and there is no data directory to point at. It stayed in this help
+// text after the code stopped reading it, which mattered once uninstall
+// began offering to remove that directory — the tool would have been
+// calling it retired in one breath and advertising it as live config in
+// the next.
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
@@ -35,8 +40,7 @@ func newServeCmd() *cobra.Command {
 archive/unarchive endpoints. It replaces devboard/server.py; the response
 shape is frozen as the frontend contract (devboard/API.md).
 
-Environment: DEVBOARD_DATA (default ~/.local/share/devboard),
-DEVBOARD_WORKLOG (default ~/.local/share/worklog), DEVBOARD_PORT (8484),
+Environment: DEVBOARD_WORKLOG (default ~/.local/share/worklog), DEVBOARD_PORT (8484),
 DEVBOARD_SCAN_INTERVAL (seconds, 1.0). Binds 0.0.0.0 — the board is used
 over LAN.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
