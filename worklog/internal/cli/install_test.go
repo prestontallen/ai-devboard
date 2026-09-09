@@ -221,3 +221,159 @@ func TestInstallCheckWithHookFlagIsUsageError(t *testing.T) {
 func installerConfPathForTest() string {
 	return filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "ai-devboard", "targets")
 }
+
+// TestDumbTermEOFRecordsNoSkillsDecision is the trap this ticket nearly fell
+// into. A Confirm returns its DEFAULT at end-of-input without erroring, so
+// asking "deploy skills?" that way would record a decline the human never
+// made — and, because the record is consulted before the prompt, never ask
+// them again. Silence must decide nothing.
+func TestDumbTermEOFRecordsNoSkillsDecision(t *testing.T) {
+	home, repo := installSandbox(t)
+	t.Setenv("INSTALL_PROMPT_FORCE", "1")
+	t.Setenv("TERM", "dumb")
+
+	_, _, err := runInstallCmd(t, "", "--repo", repo)
+	if err == nil {
+		t.Fatal("an unanswered prompt succeeded")
+	}
+	consent, cerr := installer.LoadConsent(filepath.Join(home, ".config", "ai-devboard", "consent"))
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	if consent.Asked(installer.ExtraSkills) {
+		t.Error("an unanswered prompt was recorded as a decision")
+	}
+}
+
+// TestEmptyConfigMeansDeclined: a config file naming no targets is something
+// a human wrote. Reading it as "no opinion" and falling through to detection
+// is how a deliberate choice gets overridden.
+func TestEmptyConfigMeansDeclined(t *testing.T) {
+	home, repo := installSandbox(t)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	os.WriteFile(filepath.Join(confDir, "targets"), []byte("# binary only\n"), 0o644)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755) // detectable, and must be ignored
+
+	stdout, _, err := runInstallCmd(t, "", "--repo", repo)
+	if err != nil {
+		t.Fatalf("declining should be a clean end state: %v", err)
+	}
+	if !strings.Contains(stdout, "declined") {
+		t.Errorf("output did not say skills were declined: %q", stdout)
+	}
+	if _, statErr := os.Stat(filepath.Join(home, ".claude", "skills", "dev-context")); statErr == nil {
+		t.Error("skills were deployed despite an empty config")
+	}
+}
+
+// TestDeclinedSkillsAreCleanUnderCheck: a declined extra is a supported end
+// state, not drift. Otherwise declining leaves --check failing forever, which
+// is the asymmetry the devboard data dir already had.
+func TestDeclinedSkillsAreCleanUnderCheck(t *testing.T) {
+	home, repo := installSandbox(t)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	os.WriteFile(filepath.Join(confDir, "consent"), []byte("skills declined\n"), 0o644)
+
+	if _, _, err := runInstallCmd(t, "--check", "--repo", repo); err != nil {
+		t.Errorf("--check on a machine that declined skills should exit 0, got %v", err)
+	}
+}
+
+// TestExistingMachineIsNotReasked: a machine with a configured target list
+// chose skills before there was anywhere to record it. Asking once more for
+// something it plainly already has would be a regression dressed as a feature.
+func TestExistingMachineIsNotReasked(t *testing.T) {
+	home, repo := installSandbox(t)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	target := filepath.Join(home, ".claude", "skills")
+	os.WriteFile(filepath.Join(confDir, "targets"), []byte(target+"\n"), 0o644)
+
+	if _, _, err := runInstallCmd(t, "", "--repo", repo); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	consent, _ := installer.LoadConsent(filepath.Join(confDir, "consent"))
+	if !consent.Accepted(installer.ExtraSkills) {
+		t.Error("an already-configured machine was not read as having accepted skills")
+	}
+	if _, err := os.Stat(filepath.Join(target, "dev-context")); err != nil {
+		t.Errorf("skills were not deployed to the configured target: %v", err)
+	}
+}
+
+// TestDeclineFlagsRecordWithoutPrompting: a decline is a decision and needs
+// the same headless form an acceptance has. Before this there were four ways
+// to say yes and none to say no except answering a prompt, which is not a
+// headless answer at all.
+func TestDeclineFlagsRecordWithoutPrompting(t *testing.T) {
+	for extra, flag := range map[string]string{
+		installer.ExtraSkills:       "--no-skills",
+		installer.ExtraSessionHook:  "--no-session-hook",
+		installer.ExtraClaudeMD:     "--no-claude-md",
+		installer.ExtraDevboardUnit: "--no-devboard-service",
+	} {
+		t.Run(extra, func(t *testing.T) {
+			home, repo := installSandbox(t)
+			os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+
+			if _, _, err := runInstallCmd(t, "", flag, "--repo", repo); err != nil {
+				t.Fatalf("%s: %v", flag, err)
+			}
+			consent, _ := installer.LoadConsent(filepath.Join(home, ".config", "ai-devboard", "consent"))
+			if !consent.Asked(extra) {
+				t.Fatalf("%s did not record a decision", flag)
+			}
+			if consent.Accepted(extra) {
+				t.Errorf("%s recorded acceptance", flag)
+			}
+		})
+	}
+}
+
+// TestDeclineFlagSkipsTheWork: recording a decline must also mean not doing
+// the thing. Skills are the visible case — nothing should land in a target.
+func TestDeclineFlagSkipsTheWork(t *testing.T) {
+	home, repo := installSandbox(t)
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
+
+	if _, _, err := runInstallCmd(t, "", "--no-skills", "--repo", repo); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "dev-context")); err == nil {
+		t.Error("skills were deployed despite --no-skills")
+	}
+}
+
+// TestContradictoryFlagsAreAUsageError: both flags for one extra is a
+// contradiction, not a precedence question. Picking a winner would silently
+// do the opposite of what half the command line asked for.
+func TestContradictoryFlagsAreAUsageError(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"--with-skills", "--no-skills"},
+		{"--with-session-hook", "--no-session-hook"},
+		{"--with-claude-md", "--no-claude-md"},
+		{"--with-devboard-service", "--no-devboard-service"},
+	} {
+		_, repo := installSandbox(t)
+		_, _, err := runInstallCmd(t, "", pair[0], pair[1], "--repo", repo)
+		if err == nil {
+			t.Errorf("%s %s was accepted", pair[0], pair[1])
+		}
+	}
+}
+
+// TestCheckRejectsDeclineFlagsToo: a decline is recorded, and recording is a
+// write, so --check must refuse it on the same rule as an acceptance.
+func TestCheckRejectsDeclineFlagsToo(t *testing.T) {
+	for _, flag := range []string{
+		"--no-skills", "--no-session-hook", "--no-claude-md", "--no-devboard-service",
+	} {
+		_, repo := installSandbox(t)
+		_, _, err := runInstallCmd(t, "", "--check", flag, "--repo", repo)
+		if err == nil || !strings.Contains(err.Error(), "never writes") {
+			t.Errorf("--check %s: want a usage error, got %v", flag, err)
+		}
+	}
+}

@@ -28,6 +28,17 @@ func newInstallCmd() *cobra.Command {
 		// was threaded positionally through three call frames, and four of
 		// those at one call site is a defect waiting to happen.
 		flagWith = map[string]*bool{
+			installer.ExtraSkills:       new(bool),
+			installer.ExtraSessionHook:  new(bool),
+			installer.ExtraClaudeMD:     new(bool),
+			installer.ExtraDevboardUnit: new(bool),
+		}
+		// A decline is a decision, and needs the same headless, unfakeable
+		// form as an acceptance. Without these there were four ways to say
+		// yes and none to say no except answering a prompt — which is not a
+		// headless answer at all.
+		flagWithout = map[string]*bool{
+			installer.ExtraSkills:       new(bool),
 			installer.ExtraSessionHook:  new(bool),
 			installer.ExtraClaudeMD:     new(bool),
 			installer.ExtraDevboardUnit: new(bool),
@@ -68,9 +79,23 @@ prompt, never build.`,
 			// combinations, and --dry-run accepted the same flag that
 			// --check rejected.
 			for _, extra := range installer.Extras() {
-				if flagCheck && *flagWith[extra] {
-					return errWithExit(64,
-						"cannot combine --check and %s (--check never writes)", extraFlag[extra])
+				// Both flags for one extra is a contradiction, not a
+				// precedence question. Picking a winner would silently do
+				// the opposite of what half the command line asked for.
+				if *flagWith[extra] && *flagWithout[extra] {
+					return errWithExit(64, "cannot combine %s and %s",
+						extraFlag[extra], extraFlagNo[extra])
+				}
+				// Both kinds WRITE — a decline is recorded, which is a write
+				// like any other — so --check rejects them equally.
+				for _, f := range []struct {
+					set  bool
+					name string
+				}{{*flagWith[extra], extraFlag[extra]}, {*flagWithout[extra], extraFlagNo[extra]}} {
+					if flagCheck && f.set {
+						return errWithExit(64,
+							"cannot combine --check and %s (--check never writes)", f.name)
+					}
 				}
 			}
 			mode := installer.ModeInstall
@@ -80,7 +105,7 @@ prompt, never build.`,
 			if flagDryRun {
 				mode = installer.ModeDryRun
 			}
-			return runInstall(cmd, flagRepo, mode, chosenExtras(flagWith))
+			return runInstall(cmd, flagRepo, mode, chosenExtras(flagWith), chosenExtras(flagWithout))
 		},
 	}
 	cmd.Flags().StringVar(&flagRelate, "relate", "",
@@ -88,12 +113,22 @@ prompt, never build.`,
 	cmd.Flags().StringVar(&flagRepo, "repo", "", "path to the ai-devboard checkout (persisted; usually passed by install.sh)")
 	cmd.Flags().BoolVar(&flagCheck, "check", false, "report drift; exit 1 if anything differs")
 	cmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "print what would happen; change nothing")
+	cmd.Flags().BoolVar(flagWith[installer.ExtraSkills], "with-skills", false,
+		"deploy the skills to every configured target without prompting")
 	cmd.Flags().BoolVar(flagWith[installer.ExtraSessionHook], "with-session-hook", false,
 		"install the Claude Code SessionStart hook without prompting")
 	cmd.Flags().BoolVar(flagWith[installer.ExtraClaudeMD], "with-claude-md", false,
 		"write the dev-context directive into ~/.claude/CLAUDE.md without prompting")
 	cmd.Flags().BoolVar(flagWith[installer.ExtraDevboardUnit], "with-devboard-service", false,
 		"install and start the devboard systemd user unit without prompting")
+	cmd.Flags().BoolVar(flagWithout[installer.ExtraSkills], "no-skills", false,
+		"record that skills should not be deployed, without prompting")
+	cmd.Flags().BoolVar(flagWithout[installer.ExtraSessionHook], "no-session-hook", false,
+		"record that the SessionStart hook is not wanted, without prompting")
+	cmd.Flags().BoolVar(flagWithout[installer.ExtraClaudeMD], "no-claude-md", false,
+		"record that the CLAUDE.md directive is not wanted, without prompting")
+	cmd.Flags().BoolVar(flagWithout[installer.ExtraDevboardUnit], "no-devboard-service", false,
+		"record that the devboard service is not wanted, without prompting")
 	return cmd
 }
 
@@ -116,7 +151,7 @@ func promptAllowed() bool {
 	return stdinIsTTY() || os.Getenv("INSTALL_PROMPT_FORCE") != ""
 }
 
-func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with map[string]bool) error {
+func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, without map[string]bool) error {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 	home, err := os.UserHomeDir()
@@ -188,6 +223,49 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with m
 		}
 	}
 
+	// Skills are an extra like the other three: asked once, recorded,
+	// declinable. Until this, they deployed to every detected agent dir
+	// without asking, so "install the binary and nothing else" was not a
+	// state you could ask for.
+	consentPath := installer.ConsentPath()
+	consent, _ := installer.LoadConsent(consentPath)
+
+	// A machine that already has a config with targets chose skills at some
+	// point, before there was anywhere to record it. Reading that as
+	// accepted is what stops every existing machine being asked once for
+	// something it plainly already has.
+	consentDirty := false
+	if !consent.Asked(installer.ExtraSkills) && hadConfig && len(cfg.Targets) > 0 {
+		consent.Record(installer.ExtraSkills, installer.Accepted)
+		consentDirty = true
+	}
+	if without[installer.ExtraSkills] && !consent.Asked(installer.ExtraSkills) {
+		consent.Record(installer.ExtraSkills, installer.Declined)
+		consentDirty = true
+	}
+	if with[installer.ExtraSkills] && !consent.Accepted(installer.ExtraSkills) {
+		consent.Record(installer.ExtraSkills, installer.Accepted)
+		consentDirty = true
+	}
+
+	// A config that exists and names no targets is a decision somebody
+	// wrote down, not an absence of one. Falling through to detection here
+	// is how a deliberate empty choice got overridden.
+	if hadConfig && len(cfg.Targets) == 0 && !consent.Asked(installer.ExtraSkills) {
+		consent.Record(installer.ExtraSkills, installer.Declined)
+		consentDirty = true
+	}
+
+	var rep installer.Report
+	if consent.Asked(installer.ExtraSkills) && !consent.Accepted(installer.ExtraSkills) {
+		fmt.Fprintln(out, style.Dim.Render("skills: declined — not deployed (delete the line in "+consentPath+" to be asked again)"))
+		if consentPath != "" {
+			_ = installer.SaveConsent(consentPath, consent)
+		}
+		installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+		return finishInstall(cmd, mode, rep)
+	}
+
 	// Resolve targets: config > interactive prompt > detection.
 	targets := cfg.Targets
 	prompted := false
@@ -195,7 +273,47 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with m
 	case hadConfig && len(targets) > 0:
 		fmt.Fprintln(out, style.Dim.Render("targets: from config ("+strings.Join(targets, ", ")+")"))
 	case mode == installer.ModeInstall && promptAllowed():
-		targets, err = promptForTargets(home)
+		// Ask whether to deploy skills at all, before asking where.
+		//
+		// Note what does NOT protect us here, because it is tempting to
+		// think it does: no prompt shape is end-of-input-proof. A Confirm
+		// returns its default; a Select returns its first option. Measured,
+		// not assumed — an earlier version of this recorded "accepted" for a
+		// prompt nobody saw.
+		//
+		// The guard is that nothing is RECORDED until there are targets to
+		// deploy to. An unanswered prompt therefore falls through to the
+		// zero-target error and decides nothing, which is what lets the
+		// human be asked again next time.
+		answer := ""
+		_ = huh.NewForm(huh.NewGroup(huh.NewSelect[string]().
+			Title("Deploy the skills to your agent directories?").
+			Description("Declining installs the binary only.").
+			Options(
+				huh.NewOption("Yes — deploy skills", "yes"),
+				huh.NewOption("No — binary only", "no"),
+			).
+			Value(&answer))).Run()
+
+		switch answer {
+		case "no":
+			consent.Record(installer.ExtraSkills, installer.Declined)
+			if consentPath != "" {
+				_ = installer.SaveConsent(consentPath, consent)
+			}
+			fmt.Fprintln(out, "skills: declined — not deployed")
+			installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+			return finishInstall(cmd, mode, rep)
+		case "yes":
+			// fall through to choosing where
+		default:
+			// Nobody answered. Record nothing and fall through to the
+			// zero-target error below, which is the guard this preserves.
+			targets = nil
+		}
+		if answer == "yes" {
+			targets, err = promptForTargets(home)
+		}
 		if err != nil {
 			return errWithExit(1, "target selection: %v", err)
 		}
@@ -204,14 +322,30 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with m
 		targets = installer.DetectTargets(home)
 		fmt.Fprintln(out, style.Dim.Render("targets: detected agent dirs (no config yet; run interactively to choose)"))
 	}
-	// Zero targets is an ERROR, never a silent success: huh's accessible
-	// mode (TERM=dumb) returns empty selections on EOF without erroring.
+	// Zero targets is an ERROR on every path that did not just record a
+	// decline: huh's accessible mode (TERM=dumb) returns empty selections on
+	// EOF without erroring, so silence here would look like consent.
 	if len(targets) == 0 {
 		return errWithExit(1, "no install targets selected or detected; nothing would be deployed")
 	}
 	for _, t := range targets {
 		if err := installer.ValidateTarget(t); err != nil {
 			return errWithExit(64, "invalid target: %v", err)
+		}
+	}
+
+	// Past the guard: there are real targets, so skills are genuinely going
+	// to be deployed and that is worth recording. Recording earlier is what
+	// let an unanswered prompt count as consent.
+	if mode == installer.ModeInstall {
+		if !consent.Accepted(installer.ExtraSkills) {
+			consent.Record(installer.ExtraSkills, installer.Accepted)
+			consentDirty = true
+		}
+		if consentDirty && consentPath != "" {
+			if err := installer.SaveConsent(consentPath, consent); err != nil {
+				fmt.Fprintln(errw, style.Warn.Render("WARN: could not record your answers: "+err.Error()))
+			}
 		}
 	}
 
@@ -227,10 +361,11 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with m
 		}
 	}
 
-	rep, err := installer.Run(repoRoot, targets, home, mode)
+	deployed, err := installer.Run(repoRoot, targets, home, mode)
 	if err != nil {
 		return errWithExit(1, "%v", err)
 	}
+	rep = deployed
 	for _, a := range rep.Actions {
 		switch a.Kind {
 		case "note":
@@ -244,8 +379,15 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with m
 		}
 	}
 
-	installExtras(cmd, home, repoRoot, mode, &rep, with)
+	installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+	return finishInstall(cmd, mode, rep)
+}
 
+// finishInstall prints the mode epilogue. Extracted so the paths that stop
+// early — skills declined, so there is nothing to deploy — end the same way
+// as a full run rather than falling off the end silently.
+func finishInstall(cmd *cobra.Command, mode installer.Mode, rep installer.Report) error {
+	out := cmd.OutOrStdout()
 	if mode == installer.ModeCheck {
 		if rep.Drift {
 			fmt.Fprintln(out, "check: drift found")
@@ -295,7 +437,7 @@ func promptForTargets(home string) ([]string, error) {
 }
 
 // installExtras: PATH warning, tone check, devboard dir, opt-in prompts.
-func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, with map[string]bool) {
+func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, with, without map[string]bool) {
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
 
@@ -340,6 +482,19 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 	consentPath := installer.ConsentPath()
 	consent, _ := installer.LoadConsent(consentPath)
 	dirty := false
+
+	// Declines first: recording one is what stops the prompt below being
+	// reached at all, and it must work with no terminal.
+	if mode == installer.ModeInstall {
+		for _, extra := range []string{
+			installer.ExtraSessionHook, installer.ExtraClaudeMD, installer.ExtraDevboardUnit,
+		} {
+			if without[extra] && !consent.Asked(extra) {
+				consent.Record(extra, installer.Declined)
+				dirty = true
+			}
+		}
+	}
 
 	// Headless answers first: a flag is an explicit decision and must work
 	// without a terminal, which is the whole point of having flags. It is
@@ -708,7 +863,15 @@ func unansweredExtras(c installer.Consent) []string {
 }
 
 // extraFlag maps an extra to the flag that answers it without a prompt.
+var extraFlagNo = map[string]string{
+	installer.ExtraSkills:       "--no-skills",
+	installer.ExtraSessionHook:  "--no-session-hook",
+	installer.ExtraClaudeMD:     "--no-claude-md",
+	installer.ExtraDevboardUnit: "--no-devboard-service",
+}
+
 var extraFlag = map[string]string{
+	installer.ExtraSkills:       "--with-skills",
 	installer.ExtraSessionHook:  "--with-session-hook",
 	installer.ExtraClaudeMD:     "--with-claude-md",
 	installer.ExtraDevboardUnit: "--with-devboard-service",

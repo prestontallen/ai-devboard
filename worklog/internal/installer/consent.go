@@ -43,6 +43,7 @@ const (
 // The extras this record covers. Names are stable identifiers written to
 // disk; changing one silently resets that decision for every machine.
 const (
+	ExtraSkills       = "skills"
 	ExtraSessionHook  = "session-hook"
 	ExtraClaudeMD     = "claude-md"
 	ExtraDevboardUnit = "devboard-unit"
@@ -50,7 +51,7 @@ const (
 
 // Extras is the canonical set, so a caller cannot iterate a stale list.
 func Extras() []string {
-	return []string{ExtraSessionHook, ExtraClaudeMD, ExtraDevboardUnit}
+	return []string{ExtraSkills, ExtraSessionHook, ExtraClaudeMD, ExtraDevboardUnit}
 }
 
 // ConsentPath is the record's location: a sibling of the targets config.
