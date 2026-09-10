@@ -69,11 +69,32 @@ and nothing to opt into. Schema and field-ownership rules:
 
 ## Install
 
+No clone needed. The skills and the CLAUDE.md directive ship inside the
+binary, so a bare machine installs with one command:
+
+```sh
+curl -fsSL https://github.com/prestontallen/ai-devboard/releases/latest/download/install.sh | bash
+```
+
+Pass the headless flags through with `-s --`, since a pipe has no terminal
+to prompt at:
+
+```sh
+curl -fsSL .../install.sh | bash -s -- --with-session-hook --with-claude-md
+```
+
+From a checkout it behaves the same, except the checkout wins as the skill
+source so edits deploy without a release:
+
 ```sh
 ./install.sh            # obtain worklog, deploy skills, prep devboard
 ./install.sh --check    # report drift (exit 1 if anything differs)
 ./install.sh --dry-run  # show what would happen
 ```
+
+The one-liner is trust-on-first-use: install.sh is fetched over TLS with
+no signature. The binary it then downloads is sha256-verified, and
+install.sh is itself listed in `checksums.txt` so a later run can check it.
 
 ## Uninstall
 
@@ -99,10 +120,14 @@ last, so a failure part-way through never leaves a session hook pointing
 at a file that is gone.
 
 Linux/macOS (Windows → WSL). Go is OPTIONAL: the bootstrap downloads the
-latest release binary for your platform (sha256-verified) and falls back
-to a local `go build` when the download isn't possible; dev machines with
+latest release binary for your platform (sha256-verified, via `sha256sum`
+or `shasum`, whichever the machine has) and falls back to a local
+`go build` only when there is a checkout to build from; dev machines with
 a dev-stamped binary stay on the build path. Docker optional (devboard's
 fallback deployment; the primary is a systemd user unit).
+
+A machine with no agent dir at all installs the binary, says so, and exits
+0 — skills land on the next run once an agent is set up.
 
 **Skill targets**: the first interactive run detects local AI agent dirs
 (`~/.claude`, `~/.cursor`, `~/.windsurf`, `~/.codex`), prompts per target,
@@ -114,6 +139,14 @@ treatment: full copies of all four skills (dev-context, contract, fan-out,
 worklog), with drift caught by `--check` and healed by re-running after
 repo edits. The `/worklog` command file is a Claude-Code-only extra.
 
+**Where skills come from**: a verifying checkout wins, so edits deploy
+straight away; otherwise the copy compiled into the binary. A checkout
+that is named but no longer verifies warns and says its edits are not
+being used, rather than falling back in silence. Sources live in
+[worklog/skills/](worklog/skills/) — under the Go module, because
+`go:embed` cannot reach above it. Editing one dirties the rev and stales
+the binary, so a skill edit on a checkout triggers a rebuild.
+
 Prompts before the opt-in pieces (global CLAUDE.md directive, devboard
 container); warns when no personal `*tone*` skill is installed.
 
@@ -124,13 +157,15 @@ Two layers, both required:
 1. **Discoverability** — skills must live in each agent's skills dir to
    be invocable. `install.sh` copies all four skills to every configured
    target (see Install); after editing skills in the repo, re-run it (or
-   `--check` to see drift).
+   `--check` to see drift). Sources are in `worklog/skills/`.
 
 2. **Guaranteed pickup** — skill invocation is normally probabilistic (the
    model matches task against description). To make it deterministic, a
    CLAUDE.md directive tells Claude to invoke dev-context before any dev
-   task. [CLAUDE.md](CLAUDE.md) in this repo holds that directive; deploy it
-   where you want the workflow enforced:
+   task. [CLAUDE.md](CLAUDE.md) in this repo holds that directive — a symlink
+   to `worklog/skills/CLAUDE.md`, which is the real file because `go:embed`
+   will not follow a symlink into its own tree. Deploy it where you want the
+   workflow enforced:
    - **Globally** (every session): copy/append into `~/.claude/CLAUDE.md`.
    - **Per-project**: copy/append into the repo's `CLAUDE.md`.
    - Currently kept repo-local only, while the skills are under development.

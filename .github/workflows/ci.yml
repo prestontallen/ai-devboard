@@ -48,6 +48,52 @@ jobs:
       - name: test
         run: go test ./...
 
+  # The bootstrap is the first thing a new machine runs and the last thing
+  # anything checked: the go job works inside worklog/ and never touches
+  # install.sh. It broke on its own first line under `curl | bash` and no
+  # test noticed, which is what this job exists to stop.
+  #
+  # It runs from a scratch HOME with no checkout in sight, because "works in
+  # the repo" is exactly the case that was never in doubt.
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: help works with no $0
+        run: |
+          diff <(bash install.sh --help) <(cat install.sh | bash -s -- --help)
+
+      - name: piped run survives with no checkout
+        run: |
+          scratch="$(mktemp -d)"
+          cp install.sh "$scratch/"
+          cd "$scratch"
+          out="$(cat install.sh | HOME="$scratch" XDG_CONFIG_HOME="$scratch/.config" \
+                 bash -s -- --dry-run 2>&1)" || true
+          echo "$out"
+          case "$out" in
+            *"unbound variable"*) echo "::error::piped run aborted on an unbound variable"; exit 1 ;;
+          esac
+          case "$out" in
+            *absent*) ;;
+            *) echo "::error::a bare machine was not reported as absent"; exit 1 ;;
+          esac
+
+      - name: no checkout means no --repo and no git
+        run: |
+          scratch="$(mktemp -d)"
+          cp install.sh "$scratch/"
+          cd "$scratch"
+          trace="$(cat install.sh | HOME="$scratch" XDG_CONFIG_HOME="$scratch/.config" \
+                   bash -xs -- --dry-run 2>&1)" || true
+          for forbidden in -- "--repo" "git -C" "detect-platform"; do
+            [ "$forbidden" = "--" ] && continue
+            case "$trace" in
+              *"$forbidden"*) echo "::error::no-checkout run used $forbidden"; exit 1 ;;
+            esac
+          done
+
   # Front-end render tests: vitest + happy-dom against the same untranspiled
   # ESM the browser loads. Node is pinned via .nvmrc because vitest 5's
   # engine range does not include every version a runner might ship.

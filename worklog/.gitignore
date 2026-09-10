@@ -7,3 +7,7 @@
 *.swp
 *~
 .DS_Store
+
+# Copied in from the repo root by goreleaser's before hook, because goreleaser
+# cannot glob outside its workdir. Build artifact, never a source.
+/install.sh

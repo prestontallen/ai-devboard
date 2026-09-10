@@ -4,6 +4,12 @@ project_name: worklog
 before:
   hooks:
     - go mod tidy
+    # install.sh lives at the repo root, one level above goreleaser's workdir.
+    # It is copied in rather than globbed with ../install.sh because goreleaser
+    # refuses to glob outside its workdir: that pattern fails outright with
+    # "stat static prefix .//<abs path>: invalid argument". The copy is
+    # gitignored.
+    - cp ../install.sh ./install.sh
 
 builds:
   - id: worklog
@@ -30,6 +36,10 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
+  # The bootstrap is verified like everything else it fetches. The first
+  # curl of it is still trust-on-first-use, but a second run can check it.
+  extra_files:
+    - glob: ./install.sh
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
@@ -47,3 +57,8 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Published so the documented one-liner and the binary it installs always
+  # come from the same tag:
+  #   curl -fsSL .../releases/latest/download/install.sh | bash
+  extra_files:
+    - glob: ./install.sh
