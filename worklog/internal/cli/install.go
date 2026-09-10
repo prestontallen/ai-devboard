@@ -15,6 +15,7 @@ import (
 	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
 	"github.com/prestontallen/ai-devboard/worklog/internal/style"
 	"github.com/prestontallen/ai-devboard/worklog/internal/version"
+	"github.com/prestontallen/ai-devboard/worklog/skills"
 )
 
 func newInstallCmd() *cobra.Command {
@@ -164,20 +165,44 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 		return errWithExit(1, "read config %s: %v", confPath, err)
 	}
 
-	// Resolve the repo root: flag > config > cwd checkout.
+	// Resolve the deploy source: flag > config > cwd checkout > embedded.
+	//
+	// A checkout still wins, because a developer editing skills expects to
+	// deploy what they just edited. Embedded is the fallback rather than an
+	// error, which is what lets a machine with no clone install at all.
+	//
+	// A checkout that was NAMED and does not verify is the interesting case.
+	// Falling back silently there would deploy the binary's own skills while
+	// the human believes they are testing their branch's edits — the stale
+	// worktree failure. So a named source that fails is always reported, and
+	// only then falls back.
 	repoRoot := strings.TrimSpace(repoFlag)
+	named := repoRoot != ""
 	if repoRoot == "" {
 		repoRoot = cfg.RepoRoot
+		named = repoRoot != ""
 	}
 	if repoRoot == "" {
 		if root, err := resolveRepoRoot(); err == nil {
 			repoRoot = filepath.Dir(root) // resolveRepoRoot returns worklog/; repo is its parent
 		}
 	}
-	if repoRoot == "" {
-		return errWithExit(1, "no repo recorded and none found; re-run install.sh from an ai-devboard checkout (or pass --repo)")
+
+	src := installer.Embedded(skills.FS)
+	if repoRoot != "" {
+		candidate := installer.Checkout(repoRoot)
+		if err := installer.VerifySource(candidate); err != nil {
+			if named {
+				fmt.Fprintln(errw, style.Warn.Render("WARN: "+err.Error()))
+				fmt.Fprintln(errw, style.Warn.Render(
+					"      falling back to "+src.Label+"; skill edits in that checkout will NOT be deployed"))
+			}
+			repoRoot = ""
+		} else {
+			src = candidate
+		}
 	}
-	if err := installer.VerifyRepo(repoRoot); err != nil {
+	if err := installer.VerifySource(src); err != nil {
 		return errWithExit(1, "%v", err)
 	}
 
@@ -197,8 +222,12 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 	// binary someone downloaded should not be silently rebuilt out from
 	// under them just because a checkout happens to sit nearby.
 	// WORKLOG_INSTALL_REEXEC breaks rebuild loops on racing dirty trees.
+	// Gated on a real checkout, not just on RepoRev succeeding: `git -C ""`
+	// runs against the caller's cwd, so without this an embedded install
+	// standing inside some unrelated repository would compare this binary's
+	// stamp to that repository's HEAD and rebuild against it.
 	fromRelease := version.Parse(BuildVersion()).IsRelease()
-	if rev, err := installer.RepoRev(repoRoot); err == nil && !fromRelease && rev != BuildCommit() {
+	if rev, err := installer.RepoRev(repoRoot); repoRoot != "" && err == nil && !fromRelease && rev != BuildCommit() {
 		switch mode {
 		case installer.ModeCheck:
 			fmt.Fprintln(out, style.Bad.Render(fmt.Sprintf(
@@ -262,13 +291,17 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 		if consentPath != "" {
 			_ = installer.SaveConsent(consentPath, consent)
 		}
-		installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+		installExtras(cmd, home, repoRoot, src, mode, &rep, with, without)
 		return finishInstall(cmd, mode, rep)
 	}
 
 	// Resolve targets: config > interactive prompt > detection.
 	targets := cfg.Targets
 	prompted := false
+	// detected distinguishes "we looked and this machine has no agent dir"
+	// from "a selection came back empty", which are different answers to the
+	// zero-target question below.
+	detected := false
 	switch {
 	case hadConfig && len(targets) > 0:
 		fmt.Fprintln(out, style.Dim.Render("targets: from config ("+strings.Join(targets, ", ")+")"))
@@ -302,7 +335,7 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 				_ = installer.SaveConsent(consentPath, consent)
 			}
 			fmt.Fprintln(out, "skills: declined — not deployed")
-			installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+			installExtras(cmd, home, repoRoot, src, mode, &rep, with, without)
 			return finishInstall(cmd, mode, rep)
 		case "yes":
 			// fall through to choosing where
@@ -320,12 +353,27 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 		prompted = true
 	default:
 		targets = installer.DetectTargets(home)
+		detected = true
 		fmt.Fprintln(out, style.Dim.Render("targets: detected agent dirs (no config yet; run interactively to choose)"))
 	}
-	// Zero targets is an ERROR on every path that did not just record a
-	// decline: huh's accessible mode (TERM=dumb) returns empty selections on
-	// EOF without erroring, so silence here would look like consent.
+	// Zero targets from a SELECTION is an error: huh's accessible mode
+	// (TERM=dumb) returns empty selections on EOF without erroring, so
+	// silence there would look like consent.
+	//
+	// Zero targets from DETECTION is different, and used to share the same
+	// exit 1. A bare machine has no agent dir to find, so a curl-pipe install
+	// wrote the binary successfully and then reported failure — the headline
+	// case for this whole path. Nothing is wrong there: the binary is
+	// installed and usable, and skills land on the next run once an agent
+	// dir exists.
 	if len(targets) == 0 {
+		if detected {
+			fmt.Fprintln(errw, style.Warn.Render(
+				"WARN: no agent dir found (~/.claude, ~/.cursor, ~/.windsurf, ~/.codex); skills were not deployed"))
+			fmt.Fprintln(errw, style.Warn.Render(
+				"      the binary is installed; re-run this once an agent is set up"))
+			return nil
+		}
 		return errWithExit(1, "no install targets selected or detected; nothing would be deployed")
 	}
 	for _, t := range targets {
@@ -351,9 +399,19 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 
 	// Persist config: only from an interactive selection, or to add the
 	// repo line to an existing config. Never in check/dry-run.
+	//
+	// The recorded repo line is PRESERVED when this run had no checkout.
+	// Writing repoRoot straight through would erase it — SaveConfig omits
+	// the line entirely when the value is empty — so a single embedded
+	// install on a dev machine would silently forget where the checkout is,
+	// and with it the only proof that a personal tone symlink is ours.
+	saveRepo := repoRoot
+	if saveRepo == "" {
+		saveRepo = cfg.RepoRoot
+	}
 	if mode == installer.ModeInstall {
-		if prompted || (hadConfig && cfg.RepoRoot != repoRoot) {
-			if err := installer.SaveConfig(confPath, installer.Config{RepoRoot: repoRoot, Targets: targets}); err != nil {
+		if prompted || (hadConfig && cfg.RepoRoot != saveRepo) {
+			if err := installer.SaveConfig(confPath, installer.Config{RepoRoot: saveRepo, Targets: targets}); err != nil {
 				fmt.Fprintln(errw, style.Warn.Render("WARN: could not save config: "+err.Error()))
 			} else if prompted {
 				fmt.Fprintln(out, style.Dim.Render("targets saved: "+confPath))
@@ -361,7 +419,7 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 		}
 	}
 
-	deployed, err := installer.Run(repoRoot, targets, home, mode)
+	deployed, err := installer.Run(src, targets, home, mode)
 	if err != nil {
 		return errWithExit(1, "%v", err)
 	}
@@ -379,7 +437,7 @@ func runInstall(cmd *cobra.Command, repoFlag string, mode installer.Mode, with, 
 		}
 	}
 
-	installExtras(cmd, home, repoRoot, mode, &rep, with, without)
+	installExtras(cmd, home, repoRoot, src, mode, &rep, with, without)
 	return finishInstall(cmd, mode, rep)
 }
 
@@ -437,7 +495,7 @@ func promptForTargets(home string) ([]string, error) {
 }
 
 // installExtras: PATH warning, tone check, devboard dir, opt-in prompts.
-func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report, with, without map[string]bool) {
+func installExtras(cmd *cobra.Command, home, repoRoot string, src installer.Source, mode installer.Mode, rep *installer.Report, with, without map[string]bool) {
 	cfg, _, _ := installer.LoadConfig(installer.ConfPath())
 	out := cmd.OutOrStdout()
 	errw := cmd.ErrOrStderr()
@@ -485,7 +543,7 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 	}
 
 	reportHookState(cmd, home, mode, rep, with[installer.ExtraSessionHook])
-	reportDirectiveState(cmd, home, repoRoot, mode, rep)
+	reportDirectiveState(cmd, home, src, mode, rep)
 
 	// Opt-in extras: interactive install mode only.
 	// Load what the human already said. A missing record is a machine that
@@ -513,7 +571,7 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 	// prompt returning its default.
 	if mode == installer.ModeInstall {
 		if with[installer.ExtraClaudeMD] && !consent.Accepted(installer.ExtraClaudeMD) {
-			if err := writeDirective(claudeMDPath(home), repoRoot); err != nil {
+			if err := writeDirective(claudeMDPath(home), src); err != nil {
 				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
 			} else {
 				fmt.Fprintln(out, "CLAUDE.md directive: written")
@@ -579,7 +637,7 @@ func installExtras(cmd *cobra.Command, home, repoRoot string, mode installer.Mod
 		if huh.NewForm(huh.NewGroup(huh.NewConfirm().
 			Title("Append the dev-context directive to ~/.claude/CLAUDE.md?").
 			Value(&yes))).Run() == nil && yes {
-			if err := writeDirective(claudeMDPath(home), repoRoot); err != nil {
+			if err := writeDirective(claudeMDPath(home), src); err != nil {
 				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
 			} else {
 				fmt.Fprintln(out, "CLAUDE.md directive: written")
@@ -715,11 +773,15 @@ func installDevboardUnit() error {
 // It follows reportHookState's shape deliberately: absence is a note (the
 // directive is opt-in and declining it is a supported end state), while a
 // block that IS ours and no longer matches the repo is drift.
-func reportDirectiveState(cmd *cobra.Command, home, repoRoot string, mode installer.Mode, rep *installer.Report) {
+func reportDirectiveState(cmd *cobra.Command, home string, source installer.Source, mode installer.Mode, rep *installer.Report) {
 	out, errw := cmd.OutOrStdout(), cmd.ErrOrStderr()
 	path := claudeMDPath(home)
 
-	src, err := os.ReadFile(filepath.Join(repoRoot, "CLAUDE.md"))
+	// From the deploy source, so this compares against what would actually
+	// be written. Reading <repoRoot>/CLAUDE.md meant an embedded install had
+	// nothing to compare and returned here silently, reporting no state at
+	// all for an extra the user may well have opted into.
+	src, err := installer.Directive(source)
 	if err != nil {
 		return // no directive to compare against
 	}
@@ -748,7 +810,7 @@ func reportDirectiveState(cmd *cobra.Command, home, repoRoot string, mode instal
 			fmt.Fprintln(errw, style.Warn.Render(
 				"WARN: replacing the managed block in "+path+" — it differed from the repo copy. "+
 					"A backup is at "+path+".bak"))
-			if err := writeDirective(path, repoRoot); err != nil {
+			if err := writeDirective(path, source); err != nil {
 				fmt.Fprintln(errw, "CLAUDE.md directive:", err)
 			} else {
 				fmt.Fprintln(out, "CLAUDE.md directive: refreshed")
@@ -905,8 +967,12 @@ func flagsFor(extras []string) string {
 //
 // It backs up and replaces atomically rather than appending in place, which
 // is what the hook writer already does and what the old append did not.
-func writeDirective(path, repoRoot string) error {
-	src, err := os.ReadFile(filepath.Join(repoRoot, "CLAUDE.md"))
+func writeDirective(path string, source installer.Source) error {
+	// Read from the deploy source, not from <repoRoot>/CLAUDE.md. That read
+	// was the fifth checkout dependency and the quietest: on a machine with
+	// no clone it failed, the caller swallowed the error, and --with-claude-md
+	// did nothing while reporting nothing.
+	src, err := installer.Directive(source)
 	if err != nil {
 		return err
 	}
@@ -949,6 +1015,21 @@ func offerSessionStartHook(cmd *cobra.Command, home string) {
 // rebuildSelf builds the worklog binary at rev into selfPath, stamped with
 // the same ldflags shape the bootstrap uses.
 func rebuildSelf(repoRoot, rev, selfPath string) error {
+	if repoRoot == "" {
+		// Unreachable from the one caller, which gates on a real checkout.
+		// Guarded anyway: build.Dir would otherwise be "worklog" relative to
+		// the user's cwd, which either fails oddly or builds the wrong tree.
+		return fmt.Errorf("no checkout to rebuild from")
+	}
+	// The devboard unit executes selfPath, so writing over it while the unit
+	// runs fails with ETXTBSY, and the failure is quiet in the worst way: the
+	// old binary keeps serving and the next write goes wherever it thinks the
+	// store lives. install.sh has stopped the unit around its build since
+	// 2026-09-08; this path never did, and the skills move makes it fire far
+	// more often, because a skill edit now dirties the rev.
+	restart := stopDevboardForWrite(selfPath)
+	defer restart()
+
 	date := time.Now().UTC().Format("2006-01-02")
 	build := exec.Command("go", "build",
 		"-ldflags", fmt.Sprintf("-X main.version=%s -X main.commit=%s -X main.date=%s",
@@ -960,4 +1041,19 @@ func rebuildSelf(repoRoot, rev, selfPath string) error {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(outB)))
 	}
 	return nil
+}
+
+// stopDevboardForWrite stops devboard.service when it is running, and returns
+// the function that starts it again. When it was not running the returned
+// function does nothing, so callers can defer unconditionally.
+func stopDevboardForWrite(binPath string) func() {
+	if !devboardRunning() {
+		return func() {}
+	}
+	if _, err := runCommand("systemctl", "--user", "stop", "devboard.service"); err != nil {
+		// Report nothing here: the build below will fail on ETXTBSY and say
+		// so with the real error. Starting it again is still correct.
+		return func() { _, _ = runCommand("systemctl", "--user", "start", "devboard.service") }
+	}
+	return func() { _, _ = runCommand("systemctl", "--user", "start", "devboard.service") }
 }

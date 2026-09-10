@@ -76,14 +76,14 @@ func TestValidateTargetRejectsRelativeAndRoot(t *testing.T) {
 func TestVerifyRepoRefusesMissingSource(t *testing.T) {
 	repo := fakeRepo(t)
 	os.Rename(skillSrc(repo, "fan-out"), skillSrc(repo, "fan-out-moved"))
-	err := VerifyRepo(repo)
+	err := VerifySource(Checkout(repo))
 	if err == nil || !strings.Contains(err.Error(), "fan-out") {
 		t.Fatalf("expected missing-source refusal, got %v", err)
 	}
 	// and Run must not have deleted anything at a target
 	target := t.TempDir()
 	writeFile(t, filepath.Join(target, "fan-out", "SKILL.md"), "deployed\n")
-	if _, err := Run(repo, []string{target}, t.TempDir(), ModeInstall); err == nil {
+	if _, err := Run(Checkout(repo), []string{target}, t.TempDir(), ModeInstall); err == nil {
 		t.Fatal("Run accepted a repo with missing sources")
 	}
 	if _, err := os.Stat(filepath.Join(target, "fan-out", "SKILL.md")); err != nil {
@@ -98,12 +98,12 @@ func TestVerifyRepoRefusesMissingWorklogReferences(t *testing.T) {
 	if err := os.RemoveAll(skillSrc(repo, "worklog", "references")); err != nil {
 		t.Fatal(err)
 	}
-	err := VerifyRepo(repo)
+	err := VerifySource(Checkout(repo))
 	if err == nil || !strings.Contains(err.Error(), "references") {
 		t.Fatalf("expected a references refusal, got %v", err)
 	}
 	target := t.TempDir()
-	if _, err := Run(repo, []string{target}, t.TempDir(), ModeInstall); err == nil {
+	if _, err := Run(Checkout(repo), []string{target}, t.TempDir(), ModeInstall); err == nil {
 		t.Fatal("Run accepted a repo with no worklog references")
 	}
 	if _, err := os.Stat(filepath.Join(target, "worklog")); !os.IsNotExist(err) {
@@ -116,11 +116,11 @@ func TestVerifyRepoRefusesMissingWorklogReferences(t *testing.T) {
 func TestCheckFlagsExtraWorklogReference(t *testing.T) {
 	repo, home := fakeRepo(t), t.TempDir()
 	claude := filepath.Join(home, ".claude", "skills")
-	if _, err := Run(repo, []string{claude}, home, ModeInstall); err != nil {
+	if _, err := Run(Checkout(repo), []string{claude}, home, ModeInstall); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(claude, "worklog", "references", "stray.md"), "orphan\n")
-	rep, _ := Run(repo, []string{claude}, home, ModeCheck)
+	rep, _ := Run(Checkout(repo), []string{claude}, home, ModeCheck)
 	if !rep.Drift {
 		t.Fatal("check missed an extra file under worklog/references")
 	}
@@ -131,7 +131,7 @@ func TestRunDeploysAndIsIdempotent(t *testing.T) {
 	claude := filepath.Join(home, ".claude", "skills")
 	other := filepath.Join(t.TempDir(), "agentx", "skills")
 
-	rep, err := Run(repo, []string{claude, other}, home, ModeInstall)
+	rep, err := Run(Checkout(repo), []string{claude, other}, home, ModeInstall)
 	if err != nil || rep.Drift {
 		t.Fatal(err, rep)
 	}
@@ -147,7 +147,7 @@ func TestRunDeploysAndIsIdempotent(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(filepath.Dir(other), "..", ".claude")); err == nil {
 		t.Fatal("command file leaked to non-claude target")
 	}
-	rep2, _ := Run(repo, []string{claude, other}, home, ModeInstall)
+	rep2, _ := Run(Checkout(repo), []string{claude, other}, home, ModeInstall)
 	for _, a := range rep2.Actions {
 		if a.Kind == "note" && !strings.Contains(a.Text, "up to date") {
 			t.Fatalf("second run not idempotent: %+v", a)
@@ -155,7 +155,7 @@ func TestRunDeploysAndIsIdempotent(t *testing.T) {
 	}
 	// check mode after a drift
 	writeFile(t, filepath.Join(claude, "contract", "SKILL.md"), "tampered\n")
-	rep3, _ := Run(repo, []string{claude, other}, home, ModeCheck)
+	rep3, _ := Run(Checkout(repo), []string{claude, other}, home, ModeCheck)
 	if !rep3.Drift {
 		t.Fatal("check missed tampered file")
 	}
@@ -167,7 +167,7 @@ func TestRunMigratesLegacySymlink(t *testing.T) {
 	os.MkdirAll(claude, 0o755)
 	os.Symlink(filepath.Join(repo, "dev-context"), filepath.Join(claude, "dev-context"))
 
-	rep, _ := Run(repo, []string{claude}, home, ModeCheck)
+	rep, _ := Run(Checkout(repo), []string{claude}, home, ModeCheck)
 	found := false
 	for _, a := range rep.Actions {
 		if strings.Contains(a.Text, "legacy symlink") {
@@ -177,7 +177,7 @@ func TestRunMigratesLegacySymlink(t *testing.T) {
 	if !found || !rep.Drift {
 		t.Fatalf("check did not flag symlink: %+v", rep.Actions)
 	}
-	Run(repo, []string{claude}, home, ModeInstall)
+	Run(Checkout(repo), []string{claude}, home, ModeInstall)
 	fi, err := os.Lstat(filepath.Join(claude, "dev-context"))
 	if err != nil || fi.Mode()&os.ModeSymlink != 0 {
 		t.Fatal("symlink not migrated to copy")
@@ -187,7 +187,7 @@ func TestRunMigratesLegacySymlink(t *testing.T) {
 func TestDryRunTouchesNothing(t *testing.T) {
 	repo, home := fakeRepo(t), t.TempDir()
 	claude := filepath.Join(home, ".claude", "skills")
-	rep, err := Run(repo, []string{claude}, home, ModeDryRun)
+	rep, err := Run(Checkout(repo), []string{claude}, home, ModeDryRun)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestRunDeploysToEveryTarget(t *testing.T) {
 	repo, home := fakeRepo(t), t.TempDir()
 	claude := filepath.Join(home, ".claude", "skills")
 	cursor := filepath.Join(home, ".cursor", "skills")
-	if _, err := Run(repo, []string{claude, cursor}, home, ModeInstall); err != nil {
+	if _, err := Run(Checkout(repo), []string{claude, cursor}, home, ModeInstall); err != nil {
 		t.Fatal(err)
 	}
 	for _, target := range []string{claude, cursor} {

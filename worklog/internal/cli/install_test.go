@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
+	"github.com/prestontallen/ai-devboard/worklog/skills"
 )
 
 // runInstallCmd executes `worklog install <args...>` with captured streams.
@@ -43,6 +45,13 @@ func installSandbox(t *testing.T) (home, repo string) {
 	os.WriteFile(src("worklog", "SKILL.md"), []byte("# w\n"), 0o644)
 	os.WriteFile(src("worklog", "references", "cli.md"), []byte("# r\n"), 0o644)
 	os.WriteFile(src("worklog", "claude", "command.md"), []byte("# c\n"), 0o644)
+	// Run from a scratch cwd. install resolves a repo from the working
+	// directory when nothing else names one, and the package's own dir is
+	// inside the real checkout — so a test that passed no --repo resolved
+	// the developer's repo, decided the binary was stale, and rebuilt and
+	// syscall.Exec'd OVER THE TEST BINARY. That surfaces as the root TUI
+	// running instead of the test, which is as confusing as it sounds.
+	t.Chdir(home)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("DEVBOARD_DATA", filepath.Join(home, ".local", "share", "devboard"))
@@ -90,11 +99,19 @@ func TestInstallNonTTYNeverPrompts(t *testing.T) {
 	}
 }
 
-func TestInstallZeroTargetsIsError(t *testing.T) {
+// A bare machine — no agent dir anywhere — is a WARNING, not a failure. It
+// used to share the zero-target error with an empty selection, so a curl-pipe
+// install wrote the binary successfully and then reported exit 1, which is the
+// headline case this whole path exists for. The empty-SELECTION error is a
+// different question and is still an error; see the dumb-term test below.
+func TestInstallNoAgentDirWarnsAndSucceeds(t *testing.T) {
 	_, repo := installSandbox(t) // home has NO agent dirs → detection empty
-	_, _, err := runInstallCmd(t, "", "--repo", repo)
-	if err == nil || !strings.Contains(err.Error(), "no install targets") {
-		t.Fatalf("expected zero-target error, got %v", err)
+	_, errOut, err := runInstallCmd(t, "", "--repo", repo)
+	if err != nil {
+		t.Fatalf("a machine with no agent dir must not fail the install: %v", err)
+	}
+	if !strings.Contains(errOut, "no agent dir found") {
+		t.Errorf("expected a warning naming the missing agent dirs, got %q", errOut)
 	}
 }
 
@@ -147,15 +164,56 @@ func TestInstallDumbTermEOFPromptYieldsZeroTargetError(t *testing.T) {
 	}
 }
 
-func TestInstallRepoGoneIsDistinctError(t *testing.T) {
+// A recorded checkout that no longer verifies falls back to the embedded
+// skills, but never silently. Silence here is the stale-worktree trap: the
+// human believes they are deploying their branch's skill edits and gets the
+// binary's own copy instead. The warning has to name the source AND say the
+// edits will not ship.
+func TestInstallRepoGoneWarnsThenFallsBack(t *testing.T) {
 	home, _ := installSandbox(t)
 	confDir := filepath.Join(home, ".config", "ai-devboard")
 	os.MkdirAll(confDir, 0o755)
+	target := filepath.Join(home, "x", "skills")
 	os.WriteFile(filepath.Join(confDir, "targets"),
+		[]byte("repo /nonexistent/checkout\n"+target+"\n"), 0o644)
+
+	_, errOut, err := runInstallCmd(t, "")
+	if err != nil {
+		t.Fatalf("a missing checkout must fall back to embedded, not fail: %v", err)
+	}
+	if !strings.Contains(errOut, "/nonexistent/checkout") {
+		t.Errorf("the warning must name the checkout that failed, got %q", errOut)
+	}
+	if !strings.Contains(errOut, "will NOT be deployed") {
+		t.Errorf("the warning must say the checkout's edits are not being used, got %q", errOut)
+	}
+	// And it must actually have deployed the embedded copy.
+	if _, err := os.Stat(filepath.Join(target, "dev-context", "SKILL.md")); err != nil {
+		t.Errorf("embedded fallback did not deploy: %v", err)
+	}
+}
+
+// The recorded repo line SURVIVES a run that fell back to embedded. Writing
+// the resolved (empty) root straight through would drop the line entirely,
+// so one embedded install on a dev machine would forget where the checkout
+// is — and with it the only proof that a personal tone symlink is ours.
+func TestEmbeddedFallbackKeepsTheRecordedRepoLine(t *testing.T) {
+	home, _ := installSandbox(t)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	conf := filepath.Join(confDir, "targets")
+	os.WriteFile(conf,
 		[]byte("repo /nonexistent/checkout\n"+filepath.Join(home, "x", "skills")+"\n"), 0o644)
-	_, _, err := runInstallCmd(t, "", "--check")
-	if err == nil || !strings.Contains(err.Error(), "repo not found at /nonexistent/checkout") {
-		t.Fatalf("expected repo-not-found error, got %v", err)
+
+	if _, _, err := runInstallCmd(t, ""); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	after, err := os.ReadFile(conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "repo /nonexistent/checkout") {
+		t.Errorf("the recorded repo line was erased by an embedded fallback:\n%s", after)
 	}
 }
 
@@ -436,5 +494,208 @@ func TestDanglingOptionalSkillIsDrift(t *testing.T) {
 	out, _, _ := runInstallCmd(t, "", "--repo", repo, "--check")
 	if !strings.Contains(out, "drift") || !strings.Contains(out, "concise-tone") {
 		t.Errorf("a dangling optional skill was not reported as drift:\n%s", out)
+	}
+}
+
+// The CLAUDE.md directive used to be read from <repoRoot>/CLAUDE.md, which is
+// the checkout dependency nobody had listed: on a machine with no clone the
+// read failed, the caller swallowed the error and returned, and
+// --with-claude-md did nothing while reporting nothing. Worse, consent is only
+// recorded when the write succeeds, so the user was re-asked every run.
+func TestClaudeMDWritesWithNoCheckout(t *testing.T) {
+	home, _ := installSandbox(t)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	target := filepath.Join(home, ".claude", "skills")
+	os.MkdirAll(target, 0o755)
+	// No repo line at all: the embedded source is the only one available.
+	os.WriteFile(filepath.Join(confDir, "targets"), []byte(target+"\n"), 0o644)
+
+	if _, _, err := runInstallCmd(t, "", "--with-claude-md"); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(home, ".claude", "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("the directive was not written with no checkout present: %v", err)
+	}
+	if !strings.Contains(string(body), "dev-context") {
+		t.Errorf("the written directive does not carry the workflow text:\n%s", body)
+	}
+	// Consent must be recorded, or the user is asked again every single run.
+	consent, err := os.ReadFile(filepath.Join(confDir, "consent"))
+	if err != nil {
+		t.Fatalf("consent file missing: %v", err)
+	}
+	if !strings.Contains(string(consent), "claude-md") {
+		t.Errorf("claude-md consent was not recorded:\n%s", consent)
+	}
+}
+
+// Both sources must produce byte-identical deployed trees. embed.FS reports
+// every file as 0444 and a checkout reports 0644, so a copy path that
+// inherited source modes would leave a read-only skill tree from one source
+// and not the other.
+func TestEmbeddedAndCheckoutDeployIdentically(t *testing.T) {
+	fromCheckout := deployOnce(t, true)
+	fromEmbedded := deployOnce(t, false)
+
+	if len(fromEmbedded) == 0 {
+		t.Fatal("embedded deploy produced no files")
+	}
+	if len(fromCheckout) != len(fromEmbedded) {
+		t.Fatalf("file counts differ: checkout %d, embedded %d", len(fromCheckout), len(fromEmbedded))
+	}
+	for rel, ck := range fromCheckout {
+		em, ok := fromEmbedded[rel]
+		if !ok {
+			t.Errorf("%s deployed from the checkout but not from the embedded source", rel)
+			continue
+		}
+		if ck.mode != em.mode {
+			t.Errorf("%s mode differs: checkout %v, embedded %v", rel, ck.mode, em.mode)
+		}
+	}
+}
+
+type deployedFile struct {
+	mode os.FileMode
+	size int64
+}
+
+// deployOnce installs into a fresh home and returns the deployed tree.
+// useCheckout picks a checkout as the source; otherwise the embedded copy.
+//
+// The checkout is materialized FROM the embedded tree, so both runs carry
+// identical bytes and any difference in the result is the deploy path's doing
+// rather than the fixture's. Comparing the embedded tree against the sandbox's
+// minimal fake repo would just compare two different corpora.
+func deployOnce(t *testing.T, useCheckout bool) map[string]deployedFile {
+	t.Helper()
+	home, repo := installSandbox(t)
+	if useCheckout {
+		materializeSkills(t, filepath.Join(repo, "worklog", "skills"))
+	}
+	target := filepath.Join(home, ".claude", "skills")
+	os.MkdirAll(target, 0o755)
+	confDir := filepath.Join(home, ".config", "ai-devboard")
+	os.MkdirAll(confDir, 0o755)
+	os.WriteFile(filepath.Join(confDir, "targets"), []byte(target+"\n"), 0o644)
+
+	args := []string{}
+	if useCheckout {
+		args = append(args, "--repo", repo)
+	}
+	if _, _, err := runInstallCmd(t, "", args...); err != nil {
+		t.Fatalf("install (checkout=%v): %v", useCheckout, err)
+	}
+
+	out := map[string]deployedFile{}
+	filepath.WalkDir(target, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(target, p)
+		out[rel] = deployedFile{mode: fi.Mode().Perm(), size: fi.Size()}
+		return nil
+	})
+	return out
+}
+
+// materializeSkills writes the embedded tree out to dir, so a checkout source
+// can be built from exactly the bytes the embedded source carries.
+func materializeSkills(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	err := fs.WalkDir(skills.FS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dir, filepath.FromSlash(p))
+		if d.IsDir() {
+			return os.MkdirAll(out, 0o755)
+		}
+		b, err := fs.ReadFile(skills.FS, p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(out, b, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("materializing the embedded skills: %v", err)
+	}
+}
+
+// The self-rebuild writes over the binary the devboard unit executes. Doing
+// that while the unit runs fails with ETXTBSY, and the failure is quiet in the
+// worst way: the build stops, the OLD binary keeps serving, and the next write
+// goes wherever that old binary thinks the store lives. install.sh has stopped
+// the unit around its build since 2026-09-08; this path never did.
+//
+// It matters more now than it did then. Skills moved under worklog/, so a
+// skill edit dirties the rev, so this path fires on prose edits rather than
+// only on Go changes.
+func TestSelfRebuildStopsTheDevboardUnit(t *testing.T) {
+	var calls []string
+	orig := runCommand
+	t.Cleanup(func() { runCommand = orig })
+	runCommand = func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if len(args) > 1 && args[1] == "is-active" {
+			return []byte("active\n"), nil
+		}
+		return nil, nil
+	}
+
+	restart := stopDevboardForWrite("/some/bin/worklog")
+	restart()
+
+	joined := strings.Join(calls, " | ")
+	if !strings.Contains(joined, "stop devboard.service") {
+		t.Errorf("a running devboard unit was not stopped before the write: %s", joined)
+	}
+	if !strings.Contains(joined, "start devboard.service") {
+		t.Errorf("the devboard unit was not restarted after the write: %s", joined)
+	}
+	if strings.Index(joined, "stop devboard.service") > strings.Index(joined, "start devboard.service") {
+		t.Errorf("stop must precede start: %s", joined)
+	}
+}
+
+// When the unit is not running there is nothing to stop, and the returned
+// restart must be a no-op rather than starting a service the user had off.
+func TestSelfRebuildLeavesAStoppedUnitStopped(t *testing.T) {
+	var calls []string
+	orig := runCommand
+	t.Cleanup(func() { runCommand = orig })
+	runCommand = func(name string, args ...string) ([]byte, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return []byte("inactive\n"), nil
+	}
+
+	restart := stopDevboardForWrite("/some/bin/worklog")
+	restart()
+
+	for _, c := range calls {
+		if strings.Contains(c, "start devboard.service") {
+			t.Errorf("started a unit that was not running: %v", calls)
+		}
+		if strings.Contains(c, "stop devboard.service") {
+			t.Errorf("stopped a unit that was not running: %v", calls)
+		}
+	}
+}
+
+// rebuildSelf must be unreachable without a checkout: build.Dir would
+// otherwise be "worklog" relative to the user's cwd.
+func TestSelfRebuildRefusesWithoutACheckout(t *testing.T) {
+	if err := rebuildSelf("", "abc1234", "/some/bin/worklog"); err == nil {
+		t.Fatal("rebuildSelf ran with no checkout")
 	}
 }
