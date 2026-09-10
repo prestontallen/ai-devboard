@@ -51,9 +51,16 @@ func (r *Report) stale(f string, a ...any) {
 var skillDirs = []string{"dev-context", "contract", "fan-out"}
 
 const (
-	worklogSkillRel   = "worklog/skill/SKILL.md"
-	worklogRefsRel    = "worklog/skill/references"
-	claudeCommandRel  = "worklog/skill/claude/command.md"
+	// skillsRel is where skill sources live inside a checkout. They moved
+	// here from the repo root so go:embed could reach them: the module is
+	// rooted at worklog/, and embed cannot escape its own module. Deploy
+	// DESTINATIONS are unaffected — a skill still lands at <target>/<name>,
+	// so installed machines and the uninstall inventory see no change.
+	skillsRel = "worklog/skills"
+
+	worklogSkillRel   = skillsRel + "/worklog/SKILL.md"
+	worklogRefsRel    = skillsRel + "/worklog/references"
+	claudeCommandRel  = skillsRel + "/worklog/claude/command.md"
 	claudeCommandsDir = ".claude/commands"
 )
 
@@ -67,8 +74,8 @@ func VerifyRepo(repoRoot string) error {
 	}
 	var missing []string
 	for _, d := range skillDirs {
-		if fi, err := os.Stat(filepath.Join(repoRoot, d, "SKILL.md")); err != nil || !fi.Mode().IsRegular() {
-			missing = append(missing, d+"/SKILL.md")
+		if fi, err := os.Stat(filepath.Join(repoRoot, skillsRel, d, "SKILL.md")); err != nil || !fi.Mode().IsRegular() {
+			missing = append(missing, skillsRel+"/"+d+"/SKILL.md")
 		}
 	}
 	for _, f := range []string{worklogSkillRel, claudeCommandRel} {
@@ -99,7 +106,7 @@ func Run(repoRoot string, targets []string, home string, mode Mode) (Report, err
 	}
 	for _, target := range targets {
 		for _, d := range skillDirs {
-			deployDir(&rep, filepath.Join(repoRoot, d), filepath.Join(target, d),
+			deployDir(&rep, filepath.Join(repoRoot, skillsRel, d), filepath.Join(target, d),
 				fmt.Sprintf("skill %s -> %s", d, target), mode)
 		}
 		deployFile(&rep, filepath.Join(repoRoot, worklogSkillRel),

@@ -29,15 +29,20 @@ func installSandbox(t *testing.T) (home, repo string) {
 	t.Helper()
 	home = t.TempDir()
 	repo = t.TempDir()
-	for _, d := range []string{"dev-context", "contract", "fan-out"} {
-		os.MkdirAll(filepath.Join(repo, d), 0o755)
-		os.WriteFile(filepath.Join(repo, d, "SKILL.md"), []byte("# "+d+"\n"), 0o644)
+	// Sources live under worklog/skills/ to match the real checkout layout;
+	// they moved there so go:embed could reach them from the module root.
+	src := func(parts ...string) string {
+		return filepath.Join(append([]string{repo, "worklog", "skills"}, parts...)...)
 	}
-	os.MkdirAll(filepath.Join(repo, "worklog", "skill", "claude"), 0o755)
-	os.MkdirAll(filepath.Join(repo, "worklog", "skill", "references"), 0o755)
-	os.WriteFile(filepath.Join(repo, "worklog", "skill", "SKILL.md"), []byte("# w\n"), 0o644)
-	os.WriteFile(filepath.Join(repo, "worklog", "skill", "references", "cli.md"), []byte("# r\n"), 0o644)
-	os.WriteFile(filepath.Join(repo, "worklog", "skill", "claude", "command.md"), []byte("# c\n"), 0o644)
+	for _, d := range []string{"dev-context", "contract", "fan-out"} {
+		os.MkdirAll(src(d), 0o755)
+		os.WriteFile(src(d, "SKILL.md"), []byte("# "+d+"\n"), 0o644)
+	}
+	os.MkdirAll(src("worklog", "claude"), 0o755)
+	os.MkdirAll(src("worklog", "references"), 0o755)
+	os.WriteFile(src("worklog", "SKILL.md"), []byte("# w\n"), 0o644)
+	os.WriteFile(src("worklog", "references", "cli.md"), []byte("# r\n"), 0o644)
+	os.WriteFile(src("worklog", "claude", "command.md"), []byte("# c\n"), 0o644)
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("DEVBOARD_DATA", filepath.Join(home, ".local", "share", "devboard"))

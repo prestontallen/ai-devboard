@@ -62,7 +62,7 @@ below; in every case it falls through to the same underlying behavior.
 
 Full per-command detail (JSON shapes, flags, refusal cases, exit codes) is
 not repeated here — run `worklog <cmd> --help`, or see
-`worklog/skill/references/cli.md` in the repo.
+`worklog/skills/worklog/references/cli.md` in the repo.
 
 ## Hard rules (inherited from the skill)
 

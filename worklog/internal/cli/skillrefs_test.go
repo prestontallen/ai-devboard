@@ -1,13 +1,14 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
+	"io/fs"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/prestontallen/ai-devboard/worklog/skills"
 )
 
 // TestSkillsNameOnlyRealCommands walks the process skills that ship with
@@ -21,8 +22,14 @@ import (
 // exist, and nothing anywhere compares skill prose against the CLI surface.
 //
 // It is deliberately a repo test rather than an install-time check: the
-// skills areversioned here, and catching it at `go test` is earlier than
+// skills are versioned here, and catching it at `go test` is earlier than
 // catching it at deploy.
+//
+// It walks the embedded FS rather than relative paths. Four hardcoded
+// "../../../<name>" roots used to name the sources, each skipped when
+// missing, so moving the tree would have left this passing while checking
+// three fewer skills than it claimed. The embedded FS is also the exact
+// payload a clone-free install deploys, which is the thing worth asserting.
 func TestSkillsNameOnlyRealCommands(t *testing.T) {
 	known := registeredCommands()
 
@@ -34,17 +41,13 @@ func TestSkillsNameOnlyRealCommands(t *testing.T) {
 	inline := regexp.MustCompile("`\\s*worklog\\s+([a-z][a-z-]*)(?:\\s+([a-z][a-z-]*))?")
 	block := regexp.MustCompile(`(?m)^\s*worklog\s+([a-z][a-z-]*)(?:\s+([a-z][a-z-]*))?`)
 
-	roots := []string{"../../../dev-context", "../../../contract", "../../../fan-out", "../../skill"}
 	checked := 0
-	for _, root := range roots {
-		if _, err := os.Stat(root); os.IsNotExist(err) {
-			continue
-		}
-		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	{
+		err := fs.WalkDir(skills.FS, ".", func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
 				return err
 			}
-			data, err := os.ReadFile(path)
+			data, err := fs.ReadFile(skills.FS, path)
 			if err != nil {
 				return err
 			}
@@ -72,8 +75,11 @@ func TestSkillsNameOnlyRealCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if checked == 0 {
-		t.Fatal("no skill files were checked; the walk is not finding them")
+	// A floor, not just a non-zero check: every skill plus the directive is
+	// at least six markdown files, so losing one to a bad walk fails here
+	// rather than passing with a quietly smaller corpus.
+	if checked < 6 {
+		t.Fatalf("only %d skill files were checked; the walk is not finding them all", checked)
 	}
 }
 

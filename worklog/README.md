@@ -94,7 +94,7 @@ The agent does almost everything. You mostly just talk to it.
 | *"that ticket's repo is wrong — it's assessments-api"* | `worklog edit <id> --repo assessments-api`, in place, no re-creation |
 
 For explicit, scripted invocations: `/worklog [status|start|done|add|note|search]`
-in Claude Code (see [~/.claude/commands/worklog.md](skill/claude/command.md)).
+in Claude Code (see [~/.claude/commands/worklog.md](skills/worklog/claude/command.md)).
 
 ### Everything goes through the CLI
 
@@ -154,19 +154,19 @@ spot when the agent is acting weird and call it out.
 If you want to change behavior, here's where to look. There's no config file —
 behavior is defined in markdown that the agent reads.
 
-Edit the repo copies under `skill/`, never the deployed ones — a
+Edit the repo copies under `skills/`, never the deployed ones — a
 redeploy overwrites those. `worklog install --check` tells you when the two
 have diverged.
 
 | Want to change... | Edit this file | Look for |
 |---|---|---|
-| The cap of 5 | WORK.md policy block + [skill](skill/SKILL.md) "Hard rules" + [command](skill/claude/command.md) + this README's rules block | the literal number 5 |
+| The cap of 5 | WORK.md policy block + [skill](skills/worklog/SKILL.md) "Hard rules" + [command](skills/worklog/claude/command.md) + this README's rules block | the literal number 5 |
 | Section names (Now/Waiting/Next/Someday) | All of the above (rename consistently) | section headings |
-| Ticket block format / required fields | [skill](skill/SKILL.md) "Ticket block format" | the markdown code fence |
-| Archive entry format | [skill](skill/SKILL.md) "Archive entry format" | the markdown code fence |
-| Auto-trigger aggressiveness | [skill](skill/SKILL.md) frontmatter `description:` (richer triggers = more eager auto-invoke) | YAML frontmatter |
-| Where the data tree lives | Runtime: `--dir <path>` or `$WORKLOG_DIR` (flag wins). Permanently: the path is quoted in `skill/SKILL.md`, `skill/claude/command.md`, and this README — ripgrep for it. | `~/.local/share/worklog` |
-| Add a new persistent section (e.g. `## Blocked`) | WORK.md seed + [skill](skill/SKILL.md) "Required behavior" | section list |
+| Ticket block format / required fields | [skill](skills/worklog/SKILL.md) "Ticket block format" | the markdown code fence |
+| Archive entry format | [skill](skills/worklog/SKILL.md) "Archive entry format" | the markdown code fence |
+| Auto-trigger aggressiveness | [skill](skills/worklog/SKILL.md) frontmatter `description:` (richer triggers = more eager auto-invoke) | YAML frontmatter |
+| Where the data tree lives | Runtime: `--dir <path>` or `$WORKLOG_DIR` (flag wins). Permanently: the path is quoted in `skills/worklog/SKILL.md`, `skills/worklog/claude/command.md`, and this README — ripgrep for it. | `~/.local/share/worklog` |
+| Add a new persistent section (e.g. `## Blocked`) | WORK.md seed + [skill](skills/worklog/SKILL.md) "Required behavior" | section list |
 
 After editing the skill files in the repo, redeploy:
 
@@ -176,7 +176,7 @@ worklog install           # deploy all four skills (dev-context, contract, fan-o
 ../install.sh             # same, but obtains/updates the binary first
 ```
 
-The repo's `skill/` dir is the single source of truth. `worklog install`
+The repo's `skills/worklog/` dir is the single source of truth. `worklog install`
 reads the install config (`~/.config/ai-devboard/targets`) and never writes
 to a target you declined; with no config it detects the agent dirs present
 under `$HOME`. It always deploys every skill, so a target you added by hand
@@ -255,7 +255,7 @@ agent doesn't know how to resolve those; you'd have to merge by hand.
 ## How the agent learns this system
 
 The installer (`install.sh` → `worklog install`) puts a copy of
-[skill/SKILL.md](skill/SKILL.md) in every configured target. Targets are
+[skill/SKILL.md](skills/worklog/SKILL.md) in every configured target. Targets are
 detected on the first interactive run (`~/.claude`, `~/.cursor`,
 `~/.windsurf`, `~/.codex`), confirmed one by one, and remembered in
 `~/.config/ai-devboard/targets` — one path per line, editable by hand, so
@@ -349,8 +349,8 @@ Key decisions and their reasons:
    *prevents* a rule violation at the moment it happens. The hard rules in
    `SKILL.md` are still enforced by convention, and by you noticing when
    they're broken.
-4. **The rules text lives in three copies** — this README, `skill/SKILL.md`,
-   and `skill/claude/command.md` — each written for a different reader, and
+4. **The rules text lives in three copies** — this README, `skills/worklog/SKILL.md`,
+   and `skills/worklog/claude/command.md` — each written for a different reader, and
    nothing checks that they still agree. If they drift far enough to matter,
    collapse them to one source rather than reinstating a comparison.
 5. **No cross-device locking.** If you sync to iCloud and edit on two
@@ -385,7 +385,7 @@ Key decisions and their reasons:
    `Now` and `Next`). Scaffolding a new section is the one structural edit
    the CLI has no verb for.
 2. Update the policy comment at the top of `WORK.md` to describe its purpose.
-3. Update the "Required behavior" section in [SKILL.md](skill/SKILL.md)
+3. Update the "Required behavior" section in [SKILL.md](skills/worklog/SKILL.md)
    so the agent knows when to move things into `## Blocked`, then
    `worklog install` to redeploy.
 
@@ -397,7 +397,7 @@ Key decisions and their reasons:
 
 ### Add a new agent command (e.g., `/worklog estimate <id>`)
 
-1. Add the subcommand to [~/.claude/commands/worklog.md](skill/claude/command.md)
+1. Add the subcommand to [~/.claude/commands/worklog.md](skills/worklog/claude/command.md)
    under "Subcommands".
 2. Document its behavior in 3–5 lines. The agent will follow the description.
 

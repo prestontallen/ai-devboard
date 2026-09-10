@@ -16,17 +16,26 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 // fakeRepo builds a minimal checkout with every deploy source present.
+//
+// Sources sit under worklog/skills/ to match the real layout; they moved
+// there so go:embed could reach them. skillSrc is the join every test uses,
+// so a future move is one edit here rather than a hunt through literals.
 func fakeRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
 	for _, d := range []string{"dev-context", "contract", "fan-out"} {
-		writeFile(t, filepath.Join(repo, d, "SKILL.md"), "# "+d+"\n")
+		writeFile(t, skillSrc(repo, d, "SKILL.md"), "# "+d+"\n")
 	}
-	writeFile(t, filepath.Join(repo, "fan-out", "references", "risk-scout.md"), "ref\n")
-	writeFile(t, filepath.Join(repo, "worklog", "skill", "SKILL.md"), "# worklog\n")
-	writeFile(t, filepath.Join(repo, "worklog", "skill", "references", "cli.md"), "# cli\n")
-	writeFile(t, filepath.Join(repo, "worklog", "skill", "claude", "command.md"), "# cmd\n")
+	writeFile(t, skillSrc(repo, "fan-out", "references", "risk-scout.md"), "ref\n")
+	writeFile(t, skillSrc(repo, "worklog", "SKILL.md"), "# worklog\n")
+	writeFile(t, skillSrc(repo, "worklog", "references", "cli.md"), "# cli\n")
+	writeFile(t, skillSrc(repo, "worklog", "claude", "command.md"), "# cmd\n")
 	return repo
+}
+
+// skillSrc joins a path inside a checkout's skill sources.
+func skillSrc(repo string, parts ...string) string {
+	return filepath.Join(append([]string{repo, "worklog", "skills"}, parts...)...)
 }
 
 func TestLoadConfigBashEraFormat(t *testing.T) {
@@ -66,7 +75,7 @@ func TestValidateTargetRejectsRelativeAndRoot(t *testing.T) {
 
 func TestVerifyRepoRefusesMissingSource(t *testing.T) {
 	repo := fakeRepo(t)
-	os.Rename(filepath.Join(repo, "fan-out"), filepath.Join(repo, "fan-out-moved"))
+	os.Rename(skillSrc(repo, "fan-out"), skillSrc(repo, "fan-out-moved"))
 	err := VerifyRepo(repo)
 	if err == nil || !strings.Contains(err.Error(), "fan-out") {
 		t.Fatalf("expected missing-source refusal, got %v", err)
@@ -86,7 +95,7 @@ func TestVerifyRepoRefusesMissingSource(t *testing.T) {
 // half-deploying would leave SKILL.md pointing at files that never arrive.
 func TestVerifyRepoRefusesMissingWorklogReferences(t *testing.T) {
 	repo := fakeRepo(t)
-	if err := os.RemoveAll(filepath.Join(repo, "worklog", "skill", "references")); err != nil {
+	if err := os.RemoveAll(skillSrc(repo, "worklog", "references")); err != nil {
 		t.Fatal(err)
 	}
 	err := VerifyRepo(repo)

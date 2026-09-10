@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/prestontallen/ai-devboard/worklog/internal/installer"
 	"github.com/prestontallen/ai-devboard/worklog/internal/storepath"
+	"github.com/prestontallen/ai-devboard/worklog/skills"
 )
 
 // uninstallSandbox builds a home with every artifact class present, plus
@@ -315,41 +318,40 @@ func TestUninstallFlagsAreExclusive(t *testing.T) {
 // fixture that exercises it are the same assertion written twice, and a skill
 // added to the repo would be missed by uninstall with every test still green.
 func TestInventoryMatchesRepo(t *testing.T) {
-	repo := "../../.."
-	entries, err := os.ReadDir(repo)
+	// Read the shipped set from the embedded FS, not from a relative repo
+	// path. Walking "../../.." for top-level SKILL.md dirs stopped finding
+	// anything once the skills moved under worklog/, and the walk's own
+	// "not a checkout" skip would have turned that into a silent pass —
+	// the exact both-define-and-verify hole this test exists to close.
+	entries, err := fs.ReadDir(skills.FS, ".")
 	if err != nil {
-		t.Skip("repo root unreadable")
+		t.Fatalf("reading the embedded skills FS: %v", err)
 	}
-	onDisk := map[string]bool{}
+	shipped := map[string]bool{}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(repo, e.Name(), "SKILL.md")); err == nil {
-			onDisk[e.Name()] = true
+		if _, err := fs.Stat(skills.FS, path.Join(e.Name(), "SKILL.md")); err == nil {
+			shipped[e.Name()] = true
 		}
 	}
-	if len(onDisk) == 0 {
-		t.Skip("no skill directories found; not a checkout")
+	if len(shipped) == 0 {
+		t.Fatal("no skills are embedded; the inventory cannot be checked against anything")
 	}
 	known := map[string]bool{}
 	for _, n := range installer.HistoricalSkillNames {
 		known[n] = true
 	}
-	for name := range onDisk {
-		// concise-tone is gitignored and personal; it is the optional
-		// category, not a deployed skill.
-		if name == "concise-tone" {
-			continue
-		}
+	for name := range shipped {
 		if !known[name] {
 			t.Errorf("repo deploys skill %q but the uninstall inventory does not know it; "+
 				"a machine would keep it forever", name)
 		}
 	}
-	// The worklog skill lives under worklog/skill, not at the root, so it
-	// cannot come from the walk. Assert it explicitly rather than letting
-	// its absence from onDisk quietly excuse it.
+	// worklog is deployed like the rest now that every skill lives under
+	// worklog/skills/, so the walk covers it. Kept as an explicit assertion
+	// because it is the one whose source dir also holds claude/command.md.
 	if !known["worklog"] {
 		t.Error("inventory omits the worklog skill")
 	}

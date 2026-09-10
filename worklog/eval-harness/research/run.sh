@@ -71,7 +71,13 @@ if [ -f "$HOME/.claude/.credentials.json" ]; then
 fi
 if [ "$INSTALL_SKILLS" = "1" ]; then
   for s in dev-context contract fan-out; do
-    cp -r "$SOURCE_REPO/$s" "$CFG_DIR/skills/$s"
+    # Skills moved under worklog/ so go:embed can reach them. A missing
+    # source has to abort: the arm would otherwise run with no skills and
+    # report a result measuring something else entirely.
+    cp -r "$SOURCE_REPO/worklog/skills/$s" "$CFG_DIR/skills/$s" || {
+      echo "eval-harness: skill source $SOURCE_REPO/worklog/skills/$s is missing" >&2
+      exit 1
+    }
   done
 fi
 

@@ -6,7 +6,7 @@ the SQLite store. Paste the block below into a session on that machine.
 Provenance: written during `adb-migrate-render` and used successfully on
 two machines as of 2026-09-04. Kept here as a starting point, not as a
 specification — `worklog adopt --help` and
-[`skill/references/adoption.md`](../skill/references/adoption.md) are the
+[`skills/worklog/references/adoption.md`](../skills/worklog/references/adoption.md) are the
 authorities, and this prompt should be re-checked against them when the
 command changes.
 
@@ -89,7 +89,7 @@ silently.
 Read `references/adoption.md` in the installed `worklog` skill (usually
 `~/.claude/skills/worklog/references/adoption.md`). If it isn't installed
 because you took the `curl` shortcut, read
-`worklog/skill/references/adoption.md` from the ai-devboard repo instead.
+`worklog/skills/worklog/references/adoption.md` from the ai-devboard repo instead.
 
 It has one table row per refusal class, saying what would have changed
 silently and what the fix is. Work one refusal at a time, re-running

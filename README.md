@@ -4,9 +4,9 @@ Skills for structured software development with Claude Code.
 
 | Component | Purpose |
 |-----------|---------|
-| [dev-context](dev-context/SKILL.md) | **Entry point skill.** The workflow: task intake → clarify → research (optional) → contract → plan → implement → verify → present. Investigation-first work takes the collapsed spike track (intake → research → present → done). Defines task tiers, human checkpoints, and when code is shown. |
-| [contract](contract/SKILL.md) | Skill: generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 4; also usable standalone for scoping. |
-| [fan-out](fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. Instances: the contract-phase risk scout and the research sweep. |
+| [dev-context](worklog/skills/dev-context/SKILL.md) | **Entry point skill.** The workflow: task intake → clarify → research (optional) → contract → plan → implement → verify → present. Investigation-first work takes the collapsed spike track (intake → research → present → done). Defines task tiers, human checkpoints, and when code is shown. |
+| [contract](worklog/skills/contract/SKILL.md) | Skill: generate a work contract from any task — scope, acceptance criteria, definition of done — scaled to the task's tier. Invoked from dev-context phase 4; also usable standalone for scoping. |
+| [fan-out](worklog/skills/fan-out/SKILL.md) | Skill: patterns for spawning parallel subagents — seeding (led/blind), diversity, aggregation, gates — throttled by the task's complexity rating. Instances: the contract-phase risk scout and the research sweep. |
 | *tone hook* | Not a repo component: dev-context's ship phase drafts all outbound text (commits, PR text, replies, messages) using whatever personal `*tone*` skill is installed on the machine, falling back to a lead-with-the-point default. Personal tone skills are gitignored here; install.sh checks for one and reports. |
 | [worklog](worklog/README.md) | System of record: Go CLI + skill for the persistent task journal at `~/.local/share/worklog/` (tickets, epics — archivable via `done` once all children complete — a cap-exempt `## Waiting` section, archives, notes, search, standup, and `edit` for fixing fields in place). Also devboard's privileged writer: `start`/`done`/`pr` mirror automatically, and the `worklog task` family edits in-flight dashboard state. Imported from `day2day` with history; skill files deploy via `install.sh`, or `worklog install` once a binary exists. |
 | [devboard](devboard/README.md) | Live telemetry: dashboard served by `worklog serve` (frontend embedded in the Go binary, vendored Preact/HTM included — npm is dev/test-only and never required to build or run; systemd user unit via `worklog install`) rendering per-task state (plan, scorecard, decisions, code-to-know) plus live worklog notes, all read from the worklog store. Archive and un-archive is the board's one write action. |
@@ -42,7 +42,7 @@ writer, never a required one).
   without an explicit prompt — approval to commit is not approval to push.
 - Tier 2+ contracts are written to
   `~/.local/share/contracts/<repo>/<date>-<slug>.md`, outside the target
-  project ([template](contract/references/contract-template.md)). They sit
+  project ([template](worklog/skills/contract/references/contract-template.md)). They sit
   next to the worklog data rather than inside it, so worklog's
   CLI-only-mutation rule keeps applying to worklog data alone.
 
