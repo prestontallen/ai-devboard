@@ -165,6 +165,22 @@ func runStoreDoneEpic(ss *storeSession, t *store.Ticket, in done.Inputs, complet
 	t.Summary = strings.TrimSpace(in.Summary)
 	t.ArchiveFeedback = trimAll(in.Feedback)
 	t.TimeSpent = strings.TrimSpace(in.Time)
+	// An epic leaves the board here and nowhere else. A finished TICKET
+	// leaves it because closeOut sets phase=done and the frontend reads
+	// that; an epic deliberately has no phase (devboard/schema.md, "Epic
+	// files"), so phase can never remove one and BoardArchived is the only
+	// flag that can. Nothing set it, so every epic ever closed from the CLI
+	// stayed on the in-flight lens permanently — adb-one-store sat there
+	// from 2026-09-09 until this was found.
+	//
+	// The frontend already promised this behavior: counts.js says "an epic
+	// closes when the human archives it (`worklog done`)". This is the line
+	// that makes the comment true.
+	//
+	// Note what is NOT done here: closeOut. Giving an epic phase=done would
+	// make it read as done on the wire, which counts.js explicitly does not
+	// want, and its queues live on its children.
+	t.BoardArchived = true
 
 	if err := ss.commit(t); err != nil {
 		return done.Output{}, err

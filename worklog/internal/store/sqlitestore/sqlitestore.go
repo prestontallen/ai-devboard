@@ -31,9 +31,12 @@ var migration3 string
 //go:embed schema4.sql
 var migration4 string
 
+//go:embed schema5.sql
+var migration5 string
+
 // migrations are applied in order inside one transaction each; index+1 is
 // the resulting PRAGMA user_version.
-var migrations = []string{migration1, migration2, migration3, migration4}
+var migrations = []string{migration1, migration2, migration3, migration4, migration5}
 
 type SQLite struct {
 	db *sql.DB
